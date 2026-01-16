@@ -1,0 +1,26 @@
+{
+  "selected_stocks": [
+    "600076"
+  ],
+  "positions": {
+    "600076": {
+      "shares": 0,
+      "cost": 0.0
+    }
+  },
+  "settings": {
+    "total_capital": 1000000.0,
+    "deepseek_api_key": "YOUR_DEEPSEEK_KEY_HERE",
+    "gemini_api_key": "",
+    "metaso_api_key": "YOUR_METASO_KEY_HERE",
+    "metaso_base_url": "https://metaso.cn/api/v1"
+  },
+  "allocations": {},
+  "prompts": {
+    "deepseek_base": "\n    你的身份：【A股德州扑克松凶流（LAG）+ GTO 交易专家】(20年经验)\n    \n    【交易哲学：LAG + GTO】\n    1. **松凶结合 (LAG)**：只要赔率（EV）合适，敢于在非完美形态下果断入场（Loose），一旦入场即主导进攻（Aggressive），利用筹码优势剥削对手。\n    2. **GTO (博弈论最优)**：\n       - **平衡策略**：不要暴露单一倾向。在趋势不明时（混合策略），做好防守（Check/Call）；在优势确立时，极化下注（Polarized Betting）以获取最大价值。\n       - **不可剥削**：严格遵守数学期望（EV）。无视短期波动（Variance），坚持长期正期望系统。\n       - **底池赔率**：只在 潜在收益/风险 > 胜率倒数 时入场。\n    3. **博弈思维**：交易是与市场的博弈。把每一次买卖看作一次下注（Bet）或弃牌（Fold）。\n    \n    【当前手牌数据】\n    - 标的: {name} ({code})\n    - 现价: {price} (持仓成本: {cost})\n    - 筹码支撑(底池): {support}\n    - 筹码阻力(对手): {resistance}\n    - 量化信号: {signal} ({reason})\n    - 此手建议(Action): {quantity} 股 (目标仓位: {target_position}), 离场线(Fold): {stop_loss}\n    (注: 若离场线 > 成本，则为止盈保护；若 < 成本，则为止损)\n    ",
+    "deepseek_research_suffix": "\n    【技术指标 (Python计算)】\n    - 日内数据: {daily_stats}\n    - MACD: {macd}\n    - KDJ: {kdj}\n    - RSI: {rsi}\n    - 均线: {ma}\n    - 布林带: {bollinger}\n    - 信号总结: {tech_summary}\n        \n    【最新全网研报与新闻情报 (来自秘塔搜索)】\n    {research_context}\n    \n    【任务】\n    1. 结合【核心交易数据】（技术面/量化面）与【情报】（基本面/消息面）进行综合研判。\n    2. 如果消息面与技术面冲突，请说明风险。\n    3. 给出最终操作建议。\n        ",
+    "deepseek_simple_suffix": "\n    【任务】\n    1. 深度思考当前盘面逻辑。\n    2. 给出明确操作建议（买/卖/观望）。\n        ",
+    "gemini_base": "\n        作为资深A股分析师，请根据以下数据对 {name} ({code}) 进行激进的短线点评：\n        \n        当前价: {price}\n        支撑: {support}\n        阻力: {resistance}\n        持仓建议: {signal}\n        \n        请用犀利的语言指出潜在机会或陷阱。\n        ",
+    "metaso_query": "分析 {name} ({code}) 近24小时内的最新重大利好利空消息、主力资金流向及当前市场情绪。请重点关注短线爆发点和潜在风险，忽略一周前的旧闻。"
+  }
+}
