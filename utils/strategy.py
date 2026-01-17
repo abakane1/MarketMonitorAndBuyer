@@ -36,20 +36,19 @@ def analyze_volume_profile_strategy(
     # But better: Iterate prices to find nearest strong levels.
     
     # 1. Separate profile into Above and Below current price
-    df_below = vol_profile[vol_profile['price_bin'] < current_price]
-    df_above = vol_profile[vol_profile['price_bin'] > current_price]
+    # Use inclusive comparison to catch the peak if we are sitting exactly ON it
+    df_below = vol_profile[vol_profile['price_bin'] <= current_price]
+    df_above = vol_profile[vol_profile['price_bin'] >= current_price]
     
     support = 0.0
     resistance = float('inf')
     
-    # Find Support (Strongest volume node below)
+    # Find Support (Strongest volume node below or at)
     if not df_below.empty:
-        # We want the strongest level not too far away? 
-        # Let's just take the max volume price below.
         support_row = df_below.loc[df_below['成交量'].idxmax()]
         support = support_row['price_bin']
         
-    # Find Resistance (Strongest volume node above)
+    # Find Resistance (Strongest volume node above or at)
     if not df_above.empty:
         resistance_row = df_above.loc[df_above['成交量'].idxmax()]
         resistance = resistance_row['price_bin']
@@ -71,10 +70,17 @@ def analyze_volume_profile_strategy(
     # Check Resistance Sell
     elif resistance != float('inf') and (resistance - current_price) / current_price <= proximity_pct:
         signal = "卖出"
-        stop_loss = resistance * 1.02 # Stop above resistance
+        # For Long-Only: Sell signal means exit now. 
+        # Setting stop_loss to current_price to indicate immediate exit trigger.
+        stop_loss = current_price 
         reason = f"价格接近上方筹码阻力位 {resistance}"
         
     else:
+        # Wait / Hold
+        signal = "观望"
+        # If holding, we need a guard. Use Support.
+        if support > 0:
+            stop_loss = support * 0.96 # Wider stop for holding
         reason = f"位于支撑 {support} 与阻力 {resistance} 之间"
 
     # 3. Position Sizing

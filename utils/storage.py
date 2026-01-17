@@ -75,8 +75,85 @@ def get_volume_profile(symbol: str):
     }
 
     # Groups
-    df['price_bin'] = df['收盘'].round(4)
+    from utils.data_fetcher import get_price_precision
+    precision = get_price_precision(symbol)
+    
+    df['price_bin'] = df['收盘'].round(precision)
     
     profile = df.groupby('price_bin')['成交量'].sum().reset_index()
     profile = profile.sort_values('price_bin')
+    
     return profile, meta
+
+import json
+
+def get_research_log_path(symbol: str) -> str:
+    return os.path.join(DATA_DIR, f"{symbol}_research.json")
+
+def save_research_log(symbol: str, prompt: str, result: str, reasoning: str):
+    """
+    Saves a research record (Prompt + AI Response) to a JSON log file.
+    """
+    init_storage()
+    file_path = get_research_log_path(symbol)
+    
+    entry = {
+        "timestamp": datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
+        "prompt": prompt,
+        "result": result,
+        "reasoning": reasoning
+    }
+    
+    current_log = []
+    if os.path.exists(file_path):
+        try:
+            with open(file_path, "r", encoding="utf-8") as f:
+                current_log = json.load(f)
+        except:
+            current_log = []
+            
+    current_log.append(entry)
+    
+    # Optional: Limit log size? Maybe keep last 50
+    if len(current_log) > 50:
+        current_log = current_log[-50:]
+        
+    with open(file_path, "w", encoding="utf-8") as f:
+        json.dump(current_log, f, ensure_ascii=False, indent=2)
+
+def load_research_log(symbol: str) -> list:
+    """
+    Loads past research records.
+    """
+    file_path = get_research_log_path(symbol)
+    if os.path.exists(file_path):
+        try:
+            with open(file_path, "r", encoding="utf-8") as f:
+                return json.load(f)
+        except:
+            return []
+    return []
+
+def delete_research_log(symbol: str, timestamp: str) -> bool:
+    """
+    删除指定时间戳的研报记录。
+    Returns True if deleted, False otherwise.
+    """
+    file_path = get_research_log_path(symbol)
+    if not os.path.exists(file_path):
+        return False
+    
+    try:
+        with open(file_path, "r", encoding="utf-8") as f:
+            logs = json.load(f)
+        
+        original_len = len(logs)
+        logs = [log for log in logs if log.get("timestamp") != timestamp]
+        
+        if len(logs) < original_len:
+            with open(file_path, "w", encoding="utf-8") as f:
+                json.dump(logs, f, ensure_ascii=False, indent=2)
+            return True
+        return False
+    except:
+        return False

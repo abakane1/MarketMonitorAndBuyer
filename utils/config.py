@@ -11,28 +11,28 @@ DEFAULT_CONFIG = {
     "allocations": {}, # Format: "code": float (Target Capital)
     "prompts": {
         "deepseek_base": """
-    your identity: [A-share Texas Hold'em LAG + GTO Trading Expert] (20 years experience)
+    你的身份: [A股德州扑克 LAG + GTO 交易专家] (20年经验)
     
-    【Trading Philosophy: LAG + GTO】
-    1. **Loose Aggressive (LAG)**: Play wide ranges (Loose) when odds favor, but attack aggressively (Aggressive) to deny equity and maximize value.
-    2. **GTO (Game Theory Optimal)**: 
-       - **Balance**: Don't be predictable. Mix "Value Bets" (Confirmed Trend) and "Bluffs" (Anticipated Trend) appropriately.
-       - **Indifference**: Set Stop-Loss/Take-Profit such that the market is indifferent to stopping you out vs letting you run (Optimal R:R).
-       - **Unexploitable**: Stick to the math (EV). Don't tilt on bad beats (whipsaws).
-    3. **Game Thinking**: Every trade is a bet. Only enter when Pot Odds (Risk/Reward) > Equity required.
+    【交易哲学: LAG + GTO】
+    1. **松凶 (LAG)**: 赔率有利时打法奔放；一旦锁定趋势则暴力进攻，压制对手赔率并最大化价值。
+    2. **GTO (博弈最优策略)**: 
+       - **平衡**: 混合“价值注”（确认趋势）和“诈唬”（预期趋势），让市场无法预测。
+       - **无差别**: 设置止损/止盈，使市场在止损你和任你运行之间处于无差别状态（最优损益比）。
+       - **不可被剥削**: 严格遵守数学期望值（EV），不在波动（洗盘）中产生情绪偏离。
+    3. **博弈思维**: 每笔交易都是一次下注。仅在 胜率 * 赔率 > 1 时入场。
     
-    【Current Hand Data】
-    - Symbol: {name} ({code})
-    - Price: {price}  (Cost: {cost})
-    - Pot Size (Support): {support}
-    - Villain Stack (Resistance): {resistance}
-    - Signal: {signal} ({reason})
-    - Bet Size (Action): {quantity} shares (Target: {target_position}), Exit Line (Fold): {stop_loss}
-    (Note: If Exit Line > Cost, it is a Profit Guard/Trailing Stop. If < Cost, it is a Stop Loss.)
+    【当前手牌数据】
+    - 股票名称: {name} ({code})
+    - 当前价格: {price}  (持仓成本: {cost})
+    - 底池大小 (支撑位): {support}
+    - 对手筹码 (阻力位): {resistance}
+    - 信号: {signal} ({reason})
+    - 下注大小 (动作): {quantity} 股 (目标仓位: {target_position}), 弃牌线 (止损): {stop_loss}
+    (注: 如果 止损线 > 成本，则为盈利保护/移动止盈；如果 < 成本，则为原始止损。)
     """,
         "deepseek_research_suffix": """
     【技术指标 (Python计算)】
-    - 日内数据: {daily_stats}
+    - 历史行情 (日线): \n{daily_stats}
     - MACD: {macd}
     - KDJ: {kdj}
     - RSI: {rsi}
@@ -45,8 +45,8 @@ DEFAULT_CONFIG = {
     
     【任务】
     1. 结合【核心交易数据】（技术面/量化面）与【情报】（基本面/消息面）进行综合研判。
-    2. 如果消息面与技术面冲突，请说明风险。
-    3. 给出最终操作建议。
+    2. 如果消息面与技术面冲突，请重点说明风险。
+    3. 给出最终的操作建议。
         """,
         "deepseek_simple_suffix": """
     【任务】
@@ -54,16 +54,46 @@ DEFAULT_CONFIG = {
     2. 给出明确操作建议（买/卖/观望）。
         """,
         "gemini_base": """
-        作为资深A股分析师，请根据以下数据对 {name} ({code}) 进行激进的短线点评：
+        As a senior A-share investment strategist, please provide an aggressive short-term analysis of {name} ({code}) based on the following data:
         
-        当前价: {price}
-        支撑: {support}
-        阻力: {resistance}
-        持仓建议: {signal}
+        Current Price: {price}
+        Support: {support}
+        Resistance: {resistance}
+        Signal: {signal}
         
-        请用犀利的语言指出潜在机会或陷阱。
+        Using sharp and professional language, identify hidden opportunities or potential "traps." Focus on price action and logic.
         """,
-        "metaso_query": "分析 {name} ({code}) 近24小时内的最新重大利好利空消息、主力资金流向及当前市场情绪。请重点关注短线爆发点和潜在风险，忽略一周前的旧闻。"
+        "metaso_query": "分析 {name} ({code}) 近24小时内的最新重大利好利空消息、主力资金流向及当前市场情绪及近一个月的融资融券数据。请重点关注短线爆发点和潜在风险，忽略一周前的旧闻。",
+        "metaso_query_fallback": "{name} ({code}) 最新研报",
+        "metaso_parser": """
+    你是一个客观信息提取器。
+    
+    【任务】
+    仅提取 已核实的研报/新闻事件、具体数据点 或 官方公告。
+    丢弃所有 观点、预测、“市场情绪”、“分析师展望” 或 “看涨/看跌” 等形容词。
+    
+    【已知事实 (数据库)】
+    {existing_text}
+    
+    【新报告内容 (秘塔搜索结果)】
+    {report_text}
+    
+    【要求】
+    输出一个包含两个键的 JSON 对象：
+    1. "new_claims": 字符串列表。
+       - 必须是客观事实（例如：“公司发布 Q3 财报”，“股价触及 10.0”）。
+       - 检查已知事实：如果已知事实已涵盖此事件/数据（语义相似），请丢弃，不要重复添加。
+       - 严禁分析（例如：“股价看涨”，“分析师预期增长”）。
+    2. "contradictions": 对象列表。如果新事实与已知事实冲突：
+       {{
+           "old_id": "ID", 
+           "old_content": "旧内容...",
+           "new_content": "新内容...",
+           "judgement": "客观陈述冲突。"
+       }}
+    
+    关键：执行严格的语义去重，不要添加冗余信息。仅输出纯 JSON。
+    """
     }
 }
 
@@ -82,18 +112,10 @@ def load_config():
                     "positions": {}
                 }
             
-            # If it's a dict but missing keys, merge with default
+            # If it's a dict, merge with default
             if isinstance(data, dict):
                 config = DEFAULT_CONFIG.copy()
-                # Ensure 'selected_stocks' is a list if it was a simple dict from old save
-                if "selected_stocks" in data:
-                    config["selected_stocks"] = data["selected_stocks"]
-                if "positions" in data:
-                    config["positions"] = data["positions"]
-                if "settings" in data:
-                    config["settings"] = data["settings"]
-                if "prompts" in data:
-                    config["prompts"] = data["prompts"]
+                config.update(data)
                 return config
             
             return DEFAULT_CONFIG
@@ -130,6 +152,14 @@ def update_position(code, shares, price, action="buy"):
     curr_shares = current["shares"]
     curr_cost = current["cost"]
     
+    # Ensure history exists
+    if "history" not in config:
+        config["history"] = {}
+    if code not in config["history"]:
+        config["history"][code] = []
+
+    timestamp = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+
     if action == "buy":
         # Weighted Average
         total_value = (curr_shares * curr_cost) + (shares * price)
@@ -137,21 +167,55 @@ def update_position(code, shares, price, action="buy"):
         new_cost = total_value / new_shares if new_shares > 0 else 0.0
         
         positions[code] = {"shares": int(new_shares), "cost": round(new_cost, 2)}
-        log_transaction(code, "buy", price=price, volume=shares, note="Manual Buy")
+        # log_transaction(code, "buy", price=price, volume=shares, note="Manual Buy") # Removed to fix race condition
+        config["history"][code].append({
+            "timestamp": timestamp,
+            "type": "buy",
+            "price": price,
+            "amount": shares,
+            "note": "手动买入"
+        })
         
     elif action == "sell":
         # Reducing shares does not change Avg Cost per share
         new_shares = max(0, curr_shares - shares)
         positions[code] = {"shares": int(new_shares), "cost": curr_cost} # Cost remains same
-        log_transaction(code, "sell", price=price, volume=shares, note="Manual Sell")
+        # log_transaction(code, "sell", price=price, volume=shares, note="Manual Sell")
+        config["history"][code].append({
+            "timestamp": timestamp,
+            "type": "sell",
+            "price": price,
+            "amount": shares,
+            "note": "手动卖出"
+        })
         
     elif action == "override":
         # Direct clean update
         positions[code] = {"shares": int(shares), "cost": round(price, 2)}
-        log_transaction(code, "override", price=price, volume=shares, note="Position Correction")
+        # log_transaction(code, "override", price=price, volume=shares, note="Position Correction")
+        config["history"][code].append({
+            "timestamp": timestamp,
+            "type": "override",
+            "price": price,
+            "amount": shares,
+            "note": "持仓修正"
+        })
         
     config["positions"] = positions
     save_config(config)
+
+def delete_transaction(code: str, timestamp: str):
+    """
+    Deletes a transaction record by code and timestamp.
+    """
+    config = load_config()
+    if "history" in config and code in config["history"]:
+        original_len = len(config["history"][code])
+        config["history"][code] = [h for h in config["history"][code] if h.get("timestamp") != timestamp]
+        if len(config["history"][code]) < original_len:
+            save_config(config)
+            return True
+    return False
 
 def get_settings():
     config = load_config()

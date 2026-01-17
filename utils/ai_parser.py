@@ -1,21 +1,14 @@
+
 import requests
 import json
 import re
 
-def parse_metaso_report(api_key: str, report_text: str, existing_claims: list) -> dict:
+def parse_metaso_report(api_key: str, report_text: str, existing_claims: list, prompt_template: str = "") -> dict:
     """
     Uses DeepSeek to:
     1. Extract new claims from the report.
     2. Compare with existing claims.
     3. Identify contradictions.
-    
-    Returns dict:
-    {
-        "new_claims": ["claim1", "claim2"],
-        "contradictions": [
-            {"old_id": "xxx", "old_content": "...", "new_content": "...", "judgement": "Assessment..."}
-        ]
-    }
     """
     if not report_text or not api_key:
         return {"new_claims": [], "contradictions": []}
@@ -25,36 +18,13 @@ def parse_metaso_report(api_key: str, report_text: str, existing_claims: list) -
     # Format existing claims for context
     existing_text = "\n".join([f"ID:{c['id']} Content:{c['content']}" for c in existing_claims])
     
-    prompt = f"""
-    You are an Objective Information Extractor.
-    
-    【Task】
-    Extract ONLY Verified News Events, specific Data Points, or Official Announcements.
-    Discard all Opinions, Predictions, "Market Sentiment", "Analyst Outlooks", or "Bullish/Bearish" adjectives.
-    
-    【KNOWN FACTS (Database)】
-    {existing_text if existing_text else "None"}
-    
-    【NEW REPORT (Metaso Search)】
-    {report_text}
-    
-    【Requirements】
-    Output a JSON object with two keys:
-    1. "new_claims": A list of strings.
-       - MUST be objective facts (e.g. "Company released Q3 report", "Stock price hit 10.0").
-       - CHECK AGAINST KNOWN FACTS: If a known fact already covers this event/data (semantically similar), DISCARD IT. Do not add duplicates.
-       - MUST NOT be analysis (e.g. "Stock looks bullish", "Analysts expect growth").
-    2. "contradictions": A list of objects. If a NEW FACT contradicts a KNOWN FACT:
-       {{
-           "old_id": "ID", 
-           "old_content": "...",
-           "new_content": "...",
-           "judgement": "State conflict objectively."
-       }}
-    
-    CRITICAL: Perform strict semantic deduplication. Do not add redundant info.
-    Output pure JSON only.
-    """
+    if not prompt_template:
+        return {"new_claims": [], "contradictions": [], "error": "Prompt template missing"}
+        
+    try:
+        prompt = prompt_template.format(existing_text=existing_text if existing_text else "None", report_text=report_text)
+    except Exception as e:
+        prompt = f"Prompt Format Error: {e}"
     
     payload = {
         "model": "deepseek-chat", # Use standard chat for formatting, or reasoner if complex
@@ -86,3 +56,46 @@ def parse_metaso_report(api_key: str, report_text: str, existing_claims: list) -
     except Exception as e:
         print(f"Parser Error: {e}")
         return {"new_claims": [], "contradictions": []}
+
+def generate_followup_query(api_key: str, new_claims: list, original_query: str) -> str:
+    """
+    Generates a follow-up search query based on newly found claims.
+    """
+    if not new_claims or not api_key:
+        return ""
+        
+    # Limit to top new findings to keep query focused
+    claims_text = "; ".join(new_claims[:3]) 
+    
+    prompt = f"""
+    Based on the following new findings from a search:
+    "{claims_text}"
+    
+    The original search objective was: "{original_query}"
+    
+    Please generate ONE concise search query (max 20 words) to verify details or dig deeper into the most critical/risky part of these new findings.
+    Focus on facts, data, or verification of rumors.
+    Output ONLY the query string.
+    """
+    
+    url = "https://api.deepseek.com/v1/chat/completions"
+    headers = {
+        "Content-Type": "application/json",
+        "Authorization": f"Bearer {api_key}"
+    }
+    payload = {
+        "model": "deepseek-chat",
+        "messages": [{"role": "user", "content": prompt}],
+        "temperature": 0.3
+    }
+    
+    try:
+        response = requests.post(url, headers=headers, json=payload, timeout=30)
+        res_json = response.json()
+        content = res_json['choices'][0]['message']['content'].strip()
+        # Clean quotes
+        content = content.replace('"', '').replace("'", "")
+        return content
+    except Exception as e:
+        print(f"Query Gen Error: {e}")
+        return ""

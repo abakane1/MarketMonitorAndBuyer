@@ -13,15 +13,25 @@
 
 ## 快速开始
 
-1.  **安装依赖**:
+    ### macOS / Linux
     ```bash
+    # 1. 安装依赖
     pip install -r requirements.txt
+    
+    # 2. 启动应用
+    ./start.sh
     ```
 
-2.  **启动应用**:
-    ```bash
-    ./start.sh
-    # 或者手动运行: streamlit run main.py
+    ### Windows
+    ```powershell
+    # 1. 创建虚拟环境 (推荐)
+    python -m venv venv
+    
+    # 2. 激活环境并安装依赖
+    .\venv\Scripts\pip install -r requirements.txt
+    
+    # 3. 启动应用
+    .\venv\Scripts\streamlit run main.py
     ```
 
 3.  **初始化配置**:

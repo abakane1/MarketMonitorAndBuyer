@@ -1,8 +1,9 @@
 import requests
 import json
-import google.generativeai as genai
 
-def ask_deepseek_advisor(api_key, context_data, research_context="", technical_indicators=None, prompt_templates=None):
+from google import genai
+
+def ask_deepseek_advisor(api_key, context_data, research_context="", technical_indicators=None, fund_flow_data=None, prompt_templates=None, suffix_key="deepseek_research_suffix"):
     """
     Calls DeepSeek API (Reasoning Model) for short-term trading advice.
     """
@@ -16,7 +17,8 @@ def ask_deepseek_advisor(api_key, context_data, research_context="", technical_i
         prompt_templates = {}
         
     base_tpl = prompt_templates.get("deepseek_base", "")
-    research_suffix_tpl = prompt_templates.get("deepseek_research_suffix", "")
+    # Dynamic suffix fetching
+    suffix_tpl = prompt_templates.get(suffix_key, "")
     simple_suffix_tpl = prompt_templates.get("deepseek_simple_suffix", "")
     
     # Check if empty (should not happen if config loaded correctly, but fallback safe)
@@ -24,18 +26,24 @@ def ask_deepseek_advisor(api_key, context_data, research_context="", technical_i
         return "Error: Prompt templates missing.", "", ""
 
     # 2. Format Base
-    # Safe format using .format(**dict) allows extra keys in dict or missing keys if handled carefully, 
-    # but here we should ensure context_data has what we need or use strict formatting.
-    # context_data has: name, code, price, support, resistance, signal, reason, quantity, stop_loss
     try:
         base_prompt = base_tpl.format(**context_data)
     except KeyError as e:
         base_prompt = f"Prompt Error: Missing key {e}"
 
     # 3. Append Suffix
-    if technical_indicators and research_suffix_tpl:
+    if technical_indicators and suffix_tpl:
         # Prepare data for suffix
-        # Suffix expects: macd, kdj, rsi, ma, bollinger, tech_summary, research_context
+        # Suffix expects: macd, kdj, rsi, ma, bollinger, tech_summary, research_context, capital_flow
+        
+        # 格式化资金流向数据
+        capital_flow_str = "N/A"
+        if fund_flow_data and not fund_flow_data.get("error"):
+            flow_lines = [f"{k}: {v}" for k, v in fund_flow_data.items()]
+            capital_flow_str = " | ".join(flow_lines)
+        elif fund_flow_data and fund_flow_data.get("error"):
+            capital_flow_str = f"获取失败: {fund_flow_data.get('error')}"
+        
         suffix_data = {
             "daily_stats": technical_indicators.get('daily_stats', 'N/A'),
             "macd": technical_indicators.get('MACD', 'N/A'),
@@ -44,10 +52,11 @@ def ask_deepseek_advisor(api_key, context_data, research_context="", technical_i
             "ma": technical_indicators.get('MA', 'N/A'),
             "bollinger": technical_indicators.get('Bollinger', 'N/A'),
             "tech_summary": technical_indicators.get('signal_summary', 'N/A'),
-            "research_context": research_context if research_context else "无情报"
+            "research_context": research_context if research_context else "无情报",
+            "capital_flow": capital_flow_str
         }
         try:
-            base_prompt += research_suffix_tpl.format(**suffix_data)
+            base_prompt += suffix_tpl.format(**suffix_data)
         except KeyError as e:
             base_prompt += f"\n[Suffix Error: Missing key {e}]"
             
@@ -105,10 +114,11 @@ def ask_gemini_advisor(api_key, context_data, prompt_templates=None):
         return f"Prompt Format Error: {e}"
 
     try:
-        genai.configure(api_key=api_key)
-        model = genai.GenerativeModel('gemini-2.0-flash-exp')
-        
-        response = model.generate_content(prompt)
+        client = genai.Client(api_key=api_key)
+        response = client.models.generate_content(
+            model='gemini-2.0-flash-exp', 
+            contents=prompt
+        )
         return response.text
     except Exception as e:
         return f"Gemini 请求失败: {str(e)}"
