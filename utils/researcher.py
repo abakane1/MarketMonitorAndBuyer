@@ -124,7 +124,12 @@ def ask_metaso_research_loop(
             
         # Add to local knowledge for next round deduplication
         for nc in new_claims_texts:
-            current_claims.append({"id": f"temp_{r}_{hash(nc)}", "content": nc})
+            # nc can be a dict {"content":..., "date":...} or a string (old format)
+            if isinstance(nc, dict):
+                nc_content = nc.get("content", "")
+            else:
+                nc_content = nc
+            current_claims.append({"id": f"temp_{r}_{hash(nc_content)}", "content": nc_content})
             
         # C. Generate Next Query
         if r < max_rounds - 1:

@@ -157,3 +157,21 @@ def delete_research_log(symbol: str, timestamp: str) -> bool:
         return False
     except:
         return False
+
+def get_latest_strategy_log(symbol: str):
+    """
+    Returns the most recent log that is a 'New Strategy' (contains '核心任务: 独立策略构建').
+    Returns None if not found or empty.
+    """
+    logs = load_research_log(symbol)
+    if not logs:
+        return None
+        
+    # Logs are sorted by timestamp desc (newest first)
+    for log in logs:
+        # Check based on Prompt content identifying the 'New Strategy' template
+        prompt_content = log.get("prompt", "")
+        if "核心任务: 独立策略构建" in prompt_content:
+            return log
+            
+    return None

@@ -1,6 +1,11 @@
 import json
 import os
 from datetime import datetime
+from utils.database import (
+    db_get_position, db_update_position, 
+    db_get_allocation, db_set_allocation,
+    db_get_history, db_add_history, db_delete_transaction
+)
 
 CONFIG_FILE = "user_config.json"
 
@@ -136,28 +141,18 @@ def save_selected_stocks(codes):
     save_config(config)
 
 def get_position(code):
-    config = load_config()
-    positions = config.get("positions", {})
-    return positions.get(code, {"shares": 0, "cost": 0.0})
+    return db_get_position(code)
 
 def update_position(code, shares, price, action="buy"):
     """
     Updates position based on action.
     action: 'buy' (calculate weighted avg), 'sell' (reduce shares), 'override' (overwrite)
     """
-    config = load_config()
-    positions = config.get("positions", {})
-    current = positions.get(code, {"shares": 0, "cost": 0.0})
+    current = db_get_position(code)
     
     curr_shares = current["shares"]
     curr_cost = current["cost"]
     
-    # Ensure history exists
-    if "history" not in config:
-        config["history"] = {}
-    if code not in config["history"]:
-        config["history"][code] = []
-
     timestamp = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
 
     if action == "buy":
@@ -166,56 +161,29 @@ def update_position(code, shares, price, action="buy"):
         new_shares = curr_shares + shares
         new_cost = total_value / new_shares if new_shares > 0 else 0.0
         
-        positions[code] = {"shares": int(new_shares), "cost": round(new_cost, 2)}
-        # log_transaction(code, "buy", price=price, volume=shares, note="Manual Buy") # Removed to fix race condition
-        config["history"][code].append({
-            "timestamp": timestamp,
-            "type": "buy",
-            "price": price,
-            "amount": shares,
-            "note": "手动买入"
-        })
+        db_update_position(code, int(new_shares), round(new_cost, 2))
+        
+        db_add_history(code, timestamp, "buy", price, shares, "手动买入")
         
     elif action == "sell":
         # Reducing shares does not change Avg Cost per share
         new_shares = max(0, curr_shares - shares)
-        positions[code] = {"shares": int(new_shares), "cost": curr_cost} # Cost remains same
-        # log_transaction(code, "sell", price=price, volume=shares, note="Manual Sell")
-        config["history"][code].append({
-            "timestamp": timestamp,
-            "type": "sell",
-            "price": price,
-            "amount": shares,
-            "note": "手动卖出"
-        })
+        # Cost remains same
+        db_update_position(code, int(new_shares), curr_cost)
+        
+        db_add_history(code, timestamp, "sell", price, shares, "手动卖出")
         
     elif action == "override":
         # Direct clean update
-        positions[code] = {"shares": int(shares), "cost": round(price, 2)}
-        # log_transaction(code, "override", price=price, volume=shares, note="Position Correction")
-        config["history"][code].append({
-            "timestamp": timestamp,
-            "type": "override",
-            "price": price,
-            "amount": shares,
-            "note": "持仓修正"
-        })
+        db_update_position(code, int(shares), round(price, 2))
         
-    config["positions"] = positions
-    save_config(config)
+        db_add_history(code, timestamp, "override", price, shares, "持仓修正")
 
 def delete_transaction(code: str, timestamp: str):
     """
     Deletes a transaction record by code and timestamp.
     """
-    config = load_config()
-    if "history" in config and code in config["history"]:
-        original_len = len(config["history"][code])
-        config["history"][code] = [h for h in config["history"][code] if h.get("timestamp") != timestamp]
-        if len(config["history"][code]) < original_len:
-            save_config(config)
-            return True
-    return False
+    return db_delete_transaction(code, timestamp)
 
 def get_settings():
     config = load_config()
@@ -234,38 +202,18 @@ def log_transaction(code: str, action_type: str, price: float = 0.0, volume: flo
     Logs a transaction or configuration change.
     action_type: 'buy', 'sell', 'override', 'allocation'
     """
-    config = load_config()
-    if "history" not in config:
-        config["history"] = {}
-    if code not in config["history"]:
-        config["history"][code] = []
-        
-    entry = {
-        "timestamp": datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
-        "type": action_type,
-        "price": price,
-        "amount": volume, # Use 'amount' for volume/shares or capital allocation value
-        "note": note
-    }
-    config["history"][code].append(entry)
-    save_config(config)
+    timestamp = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+    db_add_history(code, timestamp, action_type, price, volume, note)
 
 def get_history(code: str) -> list:
-    config = load_config()
-    return config.get("history", {}).get(code, [])
+    return db_get_history(code)
 
 def get_allocation(code: str) -> float:
-    config = load_config()
-    return config.get("allocations", {}).get(code, 0.0)
+    return db_get_allocation(code)
 
 def set_allocation(code: str, amount: float):
-    config = load_config()
-    if "allocations" not in config:
-        config["allocations"] = {}
-    
-    old_alloc = config["allocations"].get(code, 0.0)
-    config["allocations"][code] = amount
-    save_config(config)
+    old_alloc = db_get_allocation(code)
+    db_set_allocation(code, amount)
     
     # Log the change
     if old_alloc != amount:

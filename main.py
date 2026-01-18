@@ -360,27 +360,138 @@ else:
                     vol_profile_for_strat, _ = get_volume_profile(code)
                     strat_res = analyze_volume_profile_strategy(price, vol_profile_for_strat, eff_capital, risk_pct, current_shares=shares_held)
                     
-                    with st.expander("🤖 交易策略分析 (筹码支撑/阻力)", expanded=True):
-                        s_col1, s_col2, s_col3 = st.columns(3)
+                    with st.expander("🤖 交易策略分析 (Strategy)", expanded=True):
+                        # Check for AI Strategy
+                        from utils.storage import get_latest_strategy_log
+                        ai_strat_log = get_latest_strategy_log(code)
                         
-                        signal = strat_res.get('signal')
-                        color = "grey"
-                        if signal == "买入": color = "green"
-                        if signal == "卖出": color = "red"
+                        # Tabs
+                        strat_tabs = []
+                        tab_names = []
                         
-                        s_col1.markdown(f"**信号**: :{color}[{signal}]")
-                        s_col2.metric("建议仓位 (股)", strat_res.get('quantity', 0))
-                        
-                        # Dynamic Label: Stop Loss vs Profit Guard
-                        sl_val = strat_res.get('stop_loss', 0)
-                        sl_label = "止损参考"
-                        if shares_held > 0 and sl_val > avg_cost:
-                            sl_label = "止盈/保护 (Profit Guard)"
+                        has_ai_strat = False
+                        if ai_strat_log:
+                            # Check if it's recent (e.g. today). Actually user might want to see latest regardless?
+                            # Let's show it if it exists, maybe mark date.
+                            tab_names.append(f"🧠 AI独立策略 ({ai_strat_log['timestamp'][5:16]})") # MM-DD HH:MM
+                            has_ai_strat = True
                             
-                        s_col3.metric(sl_label, sl_val)
+                        tab_names.append("⚙️ 算法策略 (筹码/GTO)")
                         
-                        st.info(f"💡 **决策依据**: {strat_res.get('reason')}")
-                        st.caption(f"关键点位 - 支撑: {strat_res.get('support')} | 阻力: {strat_res.get('resistance')}")
+                        tabs = st.tabs(tab_names)
+                        
+                        if has_ai_strat:
+                            with tabs[0]:
+                                content = ai_strat_log['result']
+                                reasoning = ai_strat_log.get('reasoning', '')
+                                ts = ai_strat_log['timestamp'][5:16]
+                                st.caption(f"📅 生成时间: {ts}")
+                                
+                                # --- Simple Parser ---
+                                import re
+                                # Try to find the structured "Decision Summary" block first
+                                # Format:
+                                # 【决策摘要】
+                                # 方向: ...
+                                # 仓位: ...
+                                # 止损: ...
+                                
+                                ai_signal = "N/A"
+                                pos_txt = "N/A"
+                                stop_loss_txt = "N/A"
+                                
+                                # 1. Try Block Parse
+                                block_match = re.search(r"【决策摘要】(.*)", content, re.DOTALL)
+                                if block_match:
+                                    block_content = block_match.group(1)
+                                    
+                                    # Signal
+                                    s_match = re.search(r"方向:\s*(\[)?(.*?)(])?\n", block_content)
+                                    if not s_match: # Try without newline
+                                         s_match = re.search(r"方向:\s*(\[)?(.*?)(])?$", block_content, re.MULTILINE)
+                                    if s_match:
+                                        ai_signal = s_match.group(2).replace("[","").replace("]","").strip()
+                                        
+                                    # Position
+                                    p_match = re.search(r"仓位:\s*(\[)?(.*?)(])?\n", block_content)
+                                    if not p_match:
+                                         p_match = re.search(r"仓位:\s*(\[)?(.*?)(])?$", block_content, re.MULTILINE)
+                                    if p_match:
+                                        pos_txt = p_match.group(2).replace("[","").replace("]","").strip()
+                                        
+                                    # Stop Loss
+                                    sl_match = re.search(r"止损:\s*(\[)?(.*?)(])?\n", block_content)
+                                    if not sl_match:
+                                         sl_match = re.search(r"止损:\s*(\[)?(.*?)(])?$", block_content, re.MULTILINE)
+                                    if sl_match:
+                                        stop_loss_txt = sl_match.group(2).replace("[","").replace("]","").strip()
+                                else:
+                                    # Fallback to old heuristic
+                                    # 1. Extract Signal 【Action】
+                                    signal_match = re.search(r"【(买入|卖出|做空|观望|持有)】", content)
+                                    ai_signal = signal_match.group(1) if signal_match else "N/A"
+                                    
+                                    # 2. Extract Stop Loss
+                                    lines = content.split('\n')
+                                    for line in lines:
+                                        if "止损" in line:
+                                            # "止损: 10.5"
+                                            stop_loss_txt = line.split(":")[-1].strip().replace("元","")[:10]
+                                            break
+                                            
+                                    # 3. Extract Position
+                                    for line in lines:
+                                        if "仓位" in line:
+                                            pos_txt = line.split(":")[-1].strip()[:10]
+                                            break
+
+                                # Cleanup
+                                if "N/A" in ai_signal and "观望" in content: ai_signal = "观望"
+                                
+                                # UI Layout
+                                
+                                # UI Layout
+                                ai_col1, ai_col2, ai_col3 = st.columns(3)
+                                
+                                s_color = "grey"
+                                if ai_signal in ["买入", "做多"]: s_color = "green"
+                                if ai_signal in ["卖出", "做空"]: s_color = "red"
+                                
+                                ai_col1.markdown(f"**AI建议**: :{s_color}[{ai_signal}]")
+                                ai_col2.metric("仓位建议", pos_txt if pos_txt != "N/A" else "见详情")
+                                ai_col3.metric("止损参考", stop_loss_txt if stop_loss_txt != "N/A" else "见详情")
+                                
+                                st.info("ℹ️ 此策略由 DeepSeek 独立构建，不依赖原有筹码算法。")
+                                
+                                with st.expander("📄 查看完整策略报告 (Full Report)", expanded=False):
+                                    st.markdown(content)
+                                    if reasoning:
+                                        st.divider()
+                                        st.caption("AI 思考过程 (Chain of Thought)")
+                                        st.text(reasoning)
+                                        
+                        # Algo Strategy (Last Tab)
+                        with tabs[-1]:
+                            s_col1, s_col2, s_col3 = st.columns(3)
+                            
+                            signal = strat_res.get('signal')
+                            color = "grey"
+                            if signal == "买入": color = "green"
+                            if signal == "卖出": color = "red"
+                            
+                            s_col1.markdown(f"**信号**: :{color}[{signal}]")
+                            s_col2.metric("建议仓位 (股)", strat_res.get('quantity', 0))
+                            
+                            # Dynamic Label: Stop Loss vs Profit Guard
+                            sl_val = strat_res.get('stop_loss', 0)
+                            sl_label = "止损参考"
+                            if shares_held > 0 and sl_val > avg_cost:
+                                sl_label = "止盈/保护 (Profit Guard)"
+                                
+                            s_col3.metric(sl_label, sl_val)
+                            
+                            st.info(f"💡 **决策依据**: {strat_res.get('reason')}")
+                            st.caption(f"关键点位 - 支撑: {strat_res.get('support')} | 阻力: {strat_res.get('resistance')}")
                         
                         # Metasota Research + DeepSeek Analysis
                         st.markdown("---")
@@ -419,11 +530,15 @@ else:
                                 research_report = ""
                                 # 1. Metaso Fetch
                                 with st.spinner(f"🔍 步骤1: 秘塔正在全网检索 {name} 的最新研报与新闻 (约20秒)..."):
+                                    # Get existing claims for prompt context
+                                    from utils.intel_manager import get_claims_for_prompt
+                                    
                                     context = {
                                         "code": code,
                                         "name": name,
                                         "price": price,
                                         "cost": avg_cost, 
+                                        "current_shares": shares_held, 
                                         "support": strat_res.get('support'), 
                                         "resistance": strat_res.get('resistance'),
                                         "signal": signal,
@@ -483,6 +598,10 @@ else:
                                             st.warning(f"**旧情报**: {c.get('old_content')}\n\n**新情报**: {c.get('new_content')}\n\n**DeepSeek裁判**: {c.get('judgement')}")
                                     # --- Intelligence Processing End ---
                                     
+                                    # REFRESH FULL CONTEXT FROM DB (Fix 1: Use full intelligence)
+                                    from utils.intel_manager import get_claims_for_prompt
+                                    full_intel_context = get_claims_for_prompt(code)
+                                    
                                 # 2. DeepSeek Analysis
                                 with st.spinner(f"🧠 步骤2: DeepSeek 正在结合情报与技术指标进行综合研判..."):
                                     # Calculate Indicators
@@ -513,7 +632,7 @@ else:
                                     advice, reasoning, used_prompt = ask_deepseek_advisor(
                                         deepseek_api_key, 
                                         context, 
-                                        research_context=research_report,
+                                        research_context=full_intel_context, # Use FULL DB context
                                         technical_indicators=tech_indicators,
                                         fund_flow_data=fund_flow_data,
                                         prompt_templates=prompts,
@@ -618,6 +737,95 @@ else:
                                         delete_claim(code, item['id'])
                                         st.rerun()
                                 st.divider()
+                                
+                            # --- Interactive Deduplication UI ---
+                            st.markdown("#### 🧹 数据整理")
+                            
+                            # Initialize Session State for Dedupe results if not present
+                            if f"dedupe_results_{code}" not in st.session_state:
+                                st.session_state[f"dedupe_results_{code}"] = None
+                            
+                            col_clean, _ = st.columns([0.4, 0.6])
+                            if col_clean.button("🔍 扫描并清理重复情报", key=f"btn_dedupe_{code}"):
+                                from utils.ai_parser import find_duplicate_candidates
+                                with st.spinner("正在对比语义分析重复项 (DeepSeek)..."):
+                                    # Need API Key
+                                    ds_key = st.session_state.get("input_apikey", "")
+                                    if not ds_key:
+                                        st.error("请先设置 DeepSeek API Key")
+                                    else:
+                                        dupe_groups = find_duplicate_candidates(ds_key, current_claims)
+                                        if not dupe_groups:
+                                            st.success("未发现重复情报！")
+                                            st.session_state[f"dedupe_results_{code}"] = None
+                                        else:
+                                            st.session_state[f"dedupe_results_{code}"] = dupe_groups
+                                            st.rerun()
+                            
+                            # Display Duplication Review Interface
+                            dupe_groups = st.session_state.get(f"dedupe_results_{code}")
+                            if dupe_groups:
+                                st.warning(f"⚠️ 发现 {len(dupe_groups)} 组重复情报，请确认合并操作：")
+                                
+                                # Iterate groups
+                                groups_to_remove = []
+                                for g_idx, group in enumerate(dupe_groups):
+                                    with st.container(border=True):
+                                        st.caption(f"重复组 #{g_idx+1} (原因: {group['reason']})")
+                                        
+                                        # Show items side-by-side (limit to 3 for UI safety)
+                                        items = group['items']
+                                        rec_id = group.get('recommended_keep')
+                                        
+                                        cols = st.columns(len(items))
+                                        for i, item_obj in enumerate(items):
+                                            is_rec = (item_obj['id'] == rec_id)
+                                            with cols[i]:
+                                                box_color = "green" if is_rec else "grey"
+                                                st.markdown(f":{box_color}[**ID: {item_obj['id']}**]")
+                                                if is_rec:
+                                                    st.caption("✨ 建议保留")
+                                                st.text_area("内容", item_obj['content'], height=250, disabled=True, key=f"txt_{item_obj['id']}")
+                                                st.caption(f"时间: {item_obj['timestamp']}")
+                                                
+                                                # Actions
+                                                if st.button(f"✅ 保留此条 (合并)", key=f"keep_{item_obj['id']}"):
+                                                    # Keep this one, delete others in group
+                                                    others = [x['id'] for x in items if x['id'] != item_obj['id']]
+                                                    for oid in others:
+                                                        delete_claim(code, oid)
+                                                    
+                                                    st.toast(f"✅ 已合并，保留了 ID: {item_obj['id']}")
+                                                    
+                                                    # Update Session State to remove this group immediately
+                                                    current_groups = st.session_state.get(f"dedupe_results_{code}", [])
+                                                    if current_groups:
+                                                        # Remove by index or content. Since we have g_idx
+                                                        if g_idx < len(current_groups):
+                                                            current_groups.pop(g_idx)
+                                                            st.session_state[f"dedupe_results_{code}"] = current_groups
+                                                    
+                                                    time.sleep(1) # Give time for toast
+                                                    st.rerun()
+                                        
+                                        # Ignore Button
+                                        if st.button(f"忽略 (都不是重复)", key=f"ignore_{g_idx}_{code}"):
+                                            # Record these as distinct so they don't show up again
+                                            group_ids = [str(x['id']) for x in items]
+                                            from utils.intel_manager import mark_claims_distinct
+                                            mark_claims_distinct(code, group_ids)
+                                            st.toast("✅ 已标记为不重复，后续不再提示")
+                                            
+                                            # Just remove from session state
+                                            current_groups = st.session_state.get(f"dedupe_results_{code}", [])
+                                            if current_groups and g_idx < len(current_groups):
+                                                current_groups.pop(g_idx)
+                                                st.session_state[f"dedupe_results_{code}"] = current_groups
+                                            
+                                            time.sleep(0.5)
+                                            st.rerun()
+                                            
+
 
 
 
