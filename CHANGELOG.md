@@ -5,28 +5,41 @@ All notable changes to the **MarketMonitorAndBuyer** project will be documented 
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
-## [1.1.0] - 2026-01-18
+## [1.1.0] - 2026-01-18 (Intelligence Era Update)
 ### Added (新增)
-- **AI 独立策略看板**: 新增 "🧠 AI Independent Strategy" 标签页，与传统算法策略分离，提供基于 DeepSeek Reasoner 的独立交易建议。
-- **情报去重系统**: 新增交互式数据清洗功能 (`Deduplication`), 支持 AI 语义去重和人工确认。
-- **SQLite 数据库集成**: 将持仓 (`Positions`), 资金分配 (`Allocations`), 交易历史 (`History`) 从 JSON 迁移至 SQLite 数据库，提高数据安全性与并发能力。
-- **全量情报上下文**: 策略分析现在会加载股票的全量历史情报（解除24小时限制），提供完整的决策上下文。
-- **结构化决策输出**: AI 现在输出标准化的【决策摘要】（方向/仓位/止损），UI 支持自动解析并展示为数字指标。
+- **AI 独立策略看板**: 新增 "🧠 AI Independent Strategy" 标签页，提供基于 DeepSeek Reasoner 的独立交易建议 (v1.1.0)。
+- **情报去重系统**: 新增交互式数据清洗功能 (`Deduplication`)，支持 AI 语义去重和人工确认。
+- **SQLite 数据库集成**: 持仓/资金/历史数据迁移至 SQLite，提升稳定性。
+- **全量情报上下文**: 解除 DeepSeek 历史情报回溯限制，引入 `get_claims_for_prompt(None)`。
 
 ### Changed (优化)
-- **情报归档逻辑**: 由“采集日期”改为“事件发生日期”归档，确保情报时间轴准确。
-- **提示词工程**:
-  - `deepseek_base`: 增加 **【资金硬约束】** 和 **【持仓感知】**，强制 AI 基于实际资金限制规划仓位。
-  - `deepseek_new_strategy_suffix`: 增加 **【独立性警告】**，防止 AI 盲从算法信号。
-- **UI 布局**: 优化了策略分析区的展示，默认折叠长文本，突出关键决策指标。
+- **核心逻辑**: 将情报归档维度从“采集时间”重构为“事件发生时间”。
+- **提示词工程**: 增加 `capital_allocation` (资金硬约束) 和 `Independent Warning` (独立性警告)。
+- **UI 体验**: 策略看板支持自动解析“方向/仓位/止损”并图形化展示。
 
 ### Fixed (修复)
-- 修正了 `utils/researcher.py` 和 `utils/ai_parser.py` 在处理 dict 对象格式情报时的类型错误 (`TypeError`).
-- 修正了 `utils/intel_manager.py` 在提取情报时的 `IndentationError` 和时间过滤逻辑。
+- 修复 `dict` 类型情报导致的哈希错误。
+- 修复 `UnboundLocalError` 及情报过滤缩进问题。
 
-## [1.0.0] - 2026-01-15 (Estimated)
-### Initial Release
-- 基础行情监控 (Market Monitor)
-- 秘塔搜索集成 (Metaso Research)
-- 基础算法策略 (Chip Distribution Strategy)
-- 简单的 Streamlit UI 界面
+## [1.0.7] - 2026-01-17 (Deep Research & Precision Update)
+### Added (新增)
+- **秘塔深度研究 (Deep Research)**: 
+  - 集成 `ask_metaso_research_loop`，支持多轮追问与关联搜索。
+  - 引入 `metaso_parser`，自动从研报中提取结构化事实 (`claims`)。
+- **双模策略引擎**: 
+  - 引入 Gemini 作为“第二意见” (Second Opinion) 与 DeepSeek 形成红蓝对抗。
+  - 支持 `deepseek-reasoner` 思考模型集成。
+- **ETF 动态精度**: 
+  - 支持 ETF (3位小数) 与股票 (2位小数) 的动态价格精度显示与计算。
+
+### Changed (优化)
+- **配置重构**: 将所有 AI Prompt 从代码硬编码迁移至 `user_config.json`，支持热更新。
+- **资金分配**: `user_config.json` 新增 `allocations` 字段，支持单股资金限额配置。
+
+## [1.0.0] - 2026-01-16 (Initial Release)
+### Released
+- 🚀 **主要功能**:
+  - A股实时行情监控 (基于 SINA/EM API)。
+  - 基础筹码分布策略 (Volume Profile Strategy)。
+  - 简单的 Streamlit 可视化大屏。
+  - 基础的 `intelligence.json` 数据结构。
