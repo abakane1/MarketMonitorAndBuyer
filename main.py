@@ -21,12 +21,18 @@ from utils.ai_parser import parse_metaso_report
 
 # Page Configuration
 st.set_page_config(
-    page_title="A股实时监控",
+    page_title="MarketMonitor v1.1.0",
+    page_icon="📈",
     layout="wide",
-    page_icon="📈"
+    initial_sidebar_state="expanded",
 )
 
-st.title("🇨🇳 A股实时监控系统")
+# --- Session Init ---
+if 'selected_code' not in st.session_state:
+    st.session_state.selected_code = None
+
+# --- Main App ---
+st.title("📈 A股智能盯盘与策略辅助系统 v1.1.0")
 
 # Sidebar: Controls
 st.sidebar.header("设置")
