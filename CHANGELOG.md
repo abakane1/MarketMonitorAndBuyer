@@ -5,6 +5,15 @@ All notable changes to the **MarketMonitorAndBuyer** project will be documented 
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.2.2] - 2026-01-19 (Prompt Management & UI Logic Fix)
+### Added (新增)
+- **提示词中心**: 在侧边栏新增“提示词中心”导航，支持分类查看系统中使用的所有 AI 提示词模板。
+
+### Fixed (修复)
+- **UI 重复问题**: 修复了由于缩进错误导致的功能模块（AI 研判、情报数据库等）在主页底部重复渲染的问题。
+- **结构性故障**: 修复了 `update_view` 函数由于逻辑分支不一致导致的 `NameError`。
+- **布局优化**: 将交易历史记录表格移入“交易记账”折叠面板内部，并统一使用了 `use_container_width` 提升对齐美感。
+
 ## [1.2.1] - 2026-01-19 (Research Workflow Decoupling)
 ### Changed (优化)
 - **流程重构**: 将秘塔深度研究从 AI 研判流程中剥离，使其成为情报数据库的可选操作。

@@ -486,3 +486,79 @@ def get_price_precision(symbol: str) -> int:
     if symbol.startswith(('588', '51', '15')):
         return 3
     return 2
+
+def analyze_intraday_pattern(df: pd.DataFrame) -> str:
+    """
+    分析分时数据，提取特征供 AI 使用。
+    返回一段自然语言描述。
+    """
+    if df.empty:
+        return "无分时数据"
+        
+    try:
+        # 确保按时间排序
+        if '时间' in df.columns:
+            df = df.sort_values('时间').reset_index(drop=True)
+            
+        # 基础数据
+        closes = df['收盘']
+        volumes = df['成交量']
+        
+        if len(df) < 10:
+            return "分时数据不足"
+
+        # 1. 整体涨跌
+        open_price = closes.iloc[0]
+        close_price = closes.iloc[-1]
+        total_p_change = (close_price - open_price) / open_price * 100
+        
+        # 2. 成交量异动 (放量判定: > 3 * 均量)
+        avg_vol = volumes.mean()
+        high_vol_minutes = df[df['成交量'] > 3 * avg_vol]
+        high_vol_count = len(high_vol_minutes)
+        
+        # 3. 早盘与尾盘 (前30分钟, 后30分钟)
+        first_30 = df.head(30)
+        last_30 = df.tail(30)
+        
+        p_change_early = 0
+        if not first_30.empty:
+            p_change_early = (first_30['收盘'].iloc[-1] - first_30['收盘'].iloc[0]) / first_30['收盘'].iloc[0] * 100
+            
+        p_change_late = 0
+        if not last_30.empty:
+            p_change_late = (last_30['收盘'].iloc[-1] - last_30['收盘'].iloc[0]) / last_30['收盘'].iloc[0] * 100
+            
+        # 4. 生成描述
+        summary = []
+        
+        # 趋势描述
+        if total_p_change > 0:
+            trend = "震荡上行"
+        elif total_p_change < 0:
+            trend = "震荡下行"
+        else:
+            trend = "横盘震荡"
+            
+        summary.append(f"全天走势{trend}（幅度 {total_p_change:.2f}%）。")
+        
+        # 早尾盘特征
+        if abs(p_change_early) > 0.5:
+            direction = "上攻" if p_change_early > 0 else "下杀"
+            summary.append(f"早盘开盘后{direction}（{p_change_early:.2f}%）。")
+            
+        if abs(p_change_late) > 0.5:
+            direction = "抢筹" if p_change_late > 0 else "跳水"
+            summary.append(f"尾盘出现{direction}迹象（{p_change_late:.2f}%）。")
+            
+        # 量能特征
+        if high_vol_count > 0:
+            summary.append(f"全天出现 {high_vol_count} 次明显放量异动。")
+        else:
+            summary.append("全天量能平稳，无显著异动。")
+            
+        return "".join(summary)
+        
+    except Exception as e:
+        return f"分时分析错误: {str(e)}"
+
