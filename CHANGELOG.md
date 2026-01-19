@@ -5,6 +5,25 @@ All notable changes to the **MarketMonitorAndBuyer** project will be documented 
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.2.1] - 2026-01-19 (Research Workflow Decoupling)
+### Changed (优化)
+- **流程重构**: 将秘塔深度研究从 AI 研判流程中剥离，使其成为情报数据库的可选操作。
+- **效率提升**: AI 深度研判现在直接基于已有情报库生成策略，生成速度显著提升。
+- **UI 调整**: 秘塔搜索按钮已移至 "🗃️ 股票情报数据库 (Intelligence Hub)" 中。
+
+## [1.1.1] - 2026-01-19 (UI Polish & Stability Update)
+### Added (新增)
+- **隐私保护**: 持仓看板现支持点击折叠，默认隐藏以保护隐私。
+
+### ✨ 优化功能 (Improved Features)
+- **建议显示优化**：将 AI 建议中的长文本注释（如仓位解释）从主体指标中分离，单独以小字注释形式显示，解决显示不全的问题。
+- **UI 布局压缩**：进一步缩小按钮尺寸并压缩分割线间距，提升界面信息密度。
+- **UI 增强**: AI 深度研判与算法建议布局优化，逻辑层级更清晰。
+
+### Fixed (修复)
+- **算法逻辑**: 修正了部分买入信号下头寸计算为负数的 Bug。
+- **实时刷新**: 修复了 AI 策略生成后 UI 不会自动更新的问题。
+
 ## [1.1.0] - 2026-01-18 (Intelligence Era Update)
 ### Added (新增)
 - **AI 独立策略看板**: 新增 "🧠 AI Independent Strategy" 标签页，提供基于 DeepSeek Reasoner 的独立交易建议 (v1.1.0)。

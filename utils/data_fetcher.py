@@ -4,6 +4,7 @@ import streamlit as st
 import os
 from typing import List, Dict, Optional
 from utils.time_utils import is_trading_time
+from datetime import datetime, time
 
 STOCK_LIST_PATH = "stock_data/stock_list.parquet"
 
@@ -67,6 +68,22 @@ def get_etf_spot_long_cache() -> pd.DataFrame:
     """
     should_fetch = is_trading_time() or not os.path.exists(ETF_SPOT_PATH)
     
+    # Extra Check: If file exists but is stale (not from today or before close)
+    if not should_fetch:
+         try:
+             mtime = os.path.getmtime(ETF_SPOT_PATH)
+             file_dt = datetime.fromtimestamp(mtime)
+             now = datetime.now()
+             
+             # 1. File is from previous day -> fetch
+             if file_dt.date() < now.date():
+                 should_fetch = True
+             # 2. Today is weekday, now > 15:05, but file < 15:00 -> fetch (get closing price)
+             elif now.weekday() < 5 and now.time() > time(15, 5) and file_dt.time() < time(15, 0):
+                 should_fetch = True
+         except:
+             should_fetch = True
+
     if should_fetch:
         try:
             df = ak.fund_etf_spot_em()
@@ -93,6 +110,22 @@ def get_stock_spot_long_cache() -> pd.DataFrame:
     Long cached version for off-hours (Using Local File).
     """
     should_fetch = is_trading_time() or not os.path.exists(STOCK_SPOT_PATH)
+    
+    # Extra Check: If file exists but is stale
+    if not should_fetch:
+         try:
+             mtime = os.path.getmtime(STOCK_SPOT_PATH)
+             file_dt = datetime.fromtimestamp(mtime)
+             now = datetime.now()
+             
+             # 1. File is from previous day -> fetch
+             if file_dt.date() < now.date():
+                 should_fetch = True
+             # 2. Today is weekday, now > 15:05, but file < 15:00 -> fetch (get closing price)
+             elif now.weekday() < 5 and now.time() > time(15, 5) and file_dt.time() < time(15, 0):
+                 should_fetch = True
+         except:
+             should_fetch = True
     
     if should_fetch:
         try:
@@ -246,7 +279,9 @@ def aggregate_minute_to_daily(df: pd.DataFrame, precision: int = 2) -> str:
         
     return "\n".join(lines)
 
-FUND_FLOW_CACHE_PATH = "stock_data/fund_flow_cache.parquet"
+    return "\n".join(lines)
+
+# FUND_FLOW_CACHE_PATH = "stock_data/fund_flow_cache.parquet" # DEPRECATED
 
 def _get_fund_flow_cache() -> pd.DataFrame:
     """
@@ -297,25 +332,105 @@ def _get_fund_flow_cache() -> pd.DataFrame:
     
     return pd.DataFrame()
 
+def _get_market_code(symbol: str) -> str:
+    """
+    Indentify market code for AkShare fund flow API.
+    sh: 6*, 9*
+    sz: 0*, 3*
+    bj: 4*, 8*
+    """
+    if symbol.startswith(('6', '9')):
+        return 'sh'
+    if symbol.startswith(('0', '3')):
+        return 'sz'
+    if symbol.startswith(('4', '8')):
+        return 'bj'
+    return 'sh' # Default fallback
+
+FUND_FLOW_DIR = "stock_data/fund_flow"
+
+def get_stock_fund_flow_history(symbol: str, force_update: bool = False) -> pd.DataFrame:
+    """
+    Fetch historical fund flow data for a single stock.
+    Returns DataFrame with columns like: 日期, 收盘价, 主力净流入-净额, etc.
+    """
+    # Ensure directory
+    if not os.path.exists(FUND_FLOW_DIR):
+        os.makedirs(FUND_FLOW_DIR)
+        
+    cache_path = os.path.join(FUND_FLOW_DIR, f"{symbol}.parquet")
+    
+    should_fetch = True
+    
+    # 1. Check Cache
+    if not force_update and os.path.exists(cache_path):
+        try:
+            mtime = os.path.getmtime(cache_path)
+            file_dt = datetime.fromtimestamp(mtime)
+            now = datetime.now()
+            
+            # If file is from today and it's after trading hours, or just recent enough
+            # Simple logic: If today is weekday and trading, we might want fresh data.
+            # If file updated today, good enough.
+            if file_dt.date() == now.date():
+                should_fetch = False
+        except:
+            pass
+
+    if not should_fetch:
+        try:
+            df = pd.read_parquet(cache_path)
+            if not df.empty:
+                return df
+        except:
+            should_fetch = True
+            
+    # 2. Fetch from API
+    if should_fetch:
+        try:
+            market = _get_market_code(symbol)
+            # API: ak.stock_individual_fund_flow(stock="600519", market="sh")
+            df = ak.stock_individual_fund_flow(stock=symbol, market=market)
+            
+            if df is not None and not df.empty:
+                # Clean numeric columns (handle string/object types)
+                for col in df.columns:
+                    if col != '日期':
+                        df[col] = pd.to_numeric(df[col], errors='coerce')
+                
+                # Sort by date
+                if '日期' in df.columns:
+                    df['日期'] = pd.to_datetime(df['日期'])
+                    df = df.sort_values('日期')
+                
+                # Save
+                df.to_parquet(cache_path)
+                return df
+        except Exception as e:
+            print(f"Error fetching fund flow history for {symbol}: {e}")
+            # Fallback to cache if exists (even if stale)
+            if os.path.exists(cache_path):
+                try:
+                    return pd.read_parquet(cache_path)
+                except:
+                    pass
+                    
+    return pd.DataFrame()
+
 def get_stock_fund_flow(symbol: str) -> dict:
     """
-    获取个股资金流向数据 (Fund Flow)。
-    优先从本地缓存获取，缓存不存在或过期时从 API 获取并保存。
+    获取个股资金流向数据 (Fund Flow) - Latest Snapshot.
+    Wraps get_stock_fund_flow_history for backward compatibility.
     """
     try:
-        # 获取缓存数据 (自动处理过期逻辑)
-        df = _get_fund_flow_cache()
+        # 获取完整历史
+        df = get_stock_fund_flow_history(symbol)
         
-        if df is None or df.empty:
-            return {"error": "无数据"}
+        if df.empty:
+            return {"error": "无数据 (History Empty)"}
         
-        # 筛选目标股票 (按代码匹配)
-        target = df[df['代码'] == symbol]
-        
-        if target.empty:
-            return {"error": f"未找到 {symbol} 的资金流向数据"}
-        
-        latest = target.iloc[0]
+        # Take latest row
+        latest = df.iloc[-1]
         
         def safe_format(val, divisor=10000):
             """安全格式化数值"""
@@ -327,7 +442,11 @@ def get_stock_fund_flow(symbol: str) -> dict:
                 return "N/A"
         
         def safe_pct(val):
-            """安全格式化百分比"""
+            """安全格式化百分比 (Already percent in history data?)
+               Note: API returns '主力净流入-净占比' as e.g. 5.12 (meaning 5.12%) or 0.0512?
+               Let's check sample output:
+               Sample: '中单净流入-净占比': 8.83 -> likely 8.83%
+            """
             try:
                 if pd.isna(val):
                     return "N/A"
@@ -335,19 +454,19 @@ def get_stock_fund_flow(symbol: str) -> dict:
             except:
                 return "N/A"
         
-        # 安全获取最新价
-        price_val = latest.get("最新价", "N/A")
-        if pd.isna(price_val): 
-            price_val = "N/A"
+        # Map columns from History API to Expected Keys
+        # History Cols: 日期, 收盘价, 涨跌幅, 主力净流入-净额, 主力净流入-净占比, ...
+        
+        price_val = latest.get("收盘价", "N/A")
         
         result = {
-            "名称": str(latest.get("名称", symbol)),
+            "名称": symbol, # History API doesn't return Name, use symbol
             "最新价": str(price_val),
-            "涨跌幅": safe_pct(latest.get("今日涨跌幅", 0)),
-            "主力净流入": safe_format(latest.get("今日主力净流入-净额", 0)),
-            "主力净占比": safe_pct(latest.get("今日主力净流入-净占比", 0)),
-            "超大单净流入": safe_format(latest.get("今日超大单净流入-净额", 0)),
-            "大单净流入": safe_format(latest.get("今日大单净流入-净额", 0)),
+            "涨跌幅": safe_pct(latest.get("涨跌幅", 0)),
+            "主力净流入": safe_format(latest.get("主力净流入-净额", 0)),
+            "主力净占比": safe_pct(latest.get("主力净流入-净占比", 0)),
+            "超大单净流入": safe_format(latest.get("超大单净流入-净额", 0)),
+            "大单净流入": safe_format(latest.get("大单净流入-净额", 0)),
         }
         
         return result

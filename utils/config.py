@@ -32,7 +32,8 @@ DEFAULT_CONFIG = {
     - 底池大小 (支撑位): {support}
     - 对手筹码 (阻力位): {resistance}
     - 信号: {signal} ({reason})
-    - 下注大小 (动作): {quantity} 股 (目标仓位: {target_position}), 弃牌线 (止损): {stop_loss}
+    - 计算依据: 本股资金限额 {capital_allocation} 元, 总资金 {total_capital} 元, 当前持有 {current_shares} 股。
+    - 下注大小 (动作): {quantity} 股 (目标总持仓: {target_position} 股), 弃牌线 (止损): {stop_loss}
     (注: 如果 止损线 > 成本，则为盈利保护/移动止盈；如果 < 成本，则为原始止损。)
     """,
         "deepseek_research_suffix": """
@@ -52,12 +53,15 @@ DEFAULT_CONFIG = {
     1. 结合【核心交易数据】（技术面/量化面）与【情报】（基本面/消息面）进行综合研判。
     2. 如果消息面与技术面冲突，请重点说明风险。
     3. 给出最终的操作建议。
-        """,
+    4. **特别要求**: 在【决策摘要】中，必须明确给出“建议股数” (具体整数，如 200) 而不是百分比比例。
+       - 格式要求: `建议股数: [具体数字]` (示例: `建议股数: 500`)
+       - 参考根据: 根据“本股资金限额”和“当前价格”计算出该持有的总股数，再减去“当前持有”得出本次应操作的股数。
+    """,
         "deepseek_simple_suffix": """
     【任务】
     1. 深度思考当前盘面逻辑。
     2. 给出明确操作建议（买/卖/观望）。
-        """,
+    """,
         "gemini_base": """
         As a senior A-share investment strategist, please provide an aggressive short-term analysis of {name} ({code}) based on the following data:
         

@@ -29,7 +29,7 @@ def save_intel_db(db: Dict):
 def get_claims(code: str) -> List[Dict]:
     db = load_intel_db()
     claims = db.get(code, [])
-    # Sort by timestamp descending (Newest Event Date first)
+    # Sort by timestamp descending (Event Date first)
     # Timestamp format is "YYYY-MM-DD HH:MM"
     claims.sort(key=lambda x: x.get("timestamp", ""), reverse=True)
     return claims
@@ -37,18 +37,18 @@ def get_claims(code: str) -> List[Dict]:
 def get_claims_for_prompt(code, hours=None):
     """
     Format claims for LLM prompt.
-    If hours is provided, filters by time window.
-    If hours is None (default), returns all active claims.
+    If hours is provided, filters by time window (based on entry time).
+    Already sorted by get_claims (Event Date desc).
     """
     claims = get_claims(code)
     if not claims:
         return ""
     
-    # Sort by time, newest first
-    claims.sort(key=lambda x: x['timestamp'], reverse=True)
-    
     cutoff = 0
     if hours:
+        # Use a secondary field or just filter the sorted list.
+        # Since timestamp is now EventDate + Time, hours filter might be tricky if it spans years.
+        # But for 'Recent' context, we just take the top items.
         cutoff = datetime.now().timestamp() - (hours * 3600)
     
     verified_list = []
@@ -57,9 +57,11 @@ def get_claims_for_prompt(code, hours=None):
     
     for c in claims:
         try:
-            ts = datetime.strptime(c['timestamp'], "%Y-%m-%d %H:%M").timestamp()
+            # Timestamp is "YYYY-MM-DD HH:MM"
+            ts_dt = datetime.strptime(c['timestamp'], "%Y-%m-%d %H:%M")
+            ts = ts_dt.timestamp()
             
-            # Filter if hours limit is set
+            # Filter if hours limit is set (relative to current time)
             if hours and ts < cutoff:
                 continue
 
@@ -135,20 +137,11 @@ def add_claims(code: str, claims: List[any], source: str = "Metaso"):
                 new_lines.append(f"• [{current_time_str}] {text}")
             
             if new_lines:
-                if not target_entry['content'].startswith("•"):
-                    target_entry['content'] += "\n" + "\n".join(new_lines)
-                else:
-                    target_entry['content'] += "\n" + "\n".join(new_lines)
-                # Keep the DATE part of timestamp, but maybe update time? 
-                # Actually, if we update timestamp to NOW, it changes the sort order to "Recently Updated".
-                # But user wants "Event Date" view.
-                # If we change timestamp, we lose the "Day" grouping if we rely on timestamp for date.
-                # So we must NOT change the DATE part of timestamp.
-                # Just update the time part? Or leave it as 00:00?
-                # Let's leave it alone to preserve the Event Date key.
-                # Or set it to "YYYY-MM-DD 23:59" to show it's new? 
-                # Let's keep it consistent.
-                pass
+                target_entry['content'] += "\n" + "\n".join(new_lines)
+                # Note: We keep the DATE part of timestamp to preserve the Event Date key.
+                # However, updating the time part to the LATEST recording time allows 
+                # items with the same DATE to be sorted by update time.
+                target_entry['timestamp'] = f"{date_key} {current_time_str}"
                 
         else:
             # Create New
@@ -156,8 +149,7 @@ def add_claims(code: str, claims: List[any], source: str = "Metaso"):
             new_item = {
                 "id": str(uuid.uuid4())[:8],
                 "content": "\n".join(formatted),
-                "timestamp": f"{date_key} {current_time_str}", # Use current time for creation?
-                # But if date_key is "2023-01-01", setting timestamp to "2023-01-01 12:00" is fine.
+                "timestamp": f"{date_key} {current_time_str}", 
                 "source": source,
                 "status": "pending",
                 "note": "",

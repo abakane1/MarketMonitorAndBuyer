@@ -224,3 +224,18 @@ def find_duplicate_candidates(api_key: str, claims: list) -> list:
     except Exception as e:
         print(f"Dedupe Error: {e}")
         return []
+
+def extract_bracket_content(text: str) -> tuple[str, str]:
+    """
+    Splits a string like "1234股 (Explanation)" into ("1234股", "Explanation").
+    Returns (original_text, "") if no brackets found.
+    """
+    if not text or text == "N/A" or text == "--":
+        return text, ""
+    
+    # Match something followed by (anything)
+    match = re.search(r"^(.*?)\s*\((.*?)\)\s*$", text)
+    if match:
+        return match.group(1).strip(), match.group(2).strip()
+    
+    return text.strip(), ""

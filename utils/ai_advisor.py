@@ -1,9 +1,10 @@
 import requests
 import json
+import pandas as pd
 
 from google import genai
 
-def ask_deepseek_advisor(api_key, context_data, research_context="", technical_indicators=None, fund_flow_data=None, prompt_templates=None, suffix_key="deepseek_research_suffix"):
+def ask_deepseek_advisor(api_key, context_data, research_context="", technical_indicators=None, fund_flow_data=None, fund_flow_history=None, prompt_templates=None, suffix_key="deepseek_research_suffix"):
     """
     Calls DeepSeek API (Reasoning Model) for short-term trading advice.
     """
@@ -40,9 +41,46 @@ def ask_deepseek_advisor(api_key, context_data, research_context="", technical_i
         capital_flow_str = "N/A"
         if fund_flow_data and not fund_flow_data.get("error"):
             flow_lines = [f"{k}: {v}" for k, v in fund_flow_data.items()]
-            capital_flow_str = " | ".join(flow_lines)
+            fund_lines = [" | ".join(flow_lines)]
         elif fund_flow_data and fund_flow_data.get("error"):
-            capital_flow_str = f"获取失败: {fund_flow_data.get('error')}"
+            fund_lines = [f"当日数据获取失败: {fund_flow_data.get('error')}"]
+        else:
+            fund_lines = []
+
+        # 格式化历史资金流向 (追加)
+        if fund_flow_history is not None and not fund_flow_history.empty:
+            try:
+                # Limit to last 20 days to save tokens, but give enough trend
+                recent = fund_flow_history.tail(20)
+                
+                table_lines = ["\n**近20交易日资金流向趋势:**", "| 日期 | 收盘 | 涨跌% | 主力净流入(万) | 超大单(万) | 大单(万) |", "|---|---|---|---|---|---|"]
+                
+                for _, row in recent.iterrows():
+                    # Safely get values
+                    d = row['日期'].strftime('%m-%d') if hasattr(row['日期'], 'strftime') else str(row['日期'])[:10]
+                    c = row.get('收盘价', 0)
+                    p = row.get('涨跌幅', 0)
+                    if pd.isna(p): p = 0
+                    
+                    # Convert raw values to Wan
+                    def to_wan(v):
+                        try:
+                            if pd.isna(v): return "0"
+                            return f"{float(v)/10000:.0f}"
+                        except:
+                            return str(v)
+                            
+                    m_flow = to_wan(row.get('主力净流入-净额', 0))
+                    s_flow = to_wan(row.get('超大单净流入-净额', 0))
+                    b_flow = to_wan(row.get('大单净流入-净额', 0))
+                    
+                    table_lines.append(f"| {d} | {c} | {p:.2f} | {m_flow} | {s_flow} | {b_flow} |")
+                
+                fund_lines.append("\n".join(table_lines))
+            except Exception as e:
+                fund_lines.append(f"\n(历史数据格式化错误: {e})")
+        
+        capital_flow_str = "\n".join(fund_lines) if fund_lines else "N/A"
         
         suffix_data = {
             "daily_stats": technical_indicators.get('daily_stats', 'N/A'),

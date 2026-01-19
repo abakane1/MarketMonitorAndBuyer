@@ -2,12 +2,14 @@ import pandas as pd
 import numpy as np
 from typing import Dict, Tuple
 
+
 def analyze_volume_profile_strategy(
     current_price: float, 
     vol_profile: pd.DataFrame, 
     total_capital: float, 
     risk_per_trade: float = 0.02,
-    current_shares: int = 0
+    current_shares: int = 0,
+    proximity_threshold: float = 0.03 # Default 3%
 ) -> Dict:
     """
     Analyzes Volume Profile to generate trading signals.
@@ -17,8 +19,8 @@ def analyze_volume_profile_strategy(
     2. Nearest HVN below price = Support.
     3. Nearest HVN above price = Resistance.
     4. Signal:
-       - If price is within 1% of Support -> BUY. Stop Loss = Support - 2%.
-       - If price is within 1% of Resistance -> SELL. Stop Loss = Resistance + 2%.
+       - If price is within proximity_threshold of Support -> BUY. Stop Loss = Support - 2%.
+       - If price is within proximity_threshold of Resistance -> SELL. Stop Loss = Resistance + 2%.
        - Else -> WAIT.
        
     Returns dict with keys: 'signal', 'support', 'resistance', 'stop_loss', 'quantity', 'reason'
@@ -36,36 +38,44 @@ def analyze_volume_profile_strategy(
     # But better: Iterate prices to find nearest strong levels.
     
     # 1. Separate profile into Above and Below current price
-    # Use inclusive comparison to catch the peak if we are sitting exactly ON it
-    df_below = vol_profile[vol_profile['price_bin'] <= current_price]
-    df_above = vol_profile[vol_profile['price_bin'] >= current_price]
+    # Use STRICT inequality to avoid finding the current price bin as both support and resistance
+    # If we are standing exactly on a massive volume node, we need to find the NEXT levels.
+    df_below = vol_profile[vol_profile['price_bin'] < current_price]
+    df_above = vol_profile[vol_profile['price_bin'] > current_price]
     
     support = 0.0
     resistance = float('inf')
     
-    # Find Support (Strongest volume node below or at)
+    # Find Support (Strongest volume node strictly below)
     if not df_below.empty:
         support_row = df_below.loc[df_below['成交量'].idxmax()]
         support = support_row['price_bin']
+    else:
+        # Fallback: if no data below, use current or min
+        support = current_price
         
-    # Find Resistance (Strongest volume node above or at)
+    # Find Resistance (Strongest volume node strictly above)
     if not df_above.empty:
         resistance_row = df_above.loc[df_above['成交量'].idxmax()]
         resistance = resistance_row['price_bin']
+    else:
+        # Fallback: if no data above, use infinity or max?
+        resistance = current_price # Means no resistance found above
         
     # 2. Determine Signal
     signal = "观望" # Wait
     stop_loss = 0.0
     reason = ""
     
-    # Thresholds (e.g., 2% proximity)
-    proximity_pct = 0.03
+    # Thresholds (Use argument)
+    proximity_pct = proximity_threshold
     
     # Check Support Buy
     if support > 0 and (current_price - support) / current_price <= proximity_pct:
         signal = "买入"
         stop_loss = support * 0.98 # Stop below support
-        reason = f"价格接近下方筹码支撑位 {support}"
+        diff_pct = ((current_price - support) / current_price) * 100
+        reason = f"价格接近下方筹码支撑位 {support} (现价 {current_price}, 差距 {diff_pct:.2f}%)"
     
     # Check Resistance Sell
     elif resistance != float('inf') and (resistance - current_price) / current_price <= proximity_pct:
@@ -73,7 +83,8 @@ def analyze_volume_profile_strategy(
         # For Long-Only: Sell signal means exit now. 
         # Setting stop_loss to current_price to indicate immediate exit trigger.
         stop_loss = current_price 
-        reason = f"价格接近上方筹码阻力位 {resistance}"
+        diff_pct = ((resistance - current_price) / current_price) * 100
+        reason = f"价格接近上方筹码阻力位 {resistance} (现价 {current_price}, 差距 {diff_pct:.2f}%)"
         
     else:
         # Wait / Hold
@@ -81,7 +92,12 @@ def analyze_volume_profile_strategy(
         # If holding, we need a guard. Use Support.
         if support > 0:
             stop_loss = support * 0.96 # Wider stop for holding
-        reason = f"位于支撑 {support} 与阻力 {resistance} 之间"
+        
+        # Calculate distance to nearest level for clear reason
+        dist_supp = ((current_price - support) / current_price) * 100 if support > 0 else 999
+        dist_res = ((resistance - current_price) / current_price) * 100 if resistance != float('inf') else 999
+        
+        reason = f"位于支撑 {support} (-{dist_supp:.2f}%) 与阻力 {resistance} (+{dist_res:.2f}%) 之间"
 
     # 3. Position Sizing
     # Max Loss Amount = Capital * Risk
@@ -101,9 +117,46 @@ def analyze_volume_profile_strategy(
     # Calculate Action (Delta)
     action_shares = target_position - current_shares
     
-    # Round down to 100 for valid trade
-    # If action is small (e.g. 50 shares), ignore or set to 0?
-    # Keep it raw for now, logic can handle it.
+    # Fix: If BUY signal but we already have more shares than target, 
+    # we should NOT suggest selling (negative action). We just don't buy more.
+    if signal == "买入" and action_shares < 0:
+        action_shares = 0
+    
+    # 4. Consistency Check: Sync Signal with Quantity
+    # Logic: "Buy" signal MUST have positive quantity. If 0, it means "Hold" (full position).
+    if signal == "买入" and action_shares == 0:
+        signal = "持股"
+        reason += " (仓位已满/风控限制)"
+        
+    # Logic: "Sell" signal should trigger exit. 
+    # If we have no shares, we are just 'Watching'
+    if signal == "卖出" and current_shares == 0:
+        signal = "观望"
+        action_shares = 0
+    
+    # Calculate Take Profit / Target
+    take_profit = 0.0
+    # Use original signal logic or current signal? 
+    # If now "持股", we still want to see the Target (Take Profit). 
+    # So we check if we are in "Buy" or "Hold" mode (Long bias).
+    if signal in ["买入", "持股"]:
+        # Target usually Resistance
+        if resistance != float('inf'):
+            take_profit = resistance
+        else:
+            # If no resistance above, maybe 1.5x risk
+            risk_dist = current_price - stop_loss
+            if risk_dist > 0:
+                take_profit = current_price + (risk_dist * 2.0) # 2.0 R ratio
+                
+    elif signal in ["卖出", "观望"]:
+        # Target usually Support
+        if support > 0:
+            take_profit = support
+        else:
+            risk_dist = stop_loss - current_price
+            if risk_dist > 0:
+                take_profit = current_price - (risk_dist * 2.0)
     
     return {
         "signal": signal,
@@ -111,7 +164,9 @@ def analyze_volume_profile_strategy(
         "support": support,
         "resistance": resistance if resistance != float('inf') else "无",
         "stop_loss": round(stop_loss, 4),
+        "take_profit": round(take_profit, 4) if take_profit > 0 else "N/A",
         "quantity": action_shares, # This is the DELTA (Bet Size)
         "target_position": target_position,
         "reason": reason
     }
+
