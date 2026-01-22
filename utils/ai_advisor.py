@@ -174,6 +174,9 @@ def build_advisor_prompt(context_data, research_context="", technical_indicators
             "research_context": final_research_context,
             "capital_flow": capital_flow_str
         }
+        # Merge context_data to provide access to 'price', 'code', 'name' etc. in suffix
+        if context_data:
+            suffix_data.update(context_data)
         try:
             base_prompt += suffix_tpl.format(**suffix_data)
         except KeyError as e:

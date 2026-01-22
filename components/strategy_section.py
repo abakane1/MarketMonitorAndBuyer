@@ -205,21 +205,29 @@ def render_strategy_section(code: str, name: str, price: float, shares_held: int
 
         st.markdown("---")
         # Control Buttons
-        start_new = False
-        
-        # 确定市场状态
         from utils.time_utils import is_trading_time
         market_open = is_trading_time()
         
-        btn_label = "⚡ 生成盘中对策 (Intra-day Tactic)" if market_open else "💡 生成盘前策略 (Pre-market Plan)"
+        c_p1, c_p2 = st.columns(2)
+        start_pre = False
+        start_intra = False
         
-        if st.button(btn_label, key=f"btn_new_{code}", use_container_width=True):
-             start_new = True
-             
-        if start_new:
-             target_suffix_key = "deepseek_new_strategy_suffix"
-             if market_open:
-                 target_suffix_key = "deepseek_intraday_suffix"
+        with c_p1:
+            if st.button("💡 生成盘前策略 (Pre-market)", key=f"btn_pre_{code}", use_container_width=True):
+                target_suffix_key = "deepseek_new_strategy_suffix"
+                start_pre = True
+        
+        with c_p2:
+            if st.button("⚡ 生成盘中对策 (Intra-day)", key=f"btn_intra_{code}", use_container_width=True):
+                target_suffix_key = "deepseek_intraday_suffix"
+                start_intra = True
+
+        if start_pre or start_intra:
+            warning_msg = None
+            if start_pre and market_open:
+                warning_msg = "⚠️ 警告: 市场正在交易中，您选择了【盘前策略】。盘前计划可能不包含最新的盘口特征。"
+            if start_intra and not market_open:
+                warning_msg = "⚠️ 警告: 市场已休市或未开盘，您选择了【盘中对策】。缺乏实时盘口数据可能导致AI判断失真。"
                  
              prompts = load_config().get("prompts", {})
              if not deepseek_api_key:
@@ -272,7 +280,8 @@ def render_strategy_section(code: str, name: str, price: float, shares_held: int
                      st.session_state[f"preview_prompt_{code}"] = {
                          "sys_p": sys_p,
                          "user_p": user_p,
-                         "target_suffix_key": target_suffix_key # Keep track of mode
+                         "target_suffix_key": target_suffix_key, # Keep track of mode
+                         "warning_msg": warning_msg
                      }
                      st.rerun()
 
@@ -282,6 +291,9 @@ def render_strategy_section(code: str, name: str, price: float, shares_held: int
             preview_data = st.session_state[preview_key]
             
             st.info("🔎 **提示词预览 (Prompt Preview)** - 请确认后发送")
+            
+            if preview_data.get("warning_msg"):
+                st.warning(preview_data["warning_msg"])
             
             with st.expander("查看完整提示词内容", expanded=True):
                 full_text = f"【System Prompt】\n{preview_data['sys_p']}\n\n【User Prompt】\n{preview_data['user_p']}"

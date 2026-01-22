@@ -76,13 +76,17 @@ if app_mode == "提示词中心":
             st.code(prompts.get("deepseek_base", ""), language="text")
             st.caption("💡 说明: 定义了 LAG + GTO 的交易哲学和手牌（点位）描述逻辑。")
         
-        with st.expander("2️⃣ 策略验证后缀 (deepseek_research_suffix)", expanded=False):
-            st.code(prompts.get("deepseek_research_suffix", ""), language="text")
-            st.caption("💡 说明: 用于结合秘塔搜索的情报对算法信号进行“同意/驳回”验证。")
-            
-        with st.expander("3️⃣ 独立策略后缀 (deepseek_new_strategy_suffix)", expanded=False):
+        with st.expander("2️⃣ 盘前策略 (deepseek_new_strategy_suffix)", expanded=False):
             st.code(prompts.get("deepseek_new_strategy_suffix", ""), language="text")
-            st.caption("💡 说明: 用于跳过算法，完全独立构建包含止损止盈的交易计划。")
+            st.caption("💡 说明: 盘前规划专用。用于跳过算法，完全独立构建包含止损止盈的全天交易计划。")
+            
+        with st.expander("3️⃣ 盘中对策 (deepseek_intraday_suffix)", expanded=False):
+            st.code(prompts.get("deepseek_intraday_suffix", ""), language="text")
+            st.caption("💡 说明: 盘中突发决策专用。侧重于实时盘口分析、极窄止损和即时行动建议。")
+
+        with st.expander("4️⃣ [已弃用] 策略验证后缀 (deepseek_research_suffix)", expanded=False):
+            st.code(prompts.get("deepseek_research_suffix", ""), language="text")
+            st.caption("💡 说明: 旧版本用于验证算法信号的功能 (已合并或下线)。")
 
         with st.expander("4️⃣ 简单思考后缀 (deepseek_simple_suffix)", expanded=False):
             st.code(prompts.get("deepseek_simple_suffix", ""), language="text")
