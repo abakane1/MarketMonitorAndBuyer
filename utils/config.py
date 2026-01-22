@@ -25,6 +25,7 @@ DEFAULT_CONFIG = {
        - **无差别**: 设置止损/止盈，使市场在止损你和任你运行之间处于无差别状态（最优损益比）。
        - **不可被剥削**: 严格遵守数学期望值（EV），不在波动（洗盘）中产生情绪偏离。
     3. **博弈思维**: 每笔交易都是一次下注。仅在 胜率 * 赔率 > 1 时入场。
+    4. **反人性心态**: 别人恐惧我贪婪，别人贪婪我恐惧。在恐慌盘涌出时寻找流动性（接飞刀），在情绪高潮时提供流动性（止盈）。
     
     【当前手牌数据】
     - 股票名称: {name} ({code})
@@ -151,37 +152,65 @@ def update_position(code, shares, price, action="buy"):
     """
     Updates position based on action.
     action: 'buy' (calculate weighted avg), 'sell' (reduce shares), 'override' (overwrite)
+    Synchronizes both SQLite DB and user_config.json.
     """
+    # 1. Get current position (prefer DB as source of truth for runtime)
     current = db_get_position(code)
     
     curr_shares = current["shares"]
     curr_cost = current["cost"]
     
     timestamp = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+    
+    new_shares = curr_shares
+    new_cost = curr_cost
 
     if action == "buy":
         # Weighted Average
         total_value = (curr_shares * curr_cost) + (shares * price)
         new_shares = curr_shares + shares
+        # Increase precision to 4 decimals to capture small changes
         new_cost = total_value / new_shares if new_shares > 0 else 0.0
+        new_cost = round(new_cost, 4) 
         
-        db_update_position(code, int(new_shares), round(new_cost, 2))
-        
+        db_update_position(code, int(new_shares), new_cost)
         db_add_history(code, timestamp, "buy", price, shares, "手动买入")
         
     elif action == "sell":
-        # Reducing shares does not change Avg Cost per share
+        # Reducing shares does not change Avg Cost per share (Standard Accounting)
         new_shares = max(0, curr_shares - shares)
         # Cost remains same
         db_update_position(code, int(new_shares), curr_cost)
-        
         db_add_history(code, timestamp, "sell", price, shares, "手动卖出")
         
     elif action == "override":
         # Direct clean update
-        db_update_position(code, int(shares), round(price, 2))
+        new_shares = int(shares)
+        new_cost = round(price, 4)
         
+        db_update_position(code, new_shares, new_cost)
         db_add_history(code, timestamp, "override", price, shares, "持仓修正")
+
+    # 2. Sync to user_config.json to ensure consistency
+    try:
+        config = load_config()
+        if "positions" not in config:
+            config["positions"] = {}
+        
+        config["positions"][code] = {
+            "shares": int(new_shares),
+            "cost": float(new_cost)
+        }
+        
+        # Ensure it's in selected_stocks if not already (auto-add)
+        if "selected_stocks" not in config:
+            config["selected_stocks"] = []
+        if code not in config["selected_stocks"] and new_shares > 0:
+             config["selected_stocks"].append(code)
+             
+        save_config(config)
+    except Exception as e:
+        print(f"Error syncing to user_config.json: {e}")
 
 def delete_transaction(code: str, timestamp: str):
     """

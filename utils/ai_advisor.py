@@ -3,30 +3,43 @@ import json
 import pandas as pd
 
 from google import genai
+from utils.storage import load_research_log
+from utils.data_fetcher import calculate_price_limits
+from utils.database import db_get_history
 
-def ask_deepseek_advisor(api_key, context_data, research_context="", technical_indicators=None, fund_flow_data=None, fund_flow_history=None, intraday_summary=None, prompt_templates=None, suffix_key="deepseek_research_suffix"):
+def build_advisor_prompt(context_data, research_context="", technical_indicators=None, fund_flow_data=None, fund_flow_history=None, intraday_summary=None, prompt_templates=None, suffix_key="deepseek_research_suffix", symbol=None):
     """
-    Calls DeepSeek API (Reasoning Model) for short-term trading advice.
+    Constructs the System Prompt and User Prompt for the AI Advisor.
+    Returns: (system_prompt, user_prompt)
     """
-    if not api_key:
-        return "请在侧边栏设置 DeepSeek API Key。", "", ""
-
-    url = "https://api.deepseek.com/v1/chat/completions"
-    
     # 1. Get Templates
     if not prompt_templates:
         prompt_templates = {}
         
     base_tpl = prompt_templates.get("deepseek_base", "")
-    # Dynamic suffix fetching
     suffix_tpl = prompt_templates.get(suffix_key, "")
     simple_suffix_tpl = prompt_templates.get("deepseek_simple_suffix", "")
     
-    # Check if empty (should not happen if config loaded correctly, but fallback safe)
     if not base_tpl:
-        return "Error: Prompt templates missing.", "", ""
+        return "", "Error: Prompt templates missing."
 
     # 2. Format Base
+    # Calculate Price Limits
+    if 'code' in context_data:
+         p_close = float(context_data.get('pre_close', 0))
+         if p_close == 0: p_close = float(context_data.get('price', 0))
+         
+         l_up, l_down = calculate_price_limits(
+             context_data.get('code', ''),
+             context_data.get('name', ''),
+             p_close
+         )
+         context_data['limit_up'] = l_up
+         context_data['limit_down'] = l_down
+    else:
+         context_data['limit_up'] = "N/A"
+         context_data['limit_down'] = "N/A"
+
     try:
         base_prompt = base_tpl.format(**context_data)
     except KeyError as e:
@@ -35,9 +48,8 @@ def ask_deepseek_advisor(api_key, context_data, research_context="", technical_i
     # 3. Append Suffix
     if technical_indicators and suffix_tpl:
         # Prepare data for suffix
-        # Suffix expects: macd, kdj, rsi, ma, bollinger, tech_summary, research_context, capital_flow
         
-        # 格式化资金流向数据
+        # Format Fund Flow
         capital_flow_str = "N/A"
         if fund_flow_data and not fund_flow_data.get("error"):
             flow_lines = [f"{k}: {v}" for k, v in fund_flow_data.items()]
@@ -47,12 +59,10 @@ def ask_deepseek_advisor(api_key, context_data, research_context="", technical_i
         else:
             fund_lines = []
 
-        # 格式化历史资金流向 (追加)
+        # Format History Fund Flow
         if fund_flow_history is not None and not fund_flow_history.empty:
             try:
-                # Limit to last 20 days to save tokens, but give enough trend
                 recent = fund_flow_history.tail(20)
-                
                 table_lines = ["\n**近20交易日资金流向趋势:**", "| 日期 | 收盘 | 涨跌% | 主力净流入(万) | 超大单(万) | 大单(万) |", "|---|---|---|---|---|---|"]
                 
                 total_main_flow = 0.0
@@ -60,7 +70,6 @@ def ask_deepseek_advisor(api_key, context_data, research_context="", technical_i
                 total_days = len(recent)
 
                 for _, row in recent.iterrows():
-                    # Safely get values
                     d = row['日期'].strftime('%m-%d') if hasattr(row['日期'], 'strftime') else str(row['日期'])[:10]
                     c = row.get('收盘价', 0)
                     p = row.get('涨跌幅', 0)
@@ -72,7 +81,6 @@ def ask_deepseek_advisor(api_key, context_data, research_context="", technical_i
                         if float(raw_main) > 0:
                             positive_flow_days += 1
 
-                    # Convert raw values to Wan
                     def to_wan(v):
                         try:
                             if pd.isna(v): return "0"
@@ -88,7 +96,6 @@ def ask_deepseek_advisor(api_key, context_data, research_context="", technical_i
                 
                 fund_lines.append("\n".join(table_lines))
                 
-                # 自然语言摘要
                 flow_trend = "流入" if total_main_flow > 0 else "流出"
                 summary_line = (
                     f"\n【资金统计】近{total_days}日主力累计净{flow_trend} {abs(total_main_flow)/10000:.1f}万。 "
@@ -101,8 +108,58 @@ def ask_deepseek_advisor(api_key, context_data, research_context="", technical_i
         
         capital_flow_str = "\n".join(fund_lines) if fund_lines else "N/A"
         
-        # 整合分时数据特征
+        # Format RAG Context (History + Execution)
         final_research_context = research_context if research_context else "无情报"
+        
+        if symbol:
+            try:
+                history_logs = load_research_log(symbol)
+                if history_logs:
+                    # 1. Get Trades
+                    all_trades = db_get_history(symbol)
+                    real_trades = [t for t in all_trades if t['type'] in ['buy', 'sell'] and t.get('amount', 0) > 0]
+                    
+                    history_context_lines = ["\n[历史研判参考 (Previous AI Analysis & User Execution)]"]
+                    
+                    logs_asc = sorted(history_logs, key=lambda x: x['timestamp'])
+                    recent_subset = logs_asc[-3:] 
+                    
+                    from datetime import datetime
+                        
+                    for idx, log in enumerate(recent_subset):
+                        h_ts = log.get('timestamp', 'N/A')
+                        h_res = log.get('result', '')
+                        h_reason = log.get('reasoning', '')
+                        
+                        entry_header = f"\n--- History #{idx+1} ({h_ts}) ---"
+                        history_context_lines.append(entry_header)
+                        history_context_lines.append(f"【决策结论】:\n{h_res}")
+                        
+                        start_time = h_ts
+                        full_idx = logs_asc.index(log)
+                        if full_idx < len(logs_asc) - 1:
+                            end_time = logs_asc[full_idx+1]['timestamp']
+                        else:
+                            end_time = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+                            
+                        matched_tx = []
+                        for t in real_trades:
+                            if start_time <= t['timestamp'] < end_time:
+                                 action = "买入" if t['type'] == 'buy' else "卖出"
+                                 matched_tx.append(f"{action} {int(t['amount'])}股 @ {t['price']}")
+                        
+                        if matched_tx:
+                             history_context_lines.append(f"【⚠️ 用户实际执行 (User Action)】: {'; '.join(matched_tx)}")
+                        else:
+                             history_context_lines.append(f"【用户实际执行】: (无操作 / No Action)")
+
+                        if h_reason:
+                             history_context_lines.append(f"【思考过程】:\n{h_reason}")
+                    
+                    final_research_context += "\n" + "\n".join(history_context_lines)
+            except Exception as e:
+                print(f"Error loading history for RAG: {e}")
+
         if intraday_summary:
             final_research_context += f"\n\n[分时盘口特征]\n{intraday_summary}"
 
@@ -125,44 +182,66 @@ def ask_deepseek_advisor(api_key, context_data, research_context="", technical_i
     elif simple_suffix_tpl:
         base_prompt += simple_suffix_tpl
 
-    headers = {
-        "Content-Type": "application/json",
-        "Authorization": f"Bearer {api_key}"
-    }
-
-    # System Prompt: 注入交易哲学
+    # System Prompt
     system_prompt = (
         "你是一位专业的股票交易员，奉行 'LAG + GTO' 交易哲学。\n"
         "【核心心法】：别人恐惧我贪婪，别人贪婪我恐惧。\n"
         "【分析要求】：在分析时，请极度重视市场情绪的逆向博弈，不要盲从技术指标，要结合对手盘思维。\n"
-        "请基于提供的数据（包含资金流向、分时特征、技术指标、市场情报）给出明确的操作建议。"
+        "请基于提供的数据（包含资金流向、分时特征、技术指标、市场情报以及历史研判记录）给出明确的操作建议。"
     )
+    
+    return system_prompt, base_prompt
 
-    # Use 'deepseek-reasoner' for thinking mode
+def call_deepseek_api(api_key, system_prompt, user_prompt):
+    """
+    Executes the API call to DeepSeek.
+    """
+    if not api_key:
+        return "Error: Missing API Key", ""
+
+    url = "https://api.deepseek.com/v1/chat/completions"
+    headers = {
+        "Content-Type": "application/json",
+        "Authorization": f"Bearer {api_key}"
+    }
+    
     payload = {
         "model": "deepseek-reasoner",
         "messages": [
             {"role": "system", "content": system_prompt},
-            {"role": "user", "content": base_prompt}
+            {"role": "user", "content": user_prompt}
         ],
         "temperature": 0.6
     }
     
     try:
-        response = requests.post(url, headers=headers, json=payload, timeout=60)
+        response = requests.post(url, headers=headers, json=payload, timeout=90)
         if response.status_code == 200:
             res_json = response.json()
             message = res_json['choices'][0]['message']
-            
-            # Extract content and reasoning
             content = message.get('content', '')
-            reasoning = message.get('reasoning_content', '') # DeepSeek specific
-            
-            return content, reasoning, base_prompt
+            reasoning = message.get('reasoning_content', '')
+            return content, reasoning
         else:
-            return f"API请求失败: {response.status_code} - {response.text}", "", base_prompt
+            return f"API Error {response.status_code}: {response.text}", ""
     except Exception as e:
-        return f"请求异常: {str(e)}", "", base_prompt
+        return f"Request Failed: {e}", ""
+
+def ask_deepseek_advisor(api_key, context_data, research_context="", technical_indicators=None, fund_flow_data=None, fund_flow_history=None, intraday_summary=None, prompt_templates=None, suffix_key="deepseek_research_suffix", symbol=None):
+    """
+    Wrapper for backward compatibility.
+    """
+    sys_p, user_p = build_advisor_prompt(
+        context_data, research_context, technical_indicators, 
+        fund_flow_data, fund_flow_history, intraday_summary, 
+        prompt_templates, suffix_key, symbol
+    )
+    
+    if "Error" in user_p and sys_p == "":
+        return user_p, "", ""
+        
+    content, reasoning = call_deepseek_api(api_key, sys_p, user_p)
+    return content, reasoning, user_p
 
 def ask_gemini_advisor(api_key, context_data, prompt_templates=None):
     """

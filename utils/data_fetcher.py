@@ -2,9 +2,37 @@ import akshare as ak
 import pandas as pd
 import streamlit as st
 import os
+import logging
 from typing import List, Dict, Optional
 from utils.time_utils import is_trading_time
 from datetime import datetime, time
+
+# --- 日志配置 ---
+logger = logging.getLogger(__name__)
+if not logger.handlers:
+    handler = logging.StreamHandler()
+    handler.setFormatter(logging.Formatter(
+        '%(asctime)s - %(name)s - %(levelname)s - %(message)s'
+    ))
+    logger.addHandler(handler)
+    logger.setLevel(logging.INFO)
+
+
+# --- 自定义异常类 ---
+class DataFetchError(Exception):
+    """数据获取失败（网络/API 错误）"""
+    pass
+
+
+class DataParseError(Exception):
+    """数据解析失败"""
+    pass
+
+
+class DataNotFoundError(Exception):
+    """数据不存在"""
+    pass
+
 
 STOCK_LIST_PATH = "stock_data/stock_list.parquet"
 
@@ -18,9 +46,12 @@ def get_all_stocks_list(force_update: bool = False) -> pd.DataFrame:
         try:
             df = pd.read_parquet(STOCK_LIST_PATH)
             if not df.empty:
+                logger.debug(f"从本地缓存加载股票列表: {len(df)} 条")
                 return df
-        except Exception:
-            pass # Fallback to fetch
+        except FileNotFoundError:
+            logger.info("本地缓存文件不存在，将从 API 获取")
+        except Exception as e:
+            logger.warning(f"读取本地缓存失败: {type(e).__name__}: {e}")
             
     # 2. Fetch from AkShare
     try:
@@ -46,9 +77,14 @@ def get_all_stocks_list(force_update: bool = False) -> pd.DataFrame:
         df_final.to_parquet(STOCK_LIST_PATH)
         
         return df_final
+    except ConnectionError as e:
+        logger.error(f"网络连接失败: {e}")
+        return pd.DataFrame(columns=['代码', '名称'])
+    except KeyError as e:
+        logger.error(f"API 返回数据缺少必要字段: {e}")
+        return pd.DataFrame(columns=['代码', '名称'])
     except Exception as e:
-        print(f"Error fetching stock/etf list: {e}")
-        # Return empty if both fail
+        logger.error(f"获取股票/ETF 列表失败: {type(e).__name__}: {e}")
         return pd.DataFrame(columns=['代码', '名称'])
 
 STOCK_SPOT_PATH = "stock_data/stock_spot.parquet"
@@ -190,6 +226,7 @@ def get_stock_realtime_info(symbol: str) -> Optional[Dict]:
                     'code': data['代码'],
                     'name': data['名称'],
                     'price': price,
+                    'pre_close': data.get('昨收', price), # Fallback to current price if missing, but ideally pre_close
                     'market_cap': data.get('总市值', 0),
                     'open': open_p,
                     'high': high_p,
@@ -198,12 +235,88 @@ def get_stock_realtime_info(symbol: str) -> Optional[Dict]:
                     'amount': amt
                 }
 
-        # Fallback if cache fails (Old Method)
-        # ... logic if needed, or just return None
+
+        # --- Fallback: Use Minute Data (if Spot API fails) ---
+        # If we reached here, spot fetch failed or returned empty.
+        logger.warning(f"实时行情(Spot)获取失败，尝试使用分时数据回退: {symbol}")
+        
+        # Try to get Pre-Close from Daily History
+        pre_close = 0.0
+        try:
+            # We need a way to get yesterday's close.
+            # Use daily history API.
+            # This is slow, so maybe cache it? 
+            # ideally we should have a separate function for this.
+            daily_df = get_stock_daily_history(symbol) 
+            if not daily_df.empty:
+                # daily_df should be sorted by date
+                # If today is in df (market closed/trading), we want the row BEFORE today.
+                # If today is NOT in df (market open), last row is yesterday.
+                
+                # Check last row date
+                last_date_str = str(daily_df.iloc[-1]['日期'])
+                today_str = datetime.now().strftime("%Y-%m-%d")
+                
+                if last_date_str == today_str:
+                    # Today is present, so pre_close is 2nd last row
+                    if len(daily_df) >= 2:
+                        pre_close = float(daily_df.iloc[-2]['收盘'])
+                else:
+                    # Last row is (presumably) yesterday
+                    pre_close = float(daily_df.iloc[-1]['收盘'])
+        except Exception as e_pc:
+             logger.warning(f"获取昨日收盘价失败 {symbol}: {e_pc}")
+
+        # 1. Fetch Minute Data
+        try:
+            min_df = get_stock_minute_data(symbol)
+            if not min_df.empty:
+                latest = min_df.iloc[-1]
+                
+                # ... (Name extraction) ...
+                name = symbol
+                try:
+                    stock_list = get_all_stocks_list()
+                    name_row = stock_list[stock_list['代码'] == symbol]
+                    if not name_row.empty:
+                        name = name_row.iloc[0]['名称']
+                except:
+                    pass
+                
+                # 3. Aggregate Day Stats
+                price = float(latest['收盘'])
+                
+                # If pre_close failed above, fallback to Open price (better than current price)
+                if pre_close <= 0:
+                     if '开盘' in min_df.columns:
+                         pre_close = float(min_df.iloc[0]['开盘']) # Rough approx if all else fails
+                     else:
+                         pre_close = price
+
+                open_p = float(min_df.iloc[0]['开盘']) if '开盘' in min_df.columns else price
+                high_p = float(min_df['最高'].max()) if '最高' in min_df.columns else price
+                low_p = float(min_df['最低'].min()) if '最低' in min_df.columns else price
+                vol = float(min_df['成交量'].sum()) if '成交量' in min_df.columns else 0
+                
+                return {
+                    'code': symbol,
+                    'name': name,
+                    'price': price,
+                    'pre_close': pre_close,
+                    'market_cap': 0,
+                    'open': open_p,
+                    'high': high_p,
+                    'low': low_p,
+                    'volume': vol,
+                    'amount': 0
+                }
+        except Exception as e_fallback:
+            logger.error(f"分时数据回退失败 {symbol}: {e_fallback}")
+
         return None
 
     except Exception as e:
-        print(f"Error fetching info for {symbol}: {e}")
+        logger.error(f"获取实时行情失败 {symbol}: {e}")
         return None
 
 def get_stock_minute_data(symbol: str) -> pd.DataFrame:
@@ -230,7 +343,32 @@ def get_stock_minute_data(symbol: str) -> pd.DataFrame:
         return df
         
     except Exception as e:
-        print(f"Error fetching minute data for {symbol}: {e}")
+        logger.error(f"获取分时数据失败 {symbol}: {e}")
+        return pd.DataFrame()
+
+def get_stock_daily_history(symbol: str) -> pd.DataFrame:
+    """
+    Fetch daily history (last 30 days) to get Pre-Close.
+    """
+    try:
+         # Try ETF
+        is_etf = symbol.startswith(('51', '588', '15'))
+        start_date = (datetime.now() - pd.Timedelta(days=30)).strftime("%Y%m%d")
+        end_date = datetime.now().strftime("%Y%m%d")
+        
+        if is_etf:
+            try:
+                # ak.fund_etf_hist_em(symbol="513500", period="daily", start_date="20000101", end_date="20230201", adjust="qfq")
+                df = ak.fund_etf_hist_em(symbol=symbol, period="daily", start_date=start_date, end_date=end_date, adjust="qfq")
+                if not df.empty: return df
+            except: pass
+            
+        # Try Stock
+        # ak.stock_zh_a_hist(symbol="000001", period="daily", start_date="20170301", end_date='20210907', adjust="qfq")
+        df = ak.stock_zh_a_hist(symbol=symbol, period="daily", start_date=start_date, end_date=end_date, adjust="qfq")
+        return df
+    except Exception as e:
+        logger.error(f"获取日线数据失败 {symbol}: {e}")
         return pd.DataFrame()
 
 def aggregate_minute_to_daily(df: pd.DataFrame, precision: int = 2) -> str:
@@ -302,7 +440,7 @@ def _get_fund_flow_cache() -> pd.DataFrame:
                     # 缓存有效，直接返回
                     return df
         except Exception as e:
-            print(f"读取资金流向缓存失败: {e}")
+            logger.warning(f"读取资金流向缓存失败: {e}")
     
     # 缓存不存在或过期，从 API 获取
     try:
@@ -328,7 +466,7 @@ def _get_fund_flow_cache() -> pd.DataFrame:
             df.to_parquet(FUND_FLOW_CACHE_PATH)
             return df
     except Exception as e:
-        print(f"获取资金流向数据失败: {e}")
+        logger.error(f"获取资金流向数据失败: {e}")
     
     return pd.DataFrame()
 
@@ -407,7 +545,7 @@ def get_stock_fund_flow_history(symbol: str, force_update: bool = False) -> pd.D
                 df.to_parquet(cache_path)
                 return df
         except Exception as e:
-            print(f"Error fetching fund flow history for {symbol}: {e}")
+            logger.error(f"获取历史资金流向失败 {symbol}: {e}")
             # Fallback to cache if exists (even if stale)
             if os.path.exists(cache_path):
                 try:
@@ -472,7 +610,7 @@ def get_stock_fund_flow(symbol: str) -> dict:
         return result
         
     except Exception as e:
-        print(f"获取资金流向失败 {symbol}: {e}")
+        logger.error(f"获取资金流向快照失败 {symbol}: {e}")
         return {"error": str(e)}
 
 
@@ -560,5 +698,44 @@ def analyze_intraday_pattern(df: pd.DataFrame) -> str:
         return "".join(summary)
         
     except Exception as e:
+        logger.warning(f"分时特征分析异常: {str(e)}")
         return f"分时分析错误: {str(e)}"
+
+
+def calculate_price_limits(code: str, name: str, pre_close: float) -> tuple:
+    """
+    根据股票代码和名称计算今日涨跌停价格。
+    Return: (limit_up, limit_down)
+    Rule:
+    - 北交所 (8xx, 4xx, 92x): 30%
+    - 科创板 (688) / 创业板 (300): 20%
+    - ST股 (Name contains ST): 5%
+    - 主板 (Others): 10%
+    """
+    if pre_close <= 0:
+        return (0.0, 0.0)
+
+    # 1. Check Rate
+    rate = 0.10 # Default 10%
+    
+    # Priority checks
+    if code.startswith(('8', '4', '92')): # BSE
+        rate = 0.30
+    elif code.startswith(('688', '300')): # STAR / ChiNext
+        rate = 0.20
+    elif 'ST' in name.upper(): # ST Stock (Main board ST is 5%, ChiNext ST is still 20%? Actually ChiNext ST is 20%)
+        # Complex rule: ChiNext ST is 20%, Main ST is 5%.
+        # Be simple first: If 300/688, it's 20% even if ST.
+        # If Main board and ST, it's 5%.
+        rate = 0.05
+    
+    # 2. Calculate
+    # A-share rounding rule is standard rounding to 2 decimals usually.
+    # Official: Round(PreClose * (1 + Rate) * 100) / 100
+    
+    limit_up = round(pre_close * (1 + rate), 2)
+    limit_down = round(pre_close * (1 - rate), 2)
+    
+    return (limit_up, limit_down)
+
 

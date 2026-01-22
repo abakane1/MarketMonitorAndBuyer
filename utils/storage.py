@@ -180,3 +180,55 @@ def get_latest_strategy_log(symbol: str):
         #     return log
             
     return None
+
+def get_strategy_storage_path(symbol: str) -> str:
+    return os.path.join(DATA_DIR, f"{symbol}_strategies.json")
+
+def save_daily_strategy(symbol: str, target_date: str, advice: str, reasoning: str, prompt: str = ""):
+    """
+    Saves the strategy for a specific backtest target date.
+    Keyed by symbol + date. Overwrites if exists.
+    
+    Args:
+        symbol: 股票代码
+        target_date: 目标日期
+        advice: AI 决策输出
+        reasoning: AI 思考过程
+        prompt: 发送给 AI 的提示词
+    """
+    init_storage()
+    file_path = get_strategy_storage_path(symbol)
+    
+    data = {}
+    if os.path.exists(file_path):
+        try:
+            with open(file_path, "r", encoding="utf-8") as f:
+                data = json.load(f)
+        except:
+            data = {}
+            
+    # Update or Add
+    data[target_date] = {
+        "advice": advice,
+        "reasoning": reasoning,
+        "prompt": prompt,
+        "timestamp": datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+    }
+    
+    with open(file_path, "w", encoding="utf-8") as f:
+        json.dump(data, f, ensure_ascii=False, indent=2)
+
+def load_daily_strategy(symbol: str, target_date: str) -> dict:
+    """
+    Loads strategy for a specific date. Returns None if not found.
+    """
+    file_path = get_strategy_storage_path(symbol)
+    if not os.path.exists(file_path):
+        return None
+        
+    try:
+        with open(file_path, "r", encoding="utf-8") as f:
+            data = json.load(f)
+            return data.get(target_date)
+    except:
+        return None

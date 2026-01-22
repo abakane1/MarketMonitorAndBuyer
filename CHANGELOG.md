@@ -5,6 +5,38 @@ All notable changes to the **MarketMonitorAndBuyer** project will be documented 
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.4.0] - 2026-01-22 (AI Feedback Loop & Safe Guard)
+### Added (新增)
+- **AI 闭环反馈 (AI Feedback Loop)**: 
+  - 自动注入用户真实成交记录 (`User Execution`) 到 DeepSeek 历史研判上下文中。
+  - Prompt 升级：DeepSeek 现可对用户的执行力进行评价 ("Reflection & Eval")，实现从“单向建议”到“双向监督”的进化。
+- **提示词预览 (Prompt Preview)**: 
+  - 生成策略前新增预览确认环节，支持查看完整 Prompt 内容及 Token 估算，确保发送内容透明可控。
+- **数据关联 (Trade Matching)**: 
+  - 历史研报记录中现可直接展示该时间段内的关联交易 (Actual Trades)，直观对比“AI建议”与“实际操作”。
+
+### Fixed (修复)
+- **精准涨跌停计算**: 
+  - 修复 `pre_close` 获取逻辑，基于名为规则 (ST/科创/北交所) 动态计算当日涨跌停价，防止 AI 产生幻觉报价。
+  - 增加对 AkShare 实时接口 `pre_close` 缺失的健壮性回退机制 (Fallback to Daily History)。
+- **策略清洗**: 增加了清理错误日期策略的工具脚本。
+
+## [1.3.0] - 2026-01-19 (Architecture Refactoring & Testing)
+### Added (新增)
+- **组件化架构**: 新增 `components/` 目录，将侧边栏逻辑拆分至 `sidebar.py`，提升代码可维护性。
+- **Pytest 测试框架**: 引入标准化测试体系，覆盖 `strategy.py` 和 `data_fetcher.py` 核心逻辑。
+- **自定义异常类**: 新增 `DataFetchError`、`DataParseError`、`DataNotFoundError` 异常类，细化错误处理。
+- **日志系统**: 在 `data_fetcher.py` 中集成 `logging` 模块，替代 `print` 语句。
+
+### Changed (优化)
+- **动态日期选择**: `sim_ui.py` 回测模块消除硬编码日期 `"2026-01-19"`，支持用户选择任意可用交易日。
+- **错误处理增强**: 区分网络连接错误、API 数据解析错误等场景，提供更清晰的错误信息。
+
+### Tests (测试)
+- 新增 `tests/conftest.py` 共享 fixtures
+- 新增 `tests/test_strategy.py` (10 个测试用例)
+- 新增 `tests/test_data_fetcher.py` (13 个测试用例)
+
 ## [1.2.2] - 2026-01-19 (Prompt Management & UI Logic Fix)
 ### Added (新增)
 - **提示词中心**: 在侧边栏新增“提示词中心”导航，支持分类查看系统中使用的所有 AI 提示词模板。
