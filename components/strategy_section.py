@@ -97,7 +97,7 @@ def render_strategy_section(code: str, name: str, price: float, shares_held: int
                     save_research_log(
                         code, 
                         ai_strat_log['prompt'], 
-                        ai_strat_log['result'], 
+                        f"{ai_strat_log.get('tag', '')} {ai_strat_log['result']}", 
                         ai_strat_log['reasoning']
                     )
                     # Clear draft
@@ -229,61 +229,61 @@ def render_strategy_section(code: str, name: str, price: float, shares_held: int
             if start_intra and not market_open:
                 warning_msg = "⚠️ 警告: 市场已休市或未开盘，您选择了【盘中对策】。缺乏实时盘口数据可能导致AI判断失真。"
                  
-             prompts = load_config().get("prompts", {})
-             if not deepseek_api_key:
-                 st.warning("请在侧边栏设置 DeepSeek API Key")
-             else:
-                 with st.spinner(f"🧠 正在构建提示词上下文..."):
-                     from utils.ai_advisor import build_advisor_prompt, call_deepseek_api
-                     from utils.intel_manager import get_claims_for_prompt
-                     from utils.data_fetcher import aggregate_minute_to_daily, get_price_precision, analyze_intraday_pattern, get_stock_fund_flow, get_stock_fund_flow_history
-                     from utils.storage import load_minute_data
-                     from utils.indicators import calculate_indicators
-                     
-                     context = {
-                         "code": code, 
-                         "name": name, 
-                         "price": price, 
-                         "pre_close": pre_close if pre_close > 0 else price,
-                         "cost": avg_cost, 
-                         "current_shares": shares_held, 
-                         "support": strat_res.get('support'), 
-                         "resistance": strat_res.get('resistance'), 
-                         "signal": signal,
-                         "reason": strat_res.get('reason'), 
-                         "quantity": strat_res.get('quantity'),
-                         "target_position": strat_res.get('target_position', 0),
-                         "stop_loss": strat_res.get('stop_loss'), 
-                         "capital_allocation": current_alloc,
-                         "total_capital": total_capital, 
-                         "known_info": get_claims_for_prompt(code)
-                     }
-                     
-                     minute_df = load_minute_data(code)
-                     tech_indicators = calculate_indicators(minute_df)
-                     tech_indicators["daily_stats"] = aggregate_minute_to_daily(minute_df, precision=get_price_precision(code))
-                     
-                     intraday_pattern = analyze_intraday_pattern(minute_df)
-                     full_intel_context = get_claims_for_prompt(code)
+            prompts = load_config().get("prompts", {})
+            if not deepseek_api_key:
+                st.warning("请在侧边栏设置 DeepSeek API Key")
+            else:
+                with st.spinner(f"🧠 正在构建提示词上下文..."):
+                    from utils.ai_advisor import build_advisor_prompt, call_deepseek_api
+                    from utils.intel_manager import get_claims_for_prompt
+                    from utils.data_fetcher import aggregate_minute_to_daily, get_price_precision, analyze_intraday_pattern, get_stock_fund_flow, get_stock_fund_flow_history
+                    from utils.storage import load_minute_data
+                    from utils.indicators import calculate_indicators
+                    
+                    context = {
+                        "code": code, 
+                        "name": name, 
+                        "price": price, 
+                        "pre_close": pre_close if pre_close > 0 else price,
+                        "cost": avg_cost, 
+                        "current_shares": shares_held, 
+                        "support": strat_res.get('support'), 
+                        "resistance": strat_res.get('resistance'), 
+                        "signal": signal,
+                        "reason": strat_res.get('reason'), 
+                        "quantity": strat_res.get('quantity'),
+                        "target_position": strat_res.get('target_position', 0),
+                        "stop_loss": strat_res.get('stop_loss'), 
+                        "capital_allocation": current_alloc,
+                        "total_capital": total_capital, 
+                        "known_info": get_claims_for_prompt(code)
+                    }
+                    
+                    minute_df = load_minute_data(code)
+                    tech_indicators = calculate_indicators(minute_df)
+                    tech_indicators["daily_stats"] = aggregate_minute_to_daily(minute_df, precision=get_price_precision(code))
+                    
+                    intraday_pattern = analyze_intraday_pattern(minute_df)
+                    full_intel_context = get_claims_for_prompt(code)
 
-                     # 1. Build Prompt
-                     sys_p, user_p = build_advisor_prompt(
-                         context, research_context=full_intel_context, 
-                         technical_indicators=tech_indicators, fund_flow_data=get_stock_fund_flow(code),
-                         fund_flow_history=get_stock_fund_flow_history(code), prompt_templates=prompts,
-                         intraday_summary=intraday_pattern,
-                         suffix_key=target_suffix_key,
-                         symbol=code
-                     )
-                     
-                     # 2. Store in Session State for Preview
-                     st.session_state[f"preview_prompt_{code}"] = {
-                         "sys_p": sys_p,
-                         "user_p": user_p,
-                         "target_suffix_key": target_suffix_key, # Keep track of mode
-                         "warning_msg": warning_msg
-                     }
-                     st.rerun()
+                    # 1. Build Prompt
+                    sys_p, user_p = build_advisor_prompt(
+                        context, research_context=full_intel_context, 
+                        technical_indicators=tech_indicators, fund_flow_data=get_stock_fund_flow(code),
+                        fund_flow_history=get_stock_fund_flow_history(code), prompt_templates=prompts,
+                        intraday_summary=intraday_pattern,
+                        suffix_key=target_suffix_key,
+                        symbol=code
+                    )
+                    
+                    # 2. Store in Session State for Preview
+                    st.session_state[f"preview_prompt_{code}"] = {
+                        "sys_p": sys_p,
+                        "user_p": user_p,
+                        "target_suffix_key": target_suffix_key,
+                        "warning_msg": warning_msg
+                    }
+                    st.rerun()
 
         # --- Prompt Preview and Confirmation ---
         preview_key = f"preview_prompt_{code}"
@@ -318,11 +318,17 @@ def render_strategy_section(code: str, name: str, price: float, shares_held: int
                         if "Error" in content or "Request Failed" in content:
                            st.error(content)
                         else:
+                            # Determine Tag
+                            strategy_tag = "【盘前策略】"
+                            if "intraday" in preview_data.get('target_suffix_key', ''):
+                                strategy_tag = "【盘中对策】"
+                                
                             # Success -> to Draft
                             st.session_state[f"pending_ai_result_{code}"] = {
                                 'result': content, 
                                 'reasoning': reasoning, 
                                 'prompt': preview_data['user_p'],
+                                'tag': strategy_tag,
                                 'timestamp': datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S")
                             }
                             # Clear Preview
