@@ -25,14 +25,21 @@ def build_advisor_prompt(context_data, research_context="", technical_indicators
 
     # 2. Format Base
     # Calculate Price Limits
+    # Calculate Price Limits
     if 'code' in context_data:
-         p_close = float(context_data.get('pre_close', 0))
-         if p_close == 0: p_close = float(context_data.get('price', 0))
+         # Use explicit base price for limit calc if provided (e.g. for forecasting tomorrow's limits based on today's close)
+         # Otherwise default to pre_close (Yesterday's close)
+         limit_base = float(context_data.get('limit_base_price', 0))
+         
+         if limit_base == 0:
+             limit_base = float(context_data.get('pre_close', 0))
+         if limit_base == 0: 
+             limit_base = float(context_data.get('price', 0))
          
          l_up, l_down = calculate_price_limits(
              context_data.get('code', ''),
              context_data.get('name', ''),
-             p_close
+             limit_base
          )
          context_data['limit_up'] = l_up
          context_data['limit_down'] = l_down

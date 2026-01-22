@@ -240,7 +240,15 @@ def render_strategy_section(code: str, name: str, price: float, shares_held: int
                     from utils.storage import load_minute_data
                     from utils.indicators import calculate_indicators
                     
+                    # Logic to determine base price for Limit Calculation
+                    # Default: Pre-Close (Yesterday's Close)
+                    limit_base_price = pre_close
+                    # If Pre-market Analysis for Tomorrow (Evening session), use Today's Close as base
+                    if start_pre and datetime.datetime.now().time() > datetime.time(15, 0):
+                        limit_base_price = price
+                    
                     context = {
+                        "limit_base_price": limit_base_price,
                         "code": code, 
                         "name": name, 
                         "price": price, 

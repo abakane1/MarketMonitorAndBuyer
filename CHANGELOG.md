@@ -5,6 +5,13 @@ All notable changes to the **MarketMonitorAndBuyer** project will be documented 
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.4.5] - 2026-01-22 (Limit Base Logic Fix)
+### Fixed (修复)
+- **隔夜策略涨跌停范围计算 (Overnight Limit Logic)**: 
+  - 修复了“盘前策略”在晚间生成时，错误地使用“昨日收盘价”计算涨跌停的问题。
+  - **新逻辑**: 智能识别时间。若在收盘后 (15:00+) 生成策略，系统将以**今日收盘价**为基准，正确计算**明日**的涨跌停范围，确保 AI 给出的价格建议符合明日交易规则。
+- **提示词微调**: 将“昨日策略”的表述修正为更严谨的“历史策略”，涵盖更广泛的时间维度。
+
 ## [1.4.4] - 2026-01-22 (Critical Fix: Price Limits)
 ### Fixed (修复)
 - **涨跌停范围计算错误 (Price Limit Bug)**: 
