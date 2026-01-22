@@ -5,6 +5,19 @@ All notable changes to the **MarketMonitorAndBuyer** project will be documented 
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.5.2] - 2026-01-22 (Professional News Integration)
+### Added (新增)
+- **权威信源接入 (Professional News Source)**:
+  - 针对秘塔搜索信息可能不够专业的问题，新增了 **EastMoney (东方财富)** 官方个股新闻源。
+  - **自动注入**: 系统现会自动抓取并筛选最新的 Top 5 专业财经新闻/公告，直接注入到 AI 的研判上下文中，与秘塔搜索结果互补。
+
+## [1.5.1] - 2026-01-22 (Base Position Logic)
+### Added (新增)
+- **底仓管理系统 (Base Position Strategy)**:
+  - **核心逻辑**: 在 `user_config.json` 中为股票配置 `base_shares` (底仓)。系统自动将持仓划分为 **🔒 底仓 (Locked)** 和 **🔄 可交易 (Tradable)** 两部分。
+  - **AI 风控**: 强制注入“底仓红线”到 Prompt，明确告知 AI 禁止触碰底仓，所有卖出建议的上限严格受限于“可交易筹码”。
+  - **UI 护盾**: 在策略面板显著位置显示“风控护盾已激活”状态栏。
+
 ## [1.5.0] - 2026-01-22 (DeepSeek Engine Evolution)
 ### Changed (核心升级)
 - **提示词工程重构 (Prompt Refactor)**:

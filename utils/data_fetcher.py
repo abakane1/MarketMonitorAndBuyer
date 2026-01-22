@@ -742,3 +742,27 @@ def calculate_price_limits(code: str, name: str, pre_close: float) -> tuple:
     return (limit_up, limit_down)
 
 
+
+def get_stock_news(symbol: str, n: int = 5) -> str:
+    """
+    Fetch latest professional news from EastMoney via AkShare.
+    Returns markdown formatted string.
+    """
+    try:
+        # stock_news_em returns: 关键词, 新闻标题, 新闻内容, 发布时间, 文章来源, 新闻链接
+        df = ak.stock_news_em(symbol=symbol)
+        if df.empty:
+            return "无最新专业新闻 (No News)"
+            
+        latest = df.head(n)
+        news_lines = []
+        for _, row in latest.iterrows():
+            title = str(row['新闻标题']).strip()
+            date = str(row['发布时间']).strip()
+            source = str(row['文章来源']).strip()
+            news_lines.append(f"- [{date}] 【{source}】 {title}")
+            
+        return "\n".join(news_lines)
+    except Exception as e:
+        logger.error(f"Failed to fetch news for {symbol}: {e}")
+        return f"新闻获取失败 (Error): {e}"

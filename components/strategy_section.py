@@ -208,6 +208,13 @@ def render_strategy_section(code: str, name: str, price: float, shares_held: int
         from utils.time_utils import is_trading_time
         market_open = is_trading_time()
         
+        # Display Base Position Info (if configured)
+        full_cfg_ui = load_config()
+        base_s_ui = int(full_cfg_ui.get("positions", {}).get(code, {}).get("base_shares", 0))
+        if base_s_ui > 0:
+             tradable_s_ui = max(0, shares_held - base_s_ui)
+             st.info(f"🛡️ **风控护盾已激活** | 总持仓: {shares_held} | 🔒 底仓(Locked): **{base_s_ui}** | 🔄 可交易: **{tradable_s_ui}**")
+        
         c_p1, c_p2 = st.columns(2)
         start_pre = False
         start_intra = False
@@ -236,7 +243,7 @@ def render_strategy_section(code: str, name: str, price: float, shares_held: int
                 with st.spinner(f"🧠 正在构建提示词上下文..."):
                     from utils.ai_advisor import build_advisor_prompt, call_deepseek_api
                     from utils.intel_manager import get_claims_for_prompt
-                    from utils.data_fetcher import aggregate_minute_to_daily, get_price_precision, analyze_intraday_pattern, get_stock_fund_flow, get_stock_fund_flow_history
+                    from utils.data_fetcher import aggregate_minute_to_daily, get_price_precision, analyze_intraday_pattern, get_stock_fund_flow, get_stock_fund_flow_history, get_stock_news
                     from utils.storage import load_minute_data
                     from utils.indicators import calculate_indicators
                     
@@ -247,7 +254,14 @@ def render_strategy_section(code: str, name: str, price: float, shares_held: int
                     if start_pre and datetime.datetime.now().time() > datetime.time(15, 0):
                         limit_base_price = price
                     
+                    # Fetch Base Position
+                    full_cfg = load_config()
+                    base_shares = int(full_cfg.get("positions", {}).get(code, {}).get("base_shares", 0))
+                    tradable_shares = max(0, shares_held - base_shares)
+                    
                     context = {
+                        "base_shares": base_shares,
+                        "tradable_shares": tradable_shares,
                         "limit_base_price": limit_base_price,
                         "code": code, 
                         "name": name, 
@@ -272,7 +286,11 @@ def render_strategy_section(code: str, name: str, price: float, shares_held: int
                     tech_indicators["daily_stats"] = aggregate_minute_to_daily(minute_df, precision=get_price_precision(code))
                     
                     intraday_pattern = analyze_intraday_pattern(minute_df)
-                    full_intel_context = get_claims_for_prompt(code)
+                    
+                    # Merge Metaso Search + Professional News
+                    metaso_claims = get_claims_for_prompt(code)
+                    prof_news = get_stock_news(code, n=5)
+                    full_intel_context = f"{metaso_claims}\n\n【最新权威新闻 (Professional News)】\n{prof_news}"
 
                     # 1. Build Prompt
                     sys_p, user_p = build_advisor_prompt(
