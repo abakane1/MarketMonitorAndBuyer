@@ -133,14 +133,21 @@ def build_advisor_prompt(context_data, research_context="", technical_indicators
                     
                     from datetime import datetime
                         
+                    import re
                     for idx, log in enumerate(recent_subset):
                         h_ts = log.get('timestamp', 'N/A')
                         h_res = log.get('result', '')
-                        h_reason = log.get('reasoning', '')
                         
+                        # Extract ONLY the Decision Summary to save tokens and avoid hallucination from old reasoning
+                        summary_match = re.search(r"【决策摘要】(.*)", h_res, re.DOTALL)
+                        if summary_match:
+                             clean_res = "【决策摘要】" + summary_match.group(1).strip()
+                        else:
+                             clean_res = h_res[:200] + "..." if len(h_res) > 200 else h_res
+
                         entry_header = f"\n--- History #{idx+1} ({h_ts}) ---"
                         history_context_lines.append(entry_header)
-                        history_context_lines.append(f"【决策结论】:\n{h_res}")
+                        history_context_lines.append(f"{clean_res}")
                         
                         start_time = h_ts
                         full_idx = logs_asc.index(log)
@@ -151,6 +158,8 @@ def build_advisor_prompt(context_data, research_context="", technical_indicators
                             
                         matched_tx = []
                         for t in real_trades:
+                            # Parse timestamp string to datetime object for comparison if needed, 
+                            # but assuming strings work if format is consistent ISO
                             if start_time <= t['timestamp'] < end_time:
                                  action = "买入" if t['type'] == 'buy' else "卖出"
                                  matched_tx.append(f"{action} {int(t['amount'])}股 @ {t['price']}")
@@ -160,8 +169,10 @@ def build_advisor_prompt(context_data, research_context="", technical_indicators
                         else:
                              history_context_lines.append(f"【用户实际执行】: (无操作 / No Action)")
 
-                        if h_reason:
-                             history_context_lines.append(f"【思考过程】:\n{h_reason}")
+                        # SKIP Reasoning to prevent context pollution
+                    
+                    # Add Disclaimer
+                    history_context_lines.append(f"\n[Important]: 以上是历史数据。当前最新价格请以顶部【当前手牌数据】为准 ({context_data.get('price', 'Unknown')})。")
                     
                     final_research_context += "\n" + "\n".join(history_context_lines)
             except Exception as e:

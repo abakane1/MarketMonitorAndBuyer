@@ -5,6 +5,12 @@ All notable changes to the **MarketMonitorAndBuyer** project will be documented 
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.4.6] - 2026-01-22 (RAG & Hallucination Fix)
+### Fixed (修复)
+- **历史回溯幻觉 (RAG Hallucination Fix)**: 
+  - 针对 AI 容易混淆“历史收盘价”与“当前价格”的问题，重构了历史上下文注入逻辑。即使历史记录中包含旧的价格信息，现在的 Prompt 也会强制 AI 优先信赖顶部的【当前手牌数据】。
+  - **上下文精简**: 将提供给 AI 的历史研判参考由“全文”改为仅提取**【决策摘要】**，大幅减少 Token 消耗并降低了噪音干扰。
+
 ## [1.4.5] - 2026-01-22 (Limit Base Logic Fix)
 ### Fixed (修复)
 - **隔夜策略涨跌停范围计算 (Overnight Limit Logic)**: 
