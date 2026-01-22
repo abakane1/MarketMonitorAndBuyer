@@ -206,12 +206,21 @@ def render_strategy_section(code: str, name: str, price: float, shares_held: int
         st.markdown("---")
         # Control Buttons
         start_new = False
-        if st.button("💡 生成新策略 (New Strategy)", key=f"btn_new_{code}", use_container_width=True):
+        
+        # 确定市场状态
+        from utils.time_utils import is_trading_time
+        market_open = is_trading_time()
+        
+        btn_label = "⚡ 生成盘中对策 (Intra-day Tactic)" if market_open else "💡 生成盘前策略 (Pre-market Plan)"
+        
+        if st.button(btn_label, key=f"btn_new_{code}", use_container_width=True):
              start_new = True
              
         if start_new:
-             target_suffix_key = "deepseek_research_suffix"
-             if start_new: target_suffix_key = "deepseek_new_strategy_suffix"
+             target_suffix_key = "deepseek_new_strategy_suffix"
+             if market_open:
+                 target_suffix_key = "deepseek_intraday_suffix"
+                 
              prompts = load_config().get("prompts", {})
              if not deepseek_api_key:
                  st.warning("请在侧边栏设置 DeepSeek API Key")

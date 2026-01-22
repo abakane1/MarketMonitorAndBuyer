@@ -5,6 +5,14 @@ All notable changes to the **MarketMonitorAndBuyer** project will be documented 
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.4.1] - 2026-01-22 (Intra-day Strategy Split)
+### Added (新增)
+- **动态策略路由 (Dynamic Strategy Routing)**: 
+  - 根据 A 股交易时间 (09:15-11:30, 13:00-15:05) 自动切换 AI 模式。
+  - **盘中模式 (Intra-day)**: 按钮变为 "⚡ 生成盘中对策"，调用专用的 `deepseek_intraday_suffix`，专注于实时盘口分析与超短线决策。
+  - **盘前模式 (Pre-market)**: 按钮保持 "💡 生成盘前策略"，专注于全天计划制定。
+- **Intra-day Prompt**: 新增了针对盘中突发决策的提示词模板，强调“极窄止损”和“即时买卖”。
+
 ## [1.4.0] - 2026-01-22 (AI Feedback Loop & Safe Guard)
 ### Added (新增)
 - **AI 闭环反馈 (AI Feedback Loop)**: 
