@@ -5,6 +5,12 @@ All notable changes to the **MarketMonitorAndBuyer** project will be documented 
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.4.4] - 2026-01-22 (Critical Fix: Price Limits)
+### Fixed (修复)
+- **涨跌停范围计算错误 (Price Limit Bug)**: 
+  - **规则修正**: 修正了科创板 ETF (588开头) 默认为 10% 的错误，现已正确识别为 20% 涨跌幅。
+  - **精度优化**: 引入了符合 A 股标准的“四舍五入”算法 (`int(val*100+0.5)/100`)，替代了 Python 默认的银行家舍入法，消除了 1 分钱的计算误差。
+
 ## [1.4.3] - 2026-01-22 (Prompt Logic Optimization)
 ### Changed (优化)
 - **提示词逻辑重构 (Prompt Logic Refactor)**: 

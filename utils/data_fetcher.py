@@ -721,7 +721,7 @@ def calculate_price_limits(code: str, name: str, pre_close: float) -> tuple:
     # Priority checks
     if code.startswith(('8', '4', '92')): # BSE
         rate = 0.30
-    elif code.startswith(('688', '300')): # STAR / ChiNext
+    elif code.startswith(('688', '300', '588')): # STAR / ChiNext / STAR ETF
         rate = 0.20
     elif 'ST' in name.upper(): # ST Stock (Main board ST is 5%, ChiNext ST is still 20%? Actually ChiNext ST is 20%)
         # Complex rule: ChiNext ST is 20%, Main ST is 5%.
@@ -729,12 +729,15 @@ def calculate_price_limits(code: str, name: str, pre_close: float) -> tuple:
         # If Main board and ST, it's 5%.
         rate = 0.05
     
-    # 2. Calculate
-    # A-share rounding rule is standard rounding to 2 decimals usually.
-    # Official: Round(PreClose * (1 + Rate) * 100) / 100
+    # 2. Calculate using exact rounding (Round Half Up)
+    # Python's round() is Bankers Rounding (Round Half To Even), which is different from A-share rule.
+    # A-share Rule: int(val * 100 + 0.5) / 100.0
     
-    limit_up = round(pre_close * (1 + rate), 2)
-    limit_down = round(pre_close * (1 - rate), 2)
+    def round_half_up(n):
+        return int(n * 100 + 0.5) / 100.0
+        
+    limit_up = round_half_up(pre_close * (1 + rate))
+    limit_down = round_half_up(pre_close * (1 - rate))
     
     return (limit_up, limit_down)
 
