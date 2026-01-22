@@ -5,6 +5,12 @@ All notable changes to the **MarketMonitorAndBuyer** project will be documented 
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.4.3] - 2026-01-22 (Prompt Logic Optimization)
+### Changed (优化)
+- **提示词逻辑重构 (Prompt Logic Refactor)**: 
+  - **盘前策略**: 将“打败算法”的目标修正为“人机合一 (Synthesis)”，强调结合算法信号与独立思考。
+  - **连续性增强**: 新增“承前启后 (Continuity)”指令，要求 AI 深度复盘历史研判，确保今日策略与昨日计划的连贯性，并对明日走势（高开/低开）进行情景推演。
+
 ## [1.4.2] - 2026-01-22 (Strategy UI Split)
 ### Changed (优化)
 - **策略入口分离 (Button Split)**: 
