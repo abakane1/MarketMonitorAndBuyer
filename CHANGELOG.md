@@ -5,6 +5,12 @@ All notable changes to the **MarketMonitorAndBuyer** project will be documented 
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.4.9] - 2026-01-22 (Signal Label Refinement)
+### Fixed (修复)
+- **信号幻觉修复 (Signal Hallucination Fix)**: 
+  - 修复了 AI 将算法生成的“信号（卖出 -46800股）”误读为“用户今日已实际执行”的严重幻觉。
+  - **标签优化**: 将 Prompt 中的 `下注大小 (动作)` 字段重命名为 `算法建议下单量 (Algo Pending Order)`，并显式标注 `[⚠️ 此为算法建议，尚未执行]`，消除歧义。
+
 ## [1.4.8] - 2026-01-22 (Execution Logic Refinement)
 ### Fixed (修复)
 - **用户执行评价逻辑 (User Execution Logic)**: 
