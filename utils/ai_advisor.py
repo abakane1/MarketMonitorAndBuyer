@@ -204,12 +204,14 @@ def build_advisor_prompt(context_data, research_context="", technical_indicators
         base_prompt += simple_suffix_tpl
 
     # System Prompt
-    system_prompt = (
+    # System Prompt (From Config)
+    # If key missing, fallback to a minimal default to avoid failure
+    system_prompt = prompt_templates.get("deepseek_system", (
         "你是一位专业的股票交易员，奉行 'LAG + GTO' 交易哲学。\n"
         "【核心心法】：别人恐惧我贪婪，别人贪婪我恐惧。\n"
         "【分析要求】：在分析时，请极度重视市场情绪的逆向博弈，不要盲从技术指标，要结合对手盘思维。\n"
         "请基于提供的数据（包含资金流向、分时特征、技术指标、市场情报以及历史研判记录）给出明确的操作建议。"
-    )
+    ))
     
     return system_prompt, base_prompt
 

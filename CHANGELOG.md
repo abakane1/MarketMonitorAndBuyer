@@ -5,6 +5,12 @@ All notable changes to the **MarketMonitorAndBuyer** project will be documented 
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.4.7] - 2026-01-22 (Prompt Structure Refactor)
+### Changed (优化)
+- **提示词结构分离 (System/User Prompt Split)**: 
+  - **去重**: 彻底剥离了 User Prompt 中重复的“身份定义”与“交易哲学”部分，将其迁移至 System Prompt。
+  - **明确分工**: System Prompt 专注定义“LAG + GTO”专家人设与心法；User Prompt 专注提供“当前手牌”、“今日规则”与“市场数据”，结构更加清晰，降低了模型的理解负担。
+
 ## [1.4.6] - 2026-01-22 (RAG & Hallucination Fix)
 ### Fixed (修复)
 - **历史回溯幻觉 (RAG Hallucination Fix)**: 
