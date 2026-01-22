@@ -5,6 +5,12 @@ All notable changes to the **MarketMonitorAndBuyer** project will be documented 
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.4.8] - 2026-01-22 (Execution Logic Refinement)
+### Fixed (修复)
+- **用户执行评价逻辑 (User Execution Logic)**: 
+  - 修正了 AI 因“单笔交易量”较小而误判用户“执行未达标”的问题。
+  - **新指令**: 强制要求 AI 在评价用户操作时，必须将【用户实际执行】与【原有持仓】进行累加，以**总仓位 (Total Position)** 是否达标为唯一考核标准，而非单次下单量。
+
 ## [1.4.7] - 2026-01-22 (Prompt Structure Refactor)
 ### Changed (优化)
 - **提示词结构分离 (System/User Prompt Split)**: 
