@@ -5,6 +5,14 @@ All notable changes to the **MarketMonitorAndBuyer** project will be documented 
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.5.5] - 2026-01-23 (ETF/Stock Strategy Differentiation)
+### Added (新增)
+- **ETF 专属策略逻辑**:
+  - **智能识别**: 系统现在会自动根据代码前缀 (`51`/`15`/`58`) 识别标的是 ETF 还是个股。
+  - **差异化人设**: 
+    - **个股**: 维持 "LAG + GTO" 德州扑克博弈专家，侧重短线情绪与赔率。
+    - **ETF**: 切换为 "**宏观趋势 + 网格交易专家**"，侧重长期走势、行业景气度与反脆弱配置，忽略个股黑天鹅噪音。
+
 ## [1.5.4] - 2026-01-23 (UI Config for Base Position)
 ### Added (新增)
 - **底仓配置 UI (Base Config UI)**:

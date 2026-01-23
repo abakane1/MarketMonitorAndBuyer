@@ -205,13 +205,32 @@ def build_advisor_prompt(context_data, research_context="", technical_indicators
 
     # System Prompt
     # System Prompt (From Config)
-    # If key missing, fallback to a minimal default to avoid failure
-    system_prompt = prompt_templates.get("deepseek_system", (
-        "你是一位专业的股票交易员，奉行 'LAG + GTO' 交易哲学。\n"
-        "【核心心法】：别人恐惧我贪婪，别人贪婪我恐惧。\n"
-        "【分析要求】：在分析时，请极度重视市场情绪的逆向博弈，不要盲从技术指标，要结合对手盘思维。\n"
-        "请基于提供的数据（包含资金流向、分时特征、技术指标、市场情报以及历史研判记录）给出明确的操作建议。"
-    ))
+    # System Prompt Logic (ETF vs Stock)
+    is_etf = False
+    if symbol:
+        # Simple heuristic for China market ETFs: 51xxxx (SH), 15xxxx (SZ), 58xxxx (KCB ETF)
+        # Note: 588xxx is usually 科创50ETF
+        if symbol.startswith(('51', '15', '58')):
+            is_etf = True
+            
+    if is_etf:
+        # Use ETF Strategy
+        sys_key = "deepseek_system_etf"
+        default_sys = (
+            "你那位全球宏观趋势交易者 + 网格策略专家。\n"
+            "【核心】: ETF 代表一篮子资产。请忽略个股黑天鹅，专注于宏观趋势、行业景气度与资金流向分析。\n"
+            "【策略】: 趋势跟踪 (Trend Following) + 网格波动套利 (Grid Trading)。"
+        )
+    else:
+        # Use Stock Strategy
+        sys_key = "deepseek_system"
+        default_sys = (
+            "你是一位专业的股票交易员，奉行 'LAG + GTO' 交易哲学。\n"
+            "【核心心法】：别人恐惧我贪婪，别人贪婪我恐惧。\n"
+            "请基于提供的数据（包含资金流向、分时特征、技术指标、市场情报以及历史研判记录）给出明确的操作建议。"
+        )
+        
+    system_prompt = prompt_templates.get(sys_key, default_sys)
     
     return system_prompt, base_prompt
 
