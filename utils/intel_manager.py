@@ -4,39 +4,31 @@ import uuid
 from datetime import datetime
 from typing import List, Dict, Optional
 
-DATA_DIR = "data"
-INTEL_FILE = os.path.join(DATA_DIR, "intelligence.json")
-
-def _ensure_dir():
-    if not os.path.exists(DATA_DIR):
-        os.makedirs(DATA_DIR)
-
 from utils.database import db_load_intelligence, db_save_intelligence
 
 def get_claims(code: str) -> List[Dict]:
-    # Load List from DB
-    # The DB stores the LIST directly as JSON
+    """
+    从数据库加载情报列表
+    """
     data = db_load_intelligence(code)
-    # db_load_intelligence returns whatever was stored. Based on migration, it's the list of claims.
-    # But wait, db_load_intelligence logic in database.py parses JSON.
-    # If `intelligence.json` had `{code: [items]}`, then `intel_data` passed to save was `[items]`.
-    # So `data` returned here is `[items]`.
-    
     if isinstance(data, list):
         claims = data
     else:
-        # Fallback if DB structure is different (e.g. dict wrapper)
         claims = []
         
-    # Sort by timestamp descending (Event Date first)
+    # 按时间戳从新到旧排序
     claims.sort(key=lambda x: x.get("timestamp", ""), reverse=True)
     return claims
 
-def get_claims_for_prompt(code, hours=None):
+def save_claims_to_db(code: str, claims: List[Dict]):
     """
-    Format claims for LLM prompt.
-    If hours is provided, filters by time window (based on entry time).
-    Already sorted by get_claims (Event Date desc).
+    保存情报列表到数据库
+    """
+    db_save_intelligence(code, claims)
+
+def get_claims_for_prompt(code: str, hours: Optional[int] = None) -> str:
+    """
+    为 LLM 提示词格式化情报数据
     """
     claims = get_claims(code)
     if not claims:
@@ -44,9 +36,6 @@ def get_claims_for_prompt(code, hours=None):
     
     cutoff = 0
     if hours:
-        # Use a secondary field or just filter the sorted list.
-        # Since timestamp is now EventDate + Time, hours filter might be tricky if it spans years.
-        # But for 'Recent' context, we just take the top items.
         cutoff = datetime.now().timestamp() - (hours * 3600)
     
     verified_list = []
@@ -55,11 +44,10 @@ def get_claims_for_prompt(code, hours=None):
     
     for c in claims:
         try:
-            # Timestamp is "YYYY-MM-DD HH:MM"
+            # 时间戳格式 "YYYY-MM-DD HH:MM"
             ts_dt = datetime.strptime(c['timestamp'], "%Y-%m-%d %H:%M")
             ts = ts_dt.timestamp()
             
-            # Filter if hours limit is set (relative to current time)
             if hours and ts < cutoff:
                 continue
 
@@ -83,45 +71,16 @@ def get_claims_for_prompt(code, hours=None):
         
     return "\n\n".join(sections)
 
-def mark_claims_distinct(code: str, claim_ids: List[str]):
+def add_claims(code: str, claims: List[any], source: str = "Metaso"):
     """
-    Marks a set of claims as mutually distinct (not duplicates).
-    Updates each claim's 'distinct_from' list to include the others.
-    """
-    if len(claim_ids) < 2:
-        return
-        
-    current_claims = get_claims(code)
-    if not current_claims:
-        return
-        
-    updated = False
-    for item in current_claims:
-        if item["id"] in claim_ids:
-            # Add all other IDs in the set to this item's distinct_from
-            current_distinct = set(item.get("distinct_from", []))
-            others = set(claim_ids) - {item["id"]}
-            if not others.issubset(current_distinct):
-                current_distinct.update(others)
-                item["distinct_from"] = list(current_distinct)
-                updated = True
-                
-    if updated:
-        save_claims_to_db(code, current_claims)
-    """
-    Adds claims to the DB.
-    Merges with existing entry if one exists for the same DATE.
+    添加新情报到数据库，按日期合并
     """
     current_claims = get_claims(code)
-    
     current_time_str = datetime.now().strftime("%H:%M")
     
-    # Pre-process claims into (date, content) tuples
     processed_claims = []
-    
     for c in claims:
         if isinstance(c, dict) and "content" in c:
-            # Use provided date or today
             d = c.get("date")
             if not d or len(d) < 10:
                 d = datetime.now().strftime("%Y-%m-%d")
@@ -129,18 +88,14 @@ def mark_claims_distinct(code: str, claim_ids: List[str]):
         elif isinstance(c, str):
             processed_claims.append((datetime.now().strftime("%Y-%m-%d"), c))
             
-    # Group by Date
     claims_by_date = {}
     for d, content in processed_claims:
         if d not in claims_by_date:
             claims_by_date[d] = []
         claims_by_date[d].append(content)
         
-    # Process each date group
     updated = False
-    
     for date_key, texts in claims_by_date.items():
-        # Find existing entry for this date
         target_entry = None
         for item in current_claims:
             if item['timestamp'].startswith(date_key):
@@ -148,7 +103,6 @@ def mark_claims_distinct(code: str, claim_ids: List[str]):
                 break
         
         if target_entry:
-            # Append
             new_lines = []
             for text in texts:
                 if text in target_entry['content']:
@@ -159,9 +113,7 @@ def mark_claims_distinct(code: str, claim_ids: List[str]):
                 target_entry['content'] += "\n" + "\n".join(new_lines)
                 target_entry['timestamp'] = f"{date_key} {current_time_str}"
                 updated = True
-                
         else:
-            # Create New
             formatted = [f"• [{current_time_str}] {t}" for t in texts]
             new_item = {
                 "id": str(uuid.uuid4())[:8],
@@ -179,6 +131,9 @@ def mark_claims_distinct(code: str, claim_ids: List[str]):
         save_claims_to_db(code, current_claims)
 
 def update_claim_status(code: str, claim_id: str, new_status: str, note: str = ""):
+    """
+    更新情报状态（如标记为核实或伪造）
+    """
     current_claims = get_claims(code)
     updated = False
     for item in current_claims:
@@ -192,6 +147,9 @@ def update_claim_status(code: str, claim_id: str, new_status: str, note: str = "
         save_claims_to_db(code, current_claims)
 
 def delete_claim(code: str, claim_id: str):
+    """
+    删除一条情报
+    """
     current_claims = get_claims(code)
     original_len = len(current_claims)
     new_claims = [item for item in current_claims if item["id"] != claim_id]
@@ -201,8 +159,7 @@ def delete_claim(code: str, claim_id: str):
 
 def mark_claims_distinct(code: str, claim_ids: List[str]):
     """
-    Marks a set of claims as mutually distinct (not duplicates).
-    Updates each claim's 'distinct_from' list to include the others.
+    标记情报为互斥（非重复）
     """
     if len(claim_ids) < 2:
         return
@@ -214,7 +171,6 @@ def mark_claims_distinct(code: str, claim_ids: List[str]):
     updated = False
     for item in current_claims:
         if item["id"] in claim_ids:
-            # Add all other IDs in the set to this item's distinct_from
             current_distinct = set(item.get("distinct_from", []))
             others = set(claim_ids) - {item["id"]}
             if not others.issubset(current_distinct):
