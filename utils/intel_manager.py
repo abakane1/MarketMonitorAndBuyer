@@ -32,10 +32,82 @@ def get_claims(code: str) -> List[Dict]:
     claims.sort(key=lambda x: x.get("timestamp", ""), reverse=True)
     return claims
 
-def save_claims_to_db(code: str, claims: List[Dict]):
-    db_save_intelligence(code, claims)
+def get_claims_for_prompt(code, hours=None):
+    """
+    Format claims for LLM prompt.
+    If hours is provided, filters by time window (based on entry time).
+    Already sorted by get_claims (Event Date desc).
+    """
+    claims = get_claims(code)
+    if not claims:
+        return ""
+    
+    cutoff = 0
+    if hours:
+        # Use a secondary field or just filter the sorted list.
+        # Since timestamp is now EventDate + Time, hours filter might be tricky if it spans years.
+        # But for 'Recent' context, we just take the top items.
+        cutoff = datetime.now().timestamp() - (hours * 3600)
+    
+    verified_list = []
+    false_list = []
+    pending_list = []
+    
+    for c in claims:
+        try:
+            # Timestamp is "YYYY-MM-DD HH:MM"
+            ts_dt = datetime.strptime(c['timestamp'], "%Y-%m-%d %H:%M")
+            ts = ts_dt.timestamp()
+            
+            # Filter if hours limit is set (relative to current time)
+            if hours and ts < cutoff:
+                continue
 
-def add_claims(code: str, claims: List[any], source: str = "Metaso"):
+            line = f"- [{c['timestamp']}] {c['content']}"
+            if c.get('status') == 'verified':
+                verified_list.append(line)
+            elif c.get('status') == 'false_info':
+                false_list.append(line)
+            else:
+                pending_list.append(line)
+        except:
+            continue
+            
+    sections = []
+    if verified_list:
+        sections.append("【✅ 用户已人工核实 (绝对事实/Trust User)】:\n" + "\n".join(verified_list))
+    if false_list:
+        sections.append("【❌ 用户已标记为假 (已辟谣/Ignore)】:\n" + "\n".join(false_list))
+    if pending_list:
+        sections.append("【⏳ 待验证线索 (需结合下方Search Result判断)】:\n" + "\n".join(pending_list))
+        
+    return "\n\n".join(sections)
+
+def mark_claims_distinct(code: str, claim_ids: List[str]):
+    """
+    Marks a set of claims as mutually distinct (not duplicates).
+    Updates each claim's 'distinct_from' list to include the others.
+    """
+    if len(claim_ids) < 2:
+        return
+        
+    current_claims = get_claims(code)
+    if not current_claims:
+        return
+        
+    updated = False
+    for item in current_claims:
+        if item["id"] in claim_ids:
+            # Add all other IDs in the set to this item's distinct_from
+            current_distinct = set(item.get("distinct_from", []))
+            others = set(claim_ids) - {item["id"]}
+            if not others.issubset(current_distinct):
+                current_distinct.update(others)
+                item["distinct_from"] = list(current_distinct)
+                updated = True
+                
+    if updated:
+        save_claims_to_db(code, current_claims)
     """
     Adds claims to the DB.
     Merges with existing entry if one exists for the same DATE.
@@ -135,12 +207,12 @@ def mark_claims_distinct(code: str, claim_ids: List[str]):
     if len(claim_ids) < 2:
         return
         
-    db = load_intel_db()
-    if code not in db:
+    current_claims = get_claims(code)
+    if not current_claims:
         return
         
     updated = False
-    for item in db[code]:
+    for item in current_claims:
         if item["id"] in claim_ids:
             # Add all other IDs in the set to this item's distinct_from
             current_distinct = set(item.get("distinct_from", []))
@@ -151,4 +223,4 @@ def mark_claims_distinct(code: str, claim_ids: List[str]):
                 updated = True
                 
     if updated:
-        save_intel_db(db)
+        save_claims_to_db(code, current_claims)
