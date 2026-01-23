@@ -5,6 +5,13 @@ All notable changes to the **MarketMonitorAndBuyer** project will be documented 
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.5.6] - 2026-01-23 (Core IP Security)
+### Security (安全)
+- **提示词加密存储 (Prompt Encryption)**:
+  - 为了保护核心策略资产，系统引入了 **Fernet (AES-128)** 加密机制。
+  - 所有存储在 `user_config.json` 中的 `prompts` 字段现在均以密文形式保存。
+  - 加密密钥 `.secret.key` 自动生成并保存在根目录，只有持有此密钥的系统实例才能解密并使用 AI 策略。
+
 ## [1.5.5] - 2026-01-23 (ETF/Stock Strategy Differentiation)
 ### Added (新增)
 - **ETF 专属策略逻辑**:

@@ -107,6 +107,8 @@ DEFAULT_CONFIG = {
     }
 }
 
+from utils.security import encrypt_dict, decrypt_dict, is_encrypted
+
 def load_config():
     if not os.path.exists(CONFIG_FILE):
         return DEFAULT_CONFIG
@@ -126,6 +128,17 @@ def load_config():
             if isinstance(data, dict):
                 config = DEFAULT_CONFIG.copy()
                 config.update(data)
+                
+                # Decrypt Prompts if needed
+                prompts = config.get("prompts")
+                if prompts and is_encrypted(prompts):
+                    try:
+                        config["prompts"] = decrypt_dict(prompts)
+                    except Exception as e:
+                        print(f"Decryption failed: {e}")
+                        # Fallback to default prompts if decryption fails provided key is wrong/missing
+                        config["prompts"] = DEFAULT_CONFIG["prompts"]
+                
                 return config
             
             return DEFAULT_CONFIG
@@ -133,8 +146,16 @@ def load_config():
         return DEFAULT_CONFIG
 
 def save_config(config_data):
+    # Deep copy to avoid modifying memory state
+    import copy
+    data_to_save = copy.deepcopy(config_data)
+    
+    # Encrypt Prompts
+    if "prompts" in data_to_save and isinstance(data_to_save["prompts"], dict):
+        data_to_save["prompts"] = encrypt_dict(data_to_save["prompts"])
+        
     with open(CONFIG_FILE, "w", encoding='utf-8') as f:
-        json.dump(config_data, f, ensure_ascii=False, indent=2)
+        json.dump(data_to_save, f, ensure_ascii=False, indent=2)
 
 def load_selected_stocks():
     config = load_config()
