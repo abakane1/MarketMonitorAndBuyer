@@ -5,6 +5,13 @@ All notable changes to the **MarketMonitorAndBuyer** project will be documented 
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.5.3] - 2026-01-23 (News Reasoning Upgrade)
+### Changed (优化)
+- **提示词思维链升级 (Prompt CoT Upgrade)**:
+  - **消息面深度博弈**: 在 AI 思考路径中新增独立的 **"News Deep Dive"** 环节。
+  - **二阶思维**: 强制要求 AI 对公告（如证监会问询回复、监管函）进行深度解读，不只是复述内容，更要预判“利空出尽”还是“新风险”，以及主力资金可能的洗盘/诱多手段。
+  - **针对性优化**: 专为 600076 等处于敏感消息期的股票定制了分析逻辑。
+
 ## [1.5.2] - 2026-01-22 (Professional News Integration)
 ### Added (新增)
 - **权威信源接入 (Professional News Source)**:
