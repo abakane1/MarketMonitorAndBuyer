@@ -85,101 +85,37 @@ def get_volume_profile(symbol: str):
     
     return profile, meta
 
-import json
-
-def get_research_log_path(symbol: str) -> str:
-    return os.path.join(DATA_DIR, f"{symbol}_research.json")
+from utils.database import (
+    db_save_strategy_log, db_get_strategy_logs, 
+    db_delete_strategy_log, db_get_latest_strategy_log
+)
 
 def save_research_log(symbol: str, prompt: str, result: str, reasoning: str):
     """
-    Saves a research record (Prompt + AI Response) to a JSON log file.
+    Saves a research record (Prompt + AI Response) to SQLite DB.
     """
-    init_storage()
-    file_path = get_research_log_path(symbol)
-    
-    entry = {
-        "timestamp": datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
-        "prompt": prompt,
-        "result": result,
-        "reasoning": reasoning
-    }
-    
-    current_log = []
-    if os.path.exists(file_path):
-        try:
-            with open(file_path, "r", encoding="utf-8") as f:
-                current_log = json.load(f)
-        except:
-            current_log = []
-            
-    current_log.append(entry)
-    
-    # Optional: Limit log size? Maybe keep last 50
-    if len(current_log) > 50:
-        current_log = current_log[-50:]
-        
-    with open(file_path, "w", encoding="utf-8") as f:
-        json.dump(current_log, f, ensure_ascii=False, indent=2)
+    db_save_strategy_log(symbol, prompt, result, reasoning)
 
 def load_research_log(symbol: str) -> list:
     """
-    Loads past research records.
+    Loads past research records from SQLite DB.
+    Returns: list of dicts.
     """
-    file_path = get_research_log_path(symbol)
-    if os.path.exists(file_path):
-        try:
-            with open(file_path, "r", encoding="utf-8") as f:
-                return json.load(f)
-        except:
-            return []
-    return []
+    return db_get_strategy_logs(symbol, limit=50)
 
 def delete_research_log(symbol: str, timestamp: str) -> bool:
     """
     删除指定时间戳的研报记录。
     Returns True if deleted, False otherwise.
     """
-    file_path = get_research_log_path(symbol)
-    if not os.path.exists(file_path):
-        return False
-    
-    try:
-        with open(file_path, "r", encoding="utf-8") as f:
-            logs = json.load(f)
-        
-        original_len = len(logs)
-        logs = [log for log in logs if log.get("timestamp") != timestamp]
-        
-        if len(logs) < original_len:
-            with open(file_path, "w", encoding="utf-8") as f:
-                json.dump(logs, f, ensure_ascii=False, indent=2)
-            return True
-        return False
-    except:
-        return False
+    return db_delete_strategy_log(symbol, timestamp)
 
 def get_latest_strategy_log(symbol: str):
     """
-    Returns the most recent log that is a 'New Strategy' (contains '核心任务: 独立策略构建').
+    Returns the most recent log.
     Returns None if not found or empty.
     """
-    logs = load_research_log(symbol)
-    if not logs:
-        return None
-        
-    # Logs are sorted by timestamp desc (newest first)
-    # FIX: load_research_log returns [old, ..., new], so we must reverse to get newest first
-    for log in logs[::-1]:
-        # Relaxed logic: Return the very first (newest) log we find.
-        # The user likely wants to see the latest AI interaction regardless of exact prompt type.
-        return log
-        
-        # Original strict filter (commented out for reference):
-        # prompt_content = log.get("prompt", "")
-        # if "核心任务: 独立策略构建" in prompt_content:
-        #     return log
-            
-    return None
+    return db_get_latest_strategy_log(symbol)
 
 def get_strategy_storage_path(symbol: str) -> str:
     return os.path.join(DATA_DIR, f"{symbol}_strategies.json")

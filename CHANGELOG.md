@@ -5,6 +5,17 @@ All notable changes to the **MarketMonitorAndBuyer** project will be documented 
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.6.0] - 2026-01-23 (Unified Data Storage)
+### Changed (重构)
+- **全数据数据库化 (All-in-DB)**:
+  - **核心配置分离**: `user_config.json` 现在仅存储静态配置（API Keys、Settings、Prompts）。
+  - **动态数据迁移**:
+    - **关注列表 (Watchlist)**: 移入 DB `watchlist` 表。
+    - **资金限额 (Allocations)**: 移入 DB `allocations` 表。
+    - **情报数据 (Intelligence)**: 移入 DB `intelligence` 表 (原 `data/` 目录可归档)。
+    - **策略日志 (Logs)**: 移入 DB `strategy_logs` 表 (原 `logs/` 目录可归档)。
+  - **系统健壮性**: 彻底消除了文件读写冲突和 JSON 膨胀问题。
+
 ## [1.5.8] - 2026-01-23 (Prompt Logic Fix)
 ### Fixed (修复)
 - **提示词严谨性修正**: 

@@ -10,10 +10,10 @@ from utils.database import (
 CONFIG_FILE = "user_config.json"
 
 DEFAULT_CONFIG = {
-    "selected_stocks": [],
-    "positions": {},  # Format: "code": {"shares": int, "cost": float}
+    # "selected_stocks": [], # DEPRECATED: Moved to DB
+    # "positions": {},       # DEPRECATED: Moved to DB
+    # "allocations": {},     # DEPRECATED: Moved to DB
     "settings": {},
-    "allocations": {}, # Format: "code": float (Target Capital)
     "prompts": {
         "__NOTE__": "CORE IP REMOVED FOR SECURITY. PROMPTS WILL BE AUTO-ENCRYPTED BY SYSTEM."
     }
@@ -69,14 +69,8 @@ def save_config(config_data):
     with open(CONFIG_FILE, "w", encoding='utf-8') as f:
         json.dump(data_to_save, f, ensure_ascii=False, indent=2)
 
-def load_selected_stocks():
-    config = load_config()
-    return config.get("selected_stocks", [])
+# load/save_selected_stocks moved to bottom to use DB
 
-def save_selected_stocks(codes):
-    config = load_config()
-    config["selected_stocks"] = codes
-    save_config(config)
 
 def get_position(code):
     return db_get_position(code)
@@ -126,22 +120,40 @@ def update_position(code, shares, price, action="buy"):
         db_add_history(code, timestamp, "override", price, shares, "持仓修正")
 
     # 2. No syncing to user_config.json (Deprecated)
-    # Ensure it's in selected_stocks (still in config for now)
     try:
-        config = load_config()
-        if "selected_stocks" not in config:
-            config["selected_stocks"] = []
-        if code not in config["selected_stocks"] and new_shares > 0:
-             config["selected_stocks"].append(code)
-             save_config(config)
+        # Check if code is in DB watchlist, if not add it
+        from utils.database import db_get_watchlist, db_add_watchlist
+        watchlist = db_get_watchlist()
+        if code not in watchlist and new_shares > 0:
+             db_add_watchlist(code)
     except Exception as e:
-        print(f"Error syncing selected_stocks: {e}")
+        print(f"Error syncing watchlist: {e}")
 
 def delete_transaction(code: str, timestamp: str):
     """
     Deletes a transaction record by code and timestamp.
     """
     return db_delete_transaction(code, timestamp)
+
+def load_selected_stocks():
+    from utils.database import db_get_watchlist
+    return db_get_watchlist()
+
+def save_selected_stocks(codes):
+    """
+    Full sync of watchlist.
+    """
+    from utils.database import db_get_watchlist, db_add_watchlist, db_remove_watchlist
+    current = set(db_get_watchlist())
+    target = set(codes)
+    
+    # Add new
+    for c in target - current:
+        db_add_watchlist(c)
+        
+    # Remove old
+    for c in current - target:
+        db_remove_watchlist(c)
 
 def get_settings():
     config = load_config()

@@ -38,6 +38,30 @@ def init_db():
         note TEXT
     )''')
     
+    # [NEW] Watchlist table
+    c.execute('''CREATE TABLE IF NOT EXISTS watchlist (
+        symbol TEXT PRIMARY KEY,
+        added_at TEXT
+    )''')
+    
+    # [NEW] Intelligence table
+    c.execute('''CREATE TABLE IF NOT EXISTS intelligence (
+        symbol TEXT PRIMARY KEY,
+        data TEXT,
+        updated_at TEXT
+    )''')
+    
+    # [NEW] Strategy Logs table
+    c.execute('''CREATE TABLE IF NOT EXISTS strategy_logs (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        symbol TEXT,
+        timestamp TEXT,
+        result TEXT,
+        reasoning TEXT,
+        prompt TEXT,
+        tag TEXT
+    )''')
+    
     # --- Schema Migration: Check if base_shares exists ---
     try:
         c.execute("SELECT base_shares FROM positions LIMIT 1")
@@ -110,6 +134,140 @@ def db_set_allocation(symbol: str, amount: float):
               (symbol, amount))
     conn.commit()
     conn.close()
+
+# --- Watchlist ---
+
+def db_get_watchlist() -> list:
+    conn = get_db_connection()
+    c = conn.cursor()
+    c.execute("SELECT symbol FROM watchlist")
+    rows = c.fetchall()
+    conn.close()
+    return [row["symbol"] for row in rows]
+
+def db_add_watchlist(symbol: str):
+    conn = get_db_connection()
+    c = conn.cursor()
+    timestamp = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+    c.execute("INSERT OR IGNORE INTO watchlist (symbol, added_at) VALUES (?, ?)", (symbol, timestamp))
+    conn.commit()
+    conn.close()
+
+def db_remove_watchlist(symbol: str):
+    conn = get_db_connection()
+    c = conn.cursor()
+    c.execute("DELETE FROM watchlist WHERE symbol = ?", (symbol,))
+    conn.commit()
+    conn.close()
+
+# --- Intelligence ---
+
+def db_save_intelligence(symbol: str, data: dict):
+    target_data = data.copy()
+    if "updated_at" in target_data:
+        updated = target_data.pop("updated_at")
+    else:
+        updated = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+        
+    import json
+    json_str = json.dumps(target_data, ensure_ascii=False)
+    
+    conn = get_db_connection()
+    c = conn.cursor()
+    c.execute("INSERT OR REPLACE INTO intelligence (symbol, data, updated_at) VALUES (?, ?, ?)", 
+              (symbol, json_str, updated))
+    conn.commit()
+    conn.close()
+
+def db_load_intelligence(symbol: str) -> dict:
+    conn = get_db_connection()
+    c = conn.cursor()
+    c.execute("SELECT data, updated_at FROM intelligence WHERE symbol = ?", (symbol,))
+    row = c.fetchone()
+    conn.close()
+    
+    if row:
+        import json
+        try:
+            data = json.loads(row["data"])
+            data["updated_at"] = row["updated_at"]
+            return data
+        except:
+             return {}
+    return {}
+
+# --- Strategy Logs ---
+
+def db_save_strategy_log(symbol: str, prompt: str, result: str, reasoning: str):
+    conn = get_db_connection()
+    c = conn.cursor()
+    ts = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+    
+    # Try extract Tag
+    import re
+    tag_match = re.search(r"【(.*?)】", result)
+    tag = tag_match.group(0) if tag_match else ""
+    
+    c.execute("""
+        INSERT INTO strategy_logs (symbol, timestamp, result, reasoning, prompt, tag)
+        VALUES (?, ?, ?, ?, ?, ?)
+    """, (symbol, ts, result, reasoning, prompt, tag))
+    conn.commit()
+    conn.close()
+
+def db_get_strategy_logs(symbol: str, limit: int = 20) -> list:
+    conn = get_db_connection()
+    c = conn.cursor()
+    c.execute("""
+        SELECT * FROM strategy_logs 
+        WHERE symbol = ? 
+        ORDER BY id DESC 
+        LIMIT ?
+    """, (symbol, limit))
+    rows = c.fetchall()
+    conn.close()
+    
+    res = []
+    for r in rows:
+        res.append({
+            "id": r["id"],
+            "timestamp": r["timestamp"],
+            "result": r["result"],
+            "reasoning": r["reasoning"],
+            "prompt": r["prompt"],
+            "tag": r["tag"]
+        })
+    return res
+
+def db_delete_strategy_log(symbol: str, timestamp: str) -> bool:
+    conn = get_db_connection()
+    c = conn.cursor()
+    c.execute("DELETE FROM strategy_logs WHERE symbol = ? AND timestamp = ?", (symbol, timestamp))
+    affected = c.rowcount
+    conn.commit()
+    conn.close()
+    return affected > 0
+
+def db_get_latest_strategy_log(symbol: str) -> dict:
+    conn = get_db_connection()
+    c = conn.cursor()
+    c.execute("""
+        SELECT * FROM strategy_logs 
+        WHERE symbol = ? 
+        ORDER BY id DESC 
+        LIMIT 1
+    """, (symbol,))
+    row = c.fetchone()
+    conn.close()
+    if row:
+        return {
+            "timestamp": row["timestamp"],
+            "result": row["result"],
+            "reasoning": row["reasoning"],
+            "prompt": row["prompt"],
+            "tag": row["tag"]
+        }
+    return None
 
 # --- History ---
 
