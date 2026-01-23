@@ -38,6 +38,26 @@ def render_strategy_section(code: str, name: str, price: float, shares_held: int
             time.sleep(0.5)
             st.rerun()
             
+        st.markdown("---")
+        # Base Position UI
+        from utils.config import set_base_shares
+        full_cfg = load_config()
+        curr_base = full_cfg.get("positions", {}).get(code, {}).get("base_shares", 0)
+        
+        new_base = st.number_input(
+            f"🔒 底仓锁定 (Base Position)",
+            value=int(curr_base),
+            min_value=0,
+            step=100,
+            key=f"base_in_{code}",
+            help="设置长期持有的底仓数量。AI 将被禁止卖出这部分筹码。"
+        )
+        if st.button("保存底仓", key=f"save_base_{code}"):
+            set_base_shares(code, new_base)
+            st.success(f"已锁定底仓: {new_base} 股")
+            time.sleep(0.5)
+            st.rerun()
+            
     if new_alloc > 0:
         eff_capital = new_alloc
 

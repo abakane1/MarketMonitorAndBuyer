@@ -5,6 +5,12 @@ All notable changes to the **MarketMonitorAndBuyer** project will be documented 
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.5.4] - 2026-01-23 (UI Config for Base Position)
+### Added (新增)
+- **底仓配置 UI (Base Config UI)**:
+  - 在“资金配置 (Capital Allocation)”面板中新增了**“🔒 底仓锁定”**的交互式配置项。
+  - 用户不再需要手动修改 JSON 配置文件，可直接在界面上调整“底仓股数”并一键保存，系统会自动激活风控护盾。
+
 ## [1.5.3] - 2026-01-23 (News Reasoning Upgrade)
 ### Changed (优化)
 - **提示词思维链升级 (Prompt CoT Upgrade)**:

@@ -251,3 +251,23 @@ def set_allocation(code: str, amount: float):
     # Log the change
     if old_alloc != amount:
         log_transaction(code, "allocation", price=0, volume=amount, note=f"Changed from {old_alloc} to {amount}")
+
+def set_base_shares(code: str, shares: int):
+    """
+    Updates base_shares (Locked Position) in user_config.json
+    """
+    try:
+        config = load_config()
+        if "positions" not in config:
+            config["positions"] = {}
+        
+        if code not in config["positions"]:
+            config["positions"][code] = {"shares": 0, "cost": 0.0}
+            
+        config["positions"][code]["base_shares"] = int(shares)
+        save_config(config)
+        
+        # Log it
+        log_transaction(code, "base_position", price=0, volume=shares, note=f"Set Base Shares to {shares}")
+    except Exception as e:
+        print(f"Error setting base shares: {e}")
