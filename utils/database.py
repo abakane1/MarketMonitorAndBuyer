@@ -162,13 +162,15 @@ def db_remove_watchlist(symbol: str):
 
 # --- Intelligence ---
 
-def db_save_intelligence(symbol: str, data: dict):
-    target_data = data.copy()
-    if "updated_at" in target_data:
-        updated = target_data.pop("updated_at")
-    else:
-        updated = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
-        
+def db_save_intelligence(symbol: str, data: any):
+    updated = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+    target_data = data
+    
+    if isinstance(data, dict):
+        target_data = data.copy()
+        if "updated_at" in target_data:
+            updated = target_data.pop("updated_at")
+            
     import json
     json_str = json.dumps(target_data, ensure_ascii=False)
     
@@ -179,7 +181,7 @@ def db_save_intelligence(symbol: str, data: dict):
     conn.commit()
     conn.close()
 
-def db_load_intelligence(symbol: str) -> dict:
+def db_load_intelligence(symbol: str) -> any:
     conn = get_db_connection()
     c = conn.cursor()
     c.execute("SELECT data, updated_at FROM intelligence WHERE symbol = ?", (symbol,))
@@ -190,11 +192,12 @@ def db_load_intelligence(symbol: str) -> dict:
         import json
         try:
             data = json.loads(row["data"])
-            data["updated_at"] = row["updated_at"]
+            if isinstance(data, dict):
+                data["updated_at"] = row["updated_at"]
             return data
         except:
-             return {}
-    return {}
+             return [] if "watchlist" not in symbol else {} # Context unaware fallback
+    return [] # Default to empty list as mostly used for claims list
 
 # --- Strategy Logs ---
 

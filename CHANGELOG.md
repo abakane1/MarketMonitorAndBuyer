@@ -5,6 +5,13 @@ All notable changes to the **MarketMonitorAndBuyer** project will be documented 
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.6.1] - 2026-01-23 (Data Recovery)
+### Fixed (修复)
+- **数据迁移修复**: 
+  - 修复了情报数据 (Intelligence) 在列表格式下导致的数据库读取异常。
+  - 修正了策略日志 (Strategy Logs) 的迁移源路径错误，成功找回并迁移了历史 AI 研判记录。
+  - 重新执行了全量数据迁移，确保所有历史数据已正确入库。
+
 ## [1.6.0] - 2026-01-23 (Unified Data Storage)
 ### Changed (重构)
 - **全数据数据库化 (All-in-DB)**:
