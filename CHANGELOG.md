@@ -5,6 +5,12 @@ All notable changes to the **MarketMonitorAndBuyer** project will be documented 
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.6.1] - 2026-01-23 (Stability & Fixes)
+### Fixed (修复)
+- **情报系统恢复**: 彻底修复了 `intel_manager.py` 在重构过程中丢失的 `add_claims` 和 `get_claims_for_prompt` 函数。
+- **数据迁移验证**: 修正了迁移脚本对策略日志路径的识别逻辑，成功从旧版文件找回 11 条研报记录并入库。
+- **代码结构优化**: 统一了 `utils` 层对数据库的访问模式，解决了在高频刷新下的数据结构竞争问题。
+
 ## [1.6.0] - 2026-01-23 (Architecture & Persistence Upgrade)
 ### Architecture (架构升级)
 - **全数据数据库化 (All-in-DB)**: 
