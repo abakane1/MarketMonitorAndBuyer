@@ -5,6 +5,12 @@ All notable changes to the **MarketMonitorAndBuyer** project will be documented 
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.5.8] - 2026-01-23 (Prompt Logic Fix)
+### Fixed (修复)
+- **提示词严谨性修正**: 
+  - 修正了提示词中关于“明日”的表述。将其全部替换为“**下一个交易日 (Next Trading Day)**”，以防止 AI 在周五或节假日前夕做出错误的“明天”走势预判。
+  - 该修复通过热补丁自动应用到了加密配置文件中。
+
 ## [1.5.7] - 2026-01-23 (Architecture Refactor)
 ### Changed (重构)
 - **数据持久化 (Persistence)**:
