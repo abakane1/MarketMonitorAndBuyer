@@ -46,13 +46,14 @@
 - `utils/strategy.py`: 量化策略核心 (筹码分布 & GTO 仓位管理)。
 - `utils/ai_advisor.py`: DeepSeek / Gemini AI 接口封装。
 - `utils/researcher.py`: Metaso 联网搜索接口 (含缓存)。
-- `utils/intel_manager.py`: 情报数据库管理 (JSON)。
+- `utils/intel_manager.py`: 情报数据库管理 (SQLite)。
+- `utils/database.py`: 数据库访问层 (CRUD)。
 - `utils/data_fetcher.py`: AkShare 数据获取封装。
-- `data/`: 存放情报库 (`intelligence.json`)。
+- `user_data.db`: 核心业务数据库 (存储持仓、情报、策略历史、配置)。
 - `stock_data/`: 存放本地行情缓存 (Parquet)。
 
 ## 注意事项
 
 - **数据源**: 行情数据由 [AkShare](https://github.com/akfamily/akshare) 提供。
-- **隐私安全**: 所有 API Key 和交易记录均仅保存在本地 `user_config.json` 和 `data/` 目录下，绝不上传云端。
+- **隐私安全**: 所有 API Key 和交易记录均仅保存在本地 `user_config.json` 和 `user_data.db` 中，绝不上传云端。
 

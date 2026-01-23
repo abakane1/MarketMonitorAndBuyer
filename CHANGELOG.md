@@ -5,36 +5,19 @@ All notable changes to the **MarketMonitorAndBuyer** project will be documented 
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
-## [1.6.1] - 2026-01-23 (Data Recovery)
-### Fixed (修复)
-- **数据迁移修复**: 
-  - 修复了情报数据 (Intelligence) 在列表格式下导致的数据库读取异常。
-  - 修正了策略日志 (Strategy Logs) 的迁移源路径错误，成功找回并迁移了历史 AI 研判记录。
-  - 重新执行了全量数据迁移，确保所有历史数据已正确入库。
+## [1.6.0] - 2026-01-23 (Architecture & Persistence Upgrade)
+### Architecture (架构升级)
+- **全数据数据库化 (All-in-DB)**: 
+  - 彻底完成了从 JSON 文件存储向 **SQLite** 数据库的架构迁移。
+  - **核心配置分离**: `user_config.json` 现仅存储 API Key、系统设置与加密提示词 (Prompts)。
+  - **业务数据迁移**: 关注列表、资金限额、情报数据、策略日志均已迁入 `user_data.db`。
+- **数据一致性**: 
+  - 持仓状态 (`shares`, `cost`, `base_shares`) 统一由数据库管理，彻底消除 JSON/DB 同步冲突。
+  - 修复了数据迁移过程中的路径和格式兼容性问题，成功恢复历史研判记录。
 
-## [1.6.0] - 2026-01-23 (Unified Data Storage)
-### Changed (重构)
-- **全数据数据库化 (All-in-DB)**:
-  - **核心配置分离**: `user_config.json` 现在仅存储静态配置（API Keys、Settings、Prompts）。
-  - **动态数据迁移**:
-    - **关注列表 (Watchlist)**: 移入 DB `watchlist` 表。
-    - **资金限额 (Allocations)**: 移入 DB `allocations` 表。
-    - **情报数据 (Intelligence)**: 移入 DB `intelligence` 表 (原 `data/` 目录可归档)。
-    - **策略日志 (Logs)**: 移入 DB `strategy_logs` 表 (原 `logs/` 目录可归档)。
-  - **系统健壮性**: 彻底消除了文件读写冲突和 JSON 膨胀问题。
-
-## [1.5.8] - 2026-01-23 (Prompt Logic Fix)
-### Fixed (修复)
-- **提示词严谨性修正**: 
-  - 修正了提示词中关于“明日”的表述。将其全部替换为“**下一个交易日 (Next Trading Day)**”，以防止 AI 在周五或节假日前夕做出错误的“明天”走势预判。
-  - 该修复通过热补丁自动应用到了加密配置文件中。
-
-## [1.5.7] - 2026-01-23 (Architecture Refactor)
-### Changed (重构)
-- **数据持久化 (Persistence)**:
-  - 彻底移除了 `user_config.json` 中的持仓数据 (`positions`)。
-  - 所有持仓状态（包括 **底仓 base_shares**）现在完全由 **SQLite** 数据库接管。
-  - 提升了数据一致性，解决了 JSON 与 DB 偶尔状态不同步的问题。
+### Fixed (修复与优化)
+- **提示词严谨性修正**: 将所有提示词中的“**明天**”统一替换为“**下一个交易日 (Next Trading Day)**”，修复了周五/节假日前夕的 AI 幻觉问题。
+- **系统健壮性**: 引入了更完善的数据库访问层 (`utils/database.py`)，支持列表/字典双模数据解析。
 
 ## [1.5.6] - 2026-01-23 (Core IP Security)
 ### Security (安全)
