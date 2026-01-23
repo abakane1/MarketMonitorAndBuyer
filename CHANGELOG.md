@@ -5,6 +5,13 @@ All notable changes to the **MarketMonitorAndBuyer** project will be documented 
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.5.7] - 2026-01-23 (Architecture Refactor)
+### Changed (重构)
+- **数据持久化 (Persistence)**:
+  - 彻底移除了 `user_config.json` 中的持仓数据 (`positions`)。
+  - 所有持仓状态（包括 **底仓 base_shares**）现在完全由 **SQLite** 数据库接管。
+  - 提升了数据一致性，解决了 JSON 与 DB 偶尔状态不同步的问题。
+
 ## [1.5.6] - 2026-01-23 (Core IP Security)
 ### Security (安全)
 - **提示词加密存储 (Prompt Encryption)**:

@@ -17,7 +17,8 @@ def init_db():
     c.execute('''CREATE TABLE IF NOT EXISTS positions (
         symbol TEXT PRIMARY KEY,
         shares INTEGER,
-        cost REAL
+        cost REAL,
+        base_shares INTEGER DEFAULT 0
     )''')
     
     # Allocations table
@@ -37,6 +38,15 @@ def init_db():
         note TEXT
     )''')
     
+    # --- Schema Migration: Check if base_shares exists ---
+    try:
+        c.execute("SELECT base_shares FROM positions LIMIT 1")
+    except sqlite3.OperationalError:
+        # Column missing, add it
+        print("Migrating DB: Adding base_shares column to positions table...")
+        c.execute("ALTER TABLE positions ADD COLUMN base_shares INTEGER DEFAULT 0")
+        conn.commit()
+    
     conn.commit()
     conn.close()
 
@@ -45,18 +55,39 @@ def init_db():
 def db_get_position(symbol: str) -> dict:
     conn = get_db_connection()
     c = conn.cursor()
-    c.execute("SELECT shares, cost FROM positions WHERE symbol = ?", (symbol,))
+    c.execute("SELECT shares, cost, base_shares FROM positions WHERE symbol = ?", (symbol,))
     row = c.fetchone()
     conn.close()
     if row:
-        return {"shares": row["shares"], "cost": row["cost"]}
-    return {"shares": 0, "cost": 0.0}
+        return {
+            "shares": row["shares"], 
+            "cost": row["cost"],
+            "base_shares": row["base_shares"] if row["base_shares"] is not None else 0
+        }
+    return {"shares": 0, "cost": 0.0, "base_shares": 0}
 
-def db_update_position(symbol: str, shares: int, cost: float):
+def db_update_position(symbol: str, shares: int, cost: float, base_shares: int = None):
+    """
+    Update position. If base_shares is None, keep existing value.
+    """
     conn = get_db_connection()
     c = conn.cursor()
-    c.execute("INSERT OR REPLACE INTO positions (symbol, shares, cost) VALUES (?, ?, ?)", 
-              (symbol, shares, cost))
+    
+    # Check if exists to preserve base_shares if not provided
+    existing = None
+    if base_shares is None:
+        c.execute("SELECT base_shares FROM positions WHERE symbol = ?", (symbol,))
+        row = c.fetchone()
+        if row:
+            base_shares = row["base_shares"]
+        else:
+            base_shares = 0
+            
+    c.execute("""
+        INSERT OR REPLACE INTO positions (symbol, shares, cost, base_shares) 
+        VALUES (?, ?, ?, ?)
+    """, (symbol, shares, cost, base_shares))
+        
     conn.commit()
     conn.close()
 

@@ -41,8 +41,10 @@ def render_strategy_section(code: str, name: str, price: float, shares_held: int
         st.markdown("---")
         # Base Position UI
         from utils.config import set_base_shares
-        full_cfg = load_config()
-        curr_base = full_cfg.get("positions", {}).get(code, {}).get("base_shares", 0)
+        from utils.database import db_get_position
+        # Use DB
+        curr_pos = db_get_position(code)
+        curr_base = curr_pos.get("base_shares", 0)
         
         new_base = st.number_input(
             f"🔒 底仓锁定 (Base Position)",
@@ -229,8 +231,9 @@ def render_strategy_section(code: str, name: str, price: float, shares_held: int
         market_open = is_trading_time()
         
         # Display Base Position Info (if configured)
-        full_cfg_ui = load_config()
-        base_s_ui = int(full_cfg_ui.get("positions", {}).get(code, {}).get("base_shares", 0))
+        from utils.database import db_get_position
+        curr_pos_ui = db_get_position(code)
+        base_s_ui = curr_pos_ui.get("base_shares", 0)
         if base_s_ui > 0:
              tradable_s_ui = max(0, shares_held - base_s_ui)
              st.info(f"🛡️ **风控护盾已激活** | 总持仓: {shares_held} | 🔒 底仓(Locked): **{base_s_ui}** | 🔄 可交易: **{tradable_s_ui}**")
@@ -275,8 +278,9 @@ def render_strategy_section(code: str, name: str, price: float, shares_held: int
                         limit_base_price = price
                     
                     # Fetch Base Position
-                    full_cfg = load_config()
-                    base_shares = int(full_cfg.get("positions", {}).get(code, {}).get("base_shares", 0))
+                    from utils.database import db_get_position
+                    pos_data = db_get_position(code)
+                    base_shares = pos_data.get("base_shares", 0)
                     tradable_shares = max(0, shares_held - base_shares)
                     
                     context = {
