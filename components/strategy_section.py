@@ -60,10 +60,28 @@ def render_strategy_section(code: str, name: str, price: float, shares_held: int
             time.sleep(0.5)
             st.rerun()
             
-    if new_alloc > 0:
-        eff_capital = new_alloc
-
-    # Calculate Strategy
+        # [NEW] Dynamic Capital Allocation Logic
+        from utils.config import get_stock_profit
+        total_profit = get_stock_profit(code, price)
+        
+        real_alloc = float(current_alloc)
+        
+        # If allocation is 0 (unlimited), effectively it uses Total Capital
+        # But here we want to solve "I set 200k limit but made 20k profit, allow 220k".
+        if real_alloc > 0:
+            effective_limit = real_alloc + total_profit
+            # If profit is negative, effective limit reduces (conservative)
+            # If profit is positive, effective limit increases (reinvestment)
+            
+            st.info(f"💰 有效资金限额: {effective_limit:,.0f} 元")
+            st.caption(f"计算公式: 基础限额 {real_alloc:,.0f} + 累计盈亏 {total_profit:+,.0f}")
+            
+            # Override eff_capital for strategy
+            eff_capital = effective_limit
+        else:
+            eff_capital = total_capital # Fallback to total if no specific limit
+            
+    # Calculate Strategy (Background calculation for AI Context)
     vol_profile_for_strat, vol_meta = get_volume_profile(code)
     strat_res = analyze_volume_profile_strategy(
         price, 
@@ -74,32 +92,11 @@ def render_strategy_section(code: str, name: str, price: float, shares_held: int
         proximity_threshold=proximity_pct
     )
     
-    # --- Algorithm Section (Simplified) ---
-    with st.expander("⚙️ 算法建议 (Algorithm)", expanded=False):
-        s_col1, s_col2, s_col3, s_col4 = st.columns(4)
-        
-        signal = strat_res.get('signal')
-        color = "grey"
-        if signal == "买入": color = "green"
-        if signal == "卖出": color = "red"
-        
-        s_col1.markdown(f"**建议方向**: :{color}[{signal}]")
-        s_col2.metric("建议股数", strat_res.get('quantity', 0))
-        
-        sl_val = strat_res.get('stop_loss', 0)
-        sl_label = "止损参考"
-        if shares_held > 0 and sl_val > avg_cost: sl_label = "利润保护"
-        s_col3.metric(sl_label, sl_val)
-        
-        tp_val = strat_res.get('take_profit', 'N/A')
-        s_col4.metric("止盈参考", tp_val)
-        
-        st.caption(f"💡 逻辑依据: {strat_res.get('reason')}")
-        st.caption(f"📊 支撑: {strat_res.get('support')} | 阻力: {strat_res.get('resistance')}")
+    # --- Algorithm Section REMOVED ---
 
 
-    # --- AI Section (Elevated) ---
-    with st.expander("🧠 AI 深度研判 (AI Analysis)", expanded=False):
+    # --- AI Section (Review / Pre-market) ---
+    with st.expander("🧠 复盘与预判 (Review & Prediction)", expanded=True):
         st.markdown("---")
         
         # Check for Pending Draft
@@ -227,7 +224,9 @@ def render_strategy_section(code: str, name: str, price: float, shares_held: int
 
         st.markdown("---")
         # Control Buttons
-        from utils.time_utils import is_trading_time
+        st.markdown("---")
+        # Control Buttons
+        from utils.time_utils import is_trading_time, get_target_date_for_strategy
         market_open = is_trading_time()
         
         # Display Base Position Info (if configured)
@@ -242,15 +241,14 @@ def render_strategy_section(code: str, name: str, price: float, shares_held: int
         start_pre = False
         start_intra = False
         
+        start_intra = False # Intraday Removed
+        
         with c_p1:
-            if st.button("💡 生成盘前策略 (Pre-market)", key=f"btn_pre_{code}", use_container_width=True):
+            if st.button("💡 生成复盘与预判 (Review & Plan)", key=f"btn_pre_{code}", type="primary", use_container_width=True):
                 target_suffix_key = "deepseek_new_strategy_suffix"
                 start_pre = True
         
-        with c_p2:
-            if st.button("⚡ 生成盘中对策 (Intra-day)", key=f"btn_intra_{code}", use_container_width=True):
-                target_suffix_key = "deepseek_intraday_suffix"
-                start_intra = True
+        # Intraday Button Removed
 
         if start_pre or start_intra:
             warning_msg = None
@@ -295,7 +293,7 @@ def render_strategy_section(code: str, name: str, price: float, shares_held: int
                         "current_shares": shares_held, 
                         "support": strat_res.get('support'), 
                         "resistance": strat_res.get('resistance'), 
-                        "signal": signal,
+                        "signal": strat_res.get('signal'),
                         "reason": strat_res.get('reason'), 
                         "quantity": strat_res.get('quantity'),
                         "target_position": strat_res.get('target_position', 0),
@@ -437,9 +435,25 @@ def render_strategy_section(code: str, name: str, price: float, shares_held: int
                     signal_show = s_match.group(2) if s_match and len(s_match.groups()) >= 2 else (s_match.group(1) if s_match else "N/A")
                     if "N/A" in signal_show and "观望" in res_snippet[:100]: signal_show = "观望"
 
+                    if "N/A" in signal_show and "观望" in res_snippet[:100]: signal_show = "观望"
+
+                    # Determine Target Date using enforced logic
+                    dt_ts = datetime.datetime.strptime(ts, "%Y-%m-%d %H:%M:%S")
+                    target_date_str = get_target_date_for_strategy(dt_ts)
+                    
+                    # Extract Tag
+                    tag = "盘中"
+                    # Simple heuristic for tag display, but date is now rigorous
+                    if "盘前" in res_snippet[:20] or dt_ts.hour >= 15 or dt_ts.hour < 9:
+                        tag = "盘前"
+                    if "盘中" in res_snippet[:20]:
+                        tag = "盘中"
+
                     # Add to list (Insert at beginning to show latest first in table)
                     history_data.insert(0, {
-                        "时间": ts,
+                        "生成时间": ts,
+                        "适用日期": target_date_str,
+                        "类型": tag,
                         "AI建议": signal_show.replace("[","").replace("]",""),
                         "实际执行": tx_str,
                         "raw_log": log
@@ -453,10 +467,13 @@ def render_strategy_section(code: str, name: str, price: float, shares_held: int
                 st.caption("策略与执行追踪")
                 df_hist = pd.DataFrame(history_data)
                 st.dataframe(
-                    df_hist[['时间', 'AI建议', '实际执行']], 
+                    df_hist[['适用日期', '类型', 'AI建议', '实际执行', '生成时间']], 
                     hide_index=True,
                     use_container_width=True,
                     column_config={
+                        "适用日期": st.column_config.TextColumn("适用日期 (Target)", width="small"),
+                        "类型": st.column_config.TextColumn("类型", width="small"),
+                        "生成时间": st.column_config.TextColumn("生成时间 (Created)", width="medium"),
                         "实际执行": st.column_config.TextColumn("实际执行 (基于此策略)", width="large"),
                         "AI建议": st.column_config.TextColumn("AI建议", width="small"),
                     }

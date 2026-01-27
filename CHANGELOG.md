@@ -5,6 +5,46 @@ All notable changes to the **MarketMonitorAndBuyer** project will be documented 
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.8.0] - 2026-01-27 (Market Review & Prediction Transformation)
+### Changed (系统转型)
+- **定位重构**: 系统从“实时盯盘”正式转型为 **“复盘与预判辅助系统”**。
+  - **盘中策略移除**: 彻底移除了“算法实时监控”与“盘中对策”功能，避免交易干扰。
+  - **AI 角色升级**: AI 助手重新命名为“复盘助手”，专注于收盘后的复盘总结与明日预判。
+- **资金限额动态化**: 
+  - 引入 **有效限额 (Effective Limit)** 概念，计算公式升级为 `基础限额 + 累计盈亏`。
+  - 实现了利润自动复投机制：当股票盈利时，算法自动允许使用盈利部分扩充持仓。
+
+### Added (新增)
+- **交易补录 (Backdating)**:
+  - 交易记账面板新增 **“补录历史交易”** 选项，支持用户指定日期和时间插入历史买卖记录。
+- **摊薄成本法 (Verified Cost Basis)**:
+  - 重构了卖出逻辑：卖出获利时自动降低剩余持仓成本，卖出亏损时增加持仓成本。相比旧版的“移动加权平均”，该逻辑更能反映真实持仓心理压力。
+
+### Fixed (修复)
+- **配置防丢机制 (Config Hardening)**: 
+  - 重写了 `load_config` 逻辑，在读取不到配置文件时 **强制报错停止**，不再自动回退到默认空配置。彻底修复了 API Key 意外丢失的顽疾。
+- **数据库一致性**:
+  - 移除了持仓查询的缓存机制，修复了快速连续交易（如连续补录）时数据更新不及时的问题。
+
+## [1.7.0] - 2026-01-25 (Interactive Backtest & Evolution)
+### Added (新增)
+- **动态回测实验室 (Dynamic Strategy Lab)**:
+  - **可视化重构**: 策略回测不再展示静态结果，而是支持逐分钟回放交易日（股价、资产、信号实时跳动）。
+  - **多维曲线对比**: 动态绘制 "AI 收益率" vs "实盘收益率" vs "标的涨跌幅" 三条曲线，直观呈现 Alpha 来源。
+  - **人机对弈 (Human vs AI)**: 系统自动识别用户实盘优于 AI 的时刻，并提供 "Extract Alpha" 功能。
+- **指令自进化闭环 (Prompt Evolution)**:
+  - **Alpha 提取**: 当用户战胜 AI 时，调用 DeepSeek 分析用户操作的优越性（如捕捉盘口流动性、早盘抢跑）。
+  - **一键更新**: 自动生成 System Prompt 的优化建议，支持 diff 预览、编辑并一键写入配置文件，无需手动复制粘贴。
+- **交易日历风控 (Trading Calendar)**:
+  - 内置 2026 年完整节假日表（含春节、国庆等）。
+  - **严格日期逻辑**: 自动识别非交易日（周末/假期），所有盘后生成的策略自动顺延至“下一个交易日”，彻底修复了周五/节假日策略日期的显示错误。
+
+### Fixed (修复)
+- **回测数据校准**:
+  - 修复了资产基数计算逻辑（改为：初始资金 + 持仓市值），解决了收益率虚高的问题。
+  - 支持识别数据库中的 `override` (持仓修正) 记录，确保回测状态与实盘完全同步。
+- **AI 策略连续性**: 修复了回测时忽略“前一日盘前策略”的 Bug，现在系统会自动回溯读取前一晚生成的作战计划。
+
 ## [1.6.1] - 2026-01-23 (Stability & Fixes)
 ### Fixed (修复)
 - **情报系统恢复**: 彻底修复了 `intel_manager.py` 在重构过程中丢失的 `add_claims` 和 `get_claims_for_prompt` 函数。

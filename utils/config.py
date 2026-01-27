@@ -21,6 +21,34 @@ DEFAULT_CONFIG = {
 
 from utils.security import encrypt_dict, decrypt_dict, is_encrypted
 
+def get_stock_profit(symbol: str, current_price: float) -> float:
+    """
+    Calculates total realized + unrealized profit for a stock.
+    Formula: Net Cash Flow (Sell - Buy) + Current Market Value
+    """
+    # 1. Get History (Buy/Sell) from DB
+    history = db_get_history(symbol)
+    
+    net_cash_flow = 0.0
+    
+    for tx in history:
+        t_type = tx['type'].lower()
+        price = float(tx['price'])
+        amount = float(tx['amount'])
+        
+        if 'buy' in t_type or '买' in t_type:
+            net_cash_flow -= (price * amount)
+        elif 'sell' in t_type or '卖' in t_type:
+            net_cash_flow += (price * amount)
+            
+    # 2. Get Current Market Value
+    pos = db_get_position(symbol)
+    shares = pos.get('shares', 0)
+    market_value = shares * current_price
+    
+    total_profit = net_cash_flow + market_value
+    return total_profit
+
 def load_config():
     if not os.path.exists(CONFIG_FILE):
         return DEFAULT_CONFIG
@@ -54,8 +82,14 @@ def load_config():
                 return config
             
             return DEFAULT_CONFIG
-    except:
-        return DEFAULT_CONFIG
+            return DEFAULT_CONFIG
+    except Exception as e:
+        print(f"Config Load Error: {e}")
+        # CRITICAL: Do NOT return Default if file exists but read failed.
+        # This prevents silent overwriting of valid data with defaults (e.g. wiping API keys).
+        # Better to crash/error out than to lose data.
+        raise e
+        # return DEFAULT_CONFIG
 
 def save_config(config_data):
     # Deep copy to avoid modifying memory state
@@ -75,7 +109,7 @@ def save_config(config_data):
 def get_position(code):
     return db_get_position(code)
 
-def update_position(code, shares, price, action="buy"):
+def update_position(code, shares, price, action="buy", custom_date: str = None):
     """
     Updates position based on action.
     action: 'buy' (calculate weighted avg), 'sell' (reduce shares), 'override' (overwrite)
@@ -88,7 +122,11 @@ def update_position(code, shares, price, action="buy"):
     curr_cost = current["cost"]
     curr_base = current.get("base_shares", 0)
     
+    curr_base = current.get("base_shares", 0)
+    
     timestamp = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+    if custom_date:
+        timestamp = custom_date
     
     new_shares = curr_shares
     new_cost = curr_cost
@@ -105,10 +143,22 @@ def update_position(code, shares, price, action="buy"):
         db_add_history(code, timestamp, "buy", price, shares, "手动买入")
         
     elif action == "sell":
-        # Reducing shares does not change Avg Cost per share (Standard Accounting)
+        # Diluted Cost Method (摊薄成本法)
+        # New Total Cost = Current Total Cost - (Sold Shares * Sold Price)
+        # Logic: Use the cash back to lower the cost basis of remaining shares.
+        current_total_cost = curr_shares * curr_cost
+        cash_back = shares * price
+        
         new_shares = max(0, curr_shares - shares)
-        # Cost remains same
-        db_update_position(code, int(new_shares), curr_cost, base_shares=curr_base)
+        
+        if new_shares > 0:
+            new_total_cost = current_total_cost - cash_back
+            new_cost = new_total_cost / new_shares
+            new_cost = round(new_cost, 4)
+        else:
+            new_cost = 0.0
+            
+        db_update_position(code, int(new_shares), new_cost, base_shares=curr_base)
         db_add_history(code, timestamp, "sell", price, shares, "手动卖出")
         
     elif action == "override":
@@ -199,3 +249,14 @@ def set_base_shares(code: str, shares: int):
     
     # Log it
     log_transaction(code, "base_position", price=0, volume=shares, note=f"Set Base Shares to {shares}")
+
+def save_prompt(key: str, content: str):
+    """
+    Updates a specific prompt in the config and saves it.
+    """
+    config = load_config()
+    if "prompts" not in config:
+        config["prompts"] = {}
+    
+    config["prompts"][key] = content
+    save_config(config)

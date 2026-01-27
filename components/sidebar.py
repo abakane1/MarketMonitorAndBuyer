@@ -23,14 +23,15 @@ def render_sidebar() -> dict:
     """
     # 导航
     st.sidebar.title("🎮 功能导航")
-    app_mode = st.sidebar.radio("选择页面", ["实时盯盘", "提示词中心"], index=0)
+    app_mode = st.sidebar.radio("选择页面", ["复盘与预判", "提示词中心", "策略实验室"], index=0)
     
     st.sidebar.markdown("---")
     st.sidebar.header("设置")
     
     # 1. 加载股票列表
     with st.sidebar:
-        stock_df = get_all_stocks_list()
+        with st.spinner("正在初始化配置..."):
+             stock_df = get_all_stocks_list()
         
         if stock_df.empty:
             st.error("加载股票列表失败，请手动刷新。")
@@ -169,7 +170,7 @@ def render_sidebar() -> dict:
         
         # 刷新设置
         auto_refresh = st.checkbox("自动刷新", value=False)
-        refresh_rate = st.slider("刷新间隔 (秒)", 5, 60, 10)
+        refresh_rate = st.slider("刷新间隔 (秒)", 30, 300, 60, help="建议保持 60秒以上，以避免触发数据源流控限制。")
         
         # 数据管理
         st.markdown("---")
@@ -188,7 +189,12 @@ def render_sidebar() -> dict:
             if not selected_labels:
                 st.warning("请先选择股票")
             else:
-                with st.spinner("Downloading historical data..."):
+                with st.spinner("Downloading historical data & Snapshot..."):
+                    # 1. Update Market Snapshot
+                    from utils.data_fetcher import fetch_and_cache_market_snapshot
+                    fetch_and_cache_market_snapshot()
+                    
+                    # 2. Update History
                     for label in selected_labels:
                         code_to_sync = label.split(" | ")[0]
                         save_minute_data(code_to_sync)

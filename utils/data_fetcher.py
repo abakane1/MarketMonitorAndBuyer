@@ -17,8 +17,34 @@ if not logger.handlers:
     logger.addHandler(handler)
     logger.setLevel(logging.INFO)
 
+# --- 装饰器 ---
+import time
+import functools
+
+def retry_with_backoff(retries=3, backoff_in_seconds=1):
+    def decorator(func):
+        @functools.wraps(func)
+        def wrapper(*args, **kwargs):
+            x = 0
+            while True:
+                try:
+                    return func(*args, **kwargs)
+                except (ConnectionError, Exception) as e:
+                    if x == retries:
+                        logger.error(f"Function {func.__name__} failed after {retries} retries: {e}")
+                        raise e
+                    sleep = (backoff_in_seconds * 2 ** x + 
+                             0.1 * (id(e) % 10)) # jitter
+                    logger.warning(f"Retrying {func.__name__} due to {e}, attempt {x+1}/{retries}, waiting {sleep:.2f}s...")
+                    time.sleep(sleep)
+                    x += 1
+        return wrapper
+    return decorator
+
 
 # --- 自定义异常类 ---
+from utils.storage import save_realtime_data
+
 class DataFetchError(Exception):
     """数据获取失败（网络/API 错误）"""
     pass
@@ -96,6 +122,10 @@ def get_etf_spot_cached() -> pd.DataFrame:
     Cached version of fund_etf_spot_em (heavy call).
     Updates every 5 seconds (Trading Hours).
     """
+    return _fetch_etf_spot_with_retry()
+
+@retry_with_backoff(retries=2, backoff_in_seconds=1)
+def _fetch_etf_spot_with_retry():
     return ak.fund_etf_spot_em()
 
 def get_etf_spot_long_cache() -> pd.DataFrame:
@@ -139,6 +169,10 @@ def get_stock_spot_cached() -> pd.DataFrame:
     """
     Cached version of stock_zh_a_spot_em.
     """
+    return _fetch_stock_spot_with_retry()
+
+@retry_with_backoff(retries=2, backoff_in_seconds=1)
+def _fetch_stock_spot_with_retry():
     return ak.stock_zh_a_spot_em()
 
 def get_stock_spot_long_cache() -> pd.DataFrame:
@@ -177,11 +211,140 @@ def get_stock_spot_long_cache() -> pd.DataFrame:
     else:
         return pd.read_parquet(STOCK_SPOT_PATH)
 
+def fetch_and_cache_market_snapshot():
+    """
+    Manually triggers a full market snapshot fetch (Stocks + ETFs) and saves to disk.
+    This is the ONLY function that should hit the network for Spot Data.
+    """
+    try:
+        # 1. Fetch Stocks
+        df_stocks = _fetch_stock_spot_with_retry()
+        
+        # 2. Fetch ETFs (588/51/15)
+        df_etfs = _fetch_etf_spot_with_retry()
+        # Filter relevant ETFs to save space/time? Or just keep all?
+        # Keeping all is safer.
+        
+        # 3. Merge
+        # Align columns if needed.
+        # AkShare spot returns: 代码, 名称, 最新价, 涨跌幅, 涨跌额, 成交量, 成交额, 振幅, 最高, 最低, 今开, 昨收
+        # Ensure common schema.
+        
+        # Concatenate
+        df_final = pd.concat([df_stocks, df_etfs], ignore_index=True)
+        
+        # 4. Save
+        save_realtime_data(df_final)
+        
+        return len(df_final)
+        return len(df_final)
+    except Exception as e:
+        logger.warning(f"Market Snapshot Fetch Failed (Non-Blocking): {e}")
+        # Return 0 to indicate failure but do not raise, allowing individual stock updates to proceed
+        return 0
+
 def get_stock_realtime_info(symbol: str) -> Optional[Dict]:
     """
-    Fetches real-time snapshot for a single stock or ETF.
-    Now includes OHLCV data.
+    [Offline-First Version]
+    Reads real-time snapshot from DISK for a single stock or ETF.
+    Does NOT trigger network calls.
     """
+    from utils.storage import load_realtime_quote, SPOT_DATA_PATH
+    
+    # 1. Try Load from Disk (Combined v2.0 file)
+    data = load_realtime_quote(symbol)
+    spot_mtime = 0
+    if data and os.path.exists(SPOT_DATA_PATH):
+        spot_mtime = os.path.getmtime(SPOT_DATA_PATH)
+    
+    # 2. Fallback to v1.x individual files (stock_spot.parquet / etf_spot.parquet)
+    if not data:
+        from utils.data_fetcher import STOCK_SPOT_PATH, ETF_SPOT_PATH
+        for path in [STOCK_SPOT_PATH, ETF_SPOT_PATH]:
+            if os.path.exists(path):
+                try:
+                    df_v1 = pd.read_parquet(path)
+                    row_v1 = df_v1[df_v1['代码'] == symbol]
+                    if not row_v1.empty:
+                        data = row_v1.iloc[0].to_dict()
+                        break
+                except:
+                    continue
+
+    # 3. Check Minute Data (Freshness Override)
+    # If Global Spot failed (stale), we might have fresh Minute Data which contains Local Spot info.
+    # We prioritize Minute Data if it is significantly newer than Spot Data file.
+    use_minute_override = False
+    min_df = pd.DataFrame() # Init
+    
+    if not data:
+        use_minute_override = True
+    else:
+        # Check if Minute Data is fresher
+        try:
+            from utils.storage import load_minute_data
+            min_df = load_minute_data(symbol)
+            if not min_df.empty:
+                min_last = pd.to_datetime(min_df.iloc[-1]['时间'])
+                min_ts = min_last.timestamp()
+                
+                # If minute data is > 60s newer than spot file
+                if min_ts > (spot_mtime + 60):
+                    use_minute_override = True
+        except:
+            pass
+
+    if use_minute_override:
+        try:
+            from utils.storage import load_minute_data
+            if min_df.empty: min_df = load_minute_data(symbol)
+            
+            if not min_df.empty:
+                latest = min_df.iloc[-1]
+                # Construct fake spot data from minute data
+                data = {
+                    '代码': symbol,
+                    '名称': 'Unknown', # Name might be missing if only relying on minute data
+                    '最新价': latest.get('收盘', 0),
+                    '昨收': latest.get('收盘', 0), # Approx
+                    '总市值': 0,
+                    '今开': latest.get('开盘', 0),
+                    '最高': latest.get('最高', 0),
+                    '最低': latest.get('最低', 0),
+                    '成交量': latest.get('成交量', 0),
+                    '成交额': latest.get('成交额', 0)
+                }
+                
+                # Try to get Name from Stock List if possible
+                try:
+                    name_df = get_all_stocks_list()
+                    row_n = name_df[name_df['代码'] == symbol]
+                    if not row_n.empty:
+                        data['名称'] = row_n.iloc[0]['名称']
+                except:
+                    pass
+        except:
+            pass
+            
+    if data:
+        # Map fields to standard format
+        price = data.get('最新价', 0)
+        return {
+            'code': data['代码'],
+            'name': data['名称'],
+            'price': float(price),
+            'pre_close': float(data.get('昨收', price)),
+            'market_cap': float(data.get('总市值', 0)),
+            'open': float(data.get('今开', data.get('开盘价', 0))),
+            'high': float(data.get('最高', data.get('最高价', 0))),
+            'low': float(data.get('最低', data.get('最低价', 0))),
+            'volume': float(data.get('成交量', 0)),
+            'amount': float(data.get('成交额', 0))
+        }
+        
+    return None # Return None if not found on disk (Dashboard handles this)
+
+# --- Legacy/Fetcher below (used by manual sync) ---
     try:
         # Check if ETF
         is_etf = symbol.startswith(('51', '588', '15'))
@@ -319,6 +482,7 @@ def get_stock_realtime_info(symbol: str) -> Optional[Dict]:
         logger.error(f"获取实时行情失败 {symbol}: {e}")
         return None
 
+@retry_with_backoff(retries=3, backoff_in_seconds=2)
 def get_stock_minute_data(symbol: str) -> pd.DataFrame:
     """
     Fetches intraday minute data for a stock or ETF.
@@ -343,9 +507,67 @@ def get_stock_minute_data(symbol: str) -> pd.DataFrame:
         return df
         
     except Exception as e:
-        logger.error(f"获取分时数据失败 {symbol}: {e}")
-        return pd.DataFrame()
+        logger.warning(f"EastMoney API failed ({e}), attempting Sina Fallback...")
+        try:
+            return _fetch_minute_data_sina(symbol)
+        except Exception as sina_e:
+            logger.error(f"Sina Fallback also failed for {symbol}: {sina_e}")
+            raise e
 
+def _fetch_minute_data_sina(symbol: str) -> pd.DataFrame:
+    """
+    Fallback: Fetch minute data from Sina.
+    Requires 'sh'/'sz' prefix.
+    """
+    # 1. Add Prefix
+    prefix = ""
+    if symbol.startswith(('6', '5', '9')):
+        prefix = "sh"
+    elif symbol.startswith(('0', '3', '1')): # 159xxx is SZ
+        prefix = "sz"
+    elif symbol.startswith(('4', '8')):
+        prefix = "bj" # Sina support for BJ unknown, try sh/sz or none? usually bj stocks not on Sina min/
+    
+    sina_symbol = f"{prefix}{symbol}"
+    
+    # 2. Fetch
+    df = ak.stock_zh_a_minute(symbol=sina_symbol, period='1')
+    
+    if df.empty:
+        return pd.DataFrame()
+        
+    # 3. Rename Columns to match System Standard (EastMoney Style)
+    # Sina: day, open, high, low, close, volume
+    # Target: 时间, 开盘, 最高, 最低, 收盘, 成交量, 成交额, ...
+    
+    rename_map = {
+        'day': '时间',
+        'open': '开盘',
+        'high': '最高',
+        'low': '最低',
+        'close': '收盘',
+        'volume': '成交量'
+    }
+    df = df.rename(columns=rename_map)
+    
+    # 4. Type Conversion
+    df['时间'] = pd.to_datetime(df['时间'])
+    
+    numeric_cols = ['开盘', '最高', '最低', '收盘', '成交量']
+    for col in numeric_cols:
+        if col in df.columns:
+            df[col] = pd.to_numeric(df[col], errors='coerce')
+    
+    # 5. Fill missing columns (成交额 etc.) with approximation or 0
+    # EastMoney provides '成交额'. Sina does not?
+    # Actually Sina might not. We approximate Amount = Volume * Close (Roughly) or just leave missing.
+    # Backtester relies on High/Low/Close/Open. '成交额' is rarely used for logic, mostly for display.
+    if '成交额' not in df.columns:
+        df['成交额'] = df['成交量'] * df['收盘'] # Rough Estimate
+        
+    return df
+
+@retry_with_backoff(retries=3, backoff_in_seconds=2)
 def get_stock_daily_history(symbol: str) -> pd.DataFrame:
     """
     Fetch daily history (last 30 days) to get Pre-Close.
@@ -368,8 +590,55 @@ def get_stock_daily_history(symbol: str) -> pd.DataFrame:
         df = ak.stock_zh_a_hist(symbol=symbol, period="daily", start_date=start_date, end_date=end_date, adjust="qfq")
         return df
     except Exception as e:
-        logger.error(f"获取日线数据失败 {symbol}: {e}")
+        logger.warning(f"EastMoney Daily API failed ({e}), attempting Sina Fallback...")
+        try:
+            return _fetch_daily_sina(symbol)
+        except Exception as sina_e:
+            logger.error(f"Sina Daily Fallback also failed for {symbol}: {sina_e}")
+            raise e
+
+def _fetch_daily_sina(symbol: str) -> pd.DataFrame:
+    """
+    Fallback: Fetch daily data from Sina.
+    """
+    # 1. Add Prefix
+    prefix = ""
+    if symbol.startswith(('6', '5', '9')):
+        prefix = "sh"
+    elif symbol.startswith(('0', '3', '1')):
+        prefix = "sz"
+    
+    sina_symbol = f"{prefix}{symbol}"
+    
+    # 2. Fetch
+    # ak.stock_zh_a_daily(symbol='sh600519')
+    df = ak.stock_zh_a_daily(symbol=sina_symbol)
+    
+    if df.empty:
         return pd.DataFrame()
+        
+    # 3. Rename
+    # Sina: date, open, high, low, close, volume
+    # Target: 日期, 开盘, 最高, 最低, 收盘, 成交量, ...
+    rename_map = {
+        'date': '日期',
+        'open': '开盘',
+        'high': '最高',
+        'low': '最低',
+        'close': '收盘',
+        'volume': '成交量'
+    }
+    df = df.rename(columns=rename_map)
+    
+    # 4. Type
+    df['日期'] = pd.to_datetime(df['日期'])
+    
+    # 5. Filter Context (match original function: last 30 days)
+    from datetime import datetime, timedelta
+    cutoff = datetime.now() - timedelta(days=60) # Fetch a bit more to be safe
+    df = df[df['日期'] >= cutoff]
+    
+    return df
 
 def aggregate_minute_to_daily(df: pd.DataFrame, precision: int = 2) -> str:
     """
@@ -500,31 +769,34 @@ def get_stock_fund_flow_history(symbol: str, force_update: bool = False) -> pd.D
     
     should_fetch = True
     
-    # 1. Check Cache
-    if not force_update and os.path.exists(cache_path):
+    # 1. Check Cache Logic
+    # We load file first to see what dates we have.
+    df_cache = pd.DataFrame()
+    if os.path.exists(cache_path):
         try:
-            mtime = os.path.getmtime(cache_path)
-            file_dt = datetime.fromtimestamp(mtime)
-            now = datetime.now()
-            
-            # If file is from today and it's after trading hours, or just recent enough
-            # Simple logic: If today is weekday and trading, we might want fresh data.
-            # If file updated today, good enough.
-            if file_dt.date() == now.date():
-                should_fetch = False
+            df_cache = pd.read_parquet(cache_path)
+            if not df_cache.empty and '日期' in df_cache.columns:
+                last_date = pd.to_datetime(df_cache['日期'].iloc[-1])
+                now = datetime.now()
+                
+                # If file has today's data, we are good.
+                if last_date.date() >= now.date():
+                    should_fetch = False
+                    
+                # If file is stale (last date < today), and it's after 15:00, we definitely need update.
+                # If it's trading time, we also might want update if API provides real-time daily flow? 
+                # (Likely EastMoney updates this EOD or near EOD).
+                # But to be safe, if last date is not today, we try fetch.
+                else:
+                    should_fetch = True
+                    
+            if not should_fetch and not force_update:
+                return df_cache
         except:
-            pass
-
-    if not should_fetch:
-        try:
-            df = pd.read_parquet(cache_path)
-            if not df.empty:
-                return df
-        except:
-            should_fetch = True
-            
+             should_fetch = True
+    
     # 2. Fetch from API
-    if should_fetch:
+    if should_fetch or force_update:
         try:
             market = _get_market_code(symbol)
             # API: ak.stock_individual_fund_flow(stock="600519", market="sh")

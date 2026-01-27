@@ -1,6 +1,7 @@
 import sqlite3
 import os
 from datetime import datetime
+import streamlit as st
 
 DB_FILE = "user_data.db"
 
@@ -76,6 +77,7 @@ def init_db():
 
 # --- Positions ---
 
+# @st.cache_data(ttl=2) # REMOVED to prevent stale data during rapid transactions
 def db_get_position(symbol: str) -> dict:
     conn = get_db_connection()
     c = conn.cursor()
@@ -117,6 +119,7 @@ def db_update_position(symbol: str, shares: int, cost: float, base_shares: int =
 
 # --- Allocations ---
 
+@st.cache_data(ttl=5)
 def db_get_allocation(symbol: str) -> float:
     conn = get_db_connection()
     c = conn.cursor()
@@ -137,6 +140,7 @@ def db_set_allocation(symbol: str, amount: float):
 
 # --- Watchlist ---
 
+@st.cache_data(ttl=10)
 def db_get_watchlist() -> list:
     conn = get_db_connection()
     c = conn.cursor()
@@ -282,6 +286,7 @@ def db_add_history(symbol: str, timestamp: str, action_type: str, price: float, 
     conn.commit()
     conn.close()
 
+@st.cache_data(ttl=5)
 def db_get_history(symbol: str) -> list:
     conn = get_db_connection()
     c = conn.cursor()
@@ -309,3 +314,48 @@ def db_delete_transaction(symbol: str, timestamp: str) -> bool:
     conn.commit()
     conn.close()
     return rows_affected > 0
+
+def db_get_position_at_date(symbol: str, target_date_str: str) -> dict:
+    """Reconstructs position up to the start of a given date (00:00:00)."""
+    conn = get_db_connection()
+    c = conn.cursor()
+    c.execute("""
+        SELECT type, amount, price FROM history 
+        WHERE symbol = ? AND timestamp < ?
+        ORDER BY timestamp ASC
+    """, (symbol, target_date_str + " 00:00:00"))
+    rows = c.fetchall()
+    conn.close()
+    
+    shares = 0
+    total_cost = 0.0
+    for r in rows:
+        t = r["type"].lower()
+        qty = int(r["amount"])
+        p = float(r["price"] or 0)
+        
+        # 处理持仓修正 (Override) - 这是解决问题的关键
+        if "override" in t or "修正" in t or "reset" in t:
+            shares = qty
+            total_cost = qty * p
+        elif any(w in t for w in ["买", "入", "buy"]):
+            shares += qty
+            total_cost += qty * p
+        elif any(w in t for w in ["卖", "出", "sell"]):
+            if shares > 0:
+                # 按照移动平均减去成本
+                avg_p = total_cost / shares
+                shares -= qty
+                if shares <= 0:
+                    shares = 0
+                    total_cost = 0.0
+                else:
+                    total_cost = shares * avg_p
+            else:
+                shares = 0
+                total_cost = 0.0
+    
+    return {
+        "shares": int(shares),
+        "avg_cost": total_cost / shares if shares > 0 else 0.0
+    }

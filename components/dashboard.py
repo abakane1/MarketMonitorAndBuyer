@@ -2,9 +2,11 @@
 import streamlit as st
 import pandas as pd
 import time
+import datetime
 import plotly.graph_objects as go
-from utils.data_fetcher import get_stock_realtime_info, get_stock_minute_data, get_stock_fund_flow
-from utils.storage import get_volume_profile
+from utils.indicators import calculate_indicators
+from utils.storage import load_minute_data, save_minute_data, has_minute_data, get_volume_profile
+from utils.data_fetcher import get_stock_realtime_info, get_stock_fund_flow, analyze_intraday_pattern, calculate_price_limits, get_stock_news, fetch_and_cache_market_snapshot
 from utils.config import get_position, update_position, get_history, delete_transaction, get_allocation
 
 from components.strategy_section import render_strategy_section
@@ -16,7 +18,31 @@ def render_stock_dashboard(code: str, name: str, total_capital: float, risk_pct:
     """
     
     # 1. Fetch Real-time Info
+    # [v2.0] Manual Refresh Button (One-Click Sync)
+    col_refresh, col_last_update = st.columns([1, 4])
+    with col_refresh:
+        if st.button("🔄 立即刷新数据 (Fetch Now)", type="primary", key=f"fetch_btn_{code}"):
+            with st.spinner("正在从交易所同步最新数据..."):
+                try:
+                    # 1. Update Market Snapshot (Price, Open, High, Low...)
+                    # This might fail due to EastMoney blocking, but we proceed to Minute Data (Sina Fallback)
+                    snapshot_count = fetch_and_cache_market_snapshot()
+                    if snapshot_count == 0:
+                        st.warning("全市场快照更新失败，将尝试单独更新本股数据...")
+                        
+                    # 2. Update Minute Data for this stock
+                    save_minute_data(code)
+                    st.success("数据更新完成！")
+                    st.cache_data.clear() # Force clear cache to show new data immediately
+                    # import time # REMOVE
+                    time.sleep(0.5)
+                    st.rerun()
+                except Exception as e:
+                    st.error(f"更新失败: {e}")
+    
+    # 1. Fetch Real-time Info (Now Offline-First)
     info = get_stock_realtime_info(code)
+    
     if not info:
         st.error(f"无法获取 {name} 的数据")
         return
@@ -39,24 +65,47 @@ def render_stock_dashboard(code: str, name: str, total_capital: float, risk_pct:
         c4.metric("浮动盈亏", f"{pnl:.4f}", delta=f"{pnl_pct:.4f}%")
     
     with st.expander("📝 交易记账 (买入/卖出)", expanded=False):
-        with st.form(key=f"trade_form_{code}"):
-            col_t1, col_t2 = st.columns(2)
-            trade_shares = col_t1.number_input("交易股数", min_value=100, step=100, key=f"s_{code}")
-            trade_price = col_t2.number_input("交易价格", value=price, step=0.0001, format="%.4f", key=f"p_{code}")
+        # Removed st.form to allow dynamic backdate fields
+        col_t1, col_t2 = st.columns(2)
+        trade_shares = col_t1.number_input("交易股数", min_value=100, step=100, key=f"s_{code}")
+        trade_price = col_t2.number_input("交易价格", value=price, step=0.0001, format="%.4f", key=f"p_{code}")
+        
+        # Action & Backdate
+        c_act, c_bk = st.columns([0.6, 0.4])
+        with c_act:
             trade_action = st.radio("方向", ["买入", "卖出", "修正持仓(覆盖)"], horizontal=True, key=f"a_{code}")
+        
+        custom_ts = None
+        with c_bk:
+            st.write("") # Spacer
+            is_backdate = st.checkbox("📅 补录历史交易", key=f"bk_{code}")
+        
+        if is_backdate:
+            bc1, bc2 = st.columns(2)
+            b_date = bc1.date_input("补录日期", key=f"bd_{code}")
+            # Default time to 14:55:00 for consistency if user doesn't care
+            b_time = bc2.time_input("补录时间", value=datetime.time(14, 55), key=f"bt_{code}")
+            custom_ts = f"{b_date} {b_time}"
+        
+        if st.button("记录交易", key=f"submit_trade_{code}", type="primary"):
+            if trade_action == "买入":
+                update_position(code, trade_shares, trade_price, "buy", custom_date=custom_ts)
+                info_msg = "买入记录已更新！"
+                if custom_ts: info_msg += f" (补录时间: {custom_ts})"
+                st.success(info_msg)
+            elif trade_action == "卖出":
+                update_position(code, trade_shares, trade_price, "sell", custom_date=custom_ts)
+                info_msg = "卖出记录已更新！"
+                if custom_ts: info_msg += f" (补录时间: {custom_ts})"
+                st.success(info_msg)
+            else:
+                update_position(code, trade_shares, trade_price, "override", custom_date=custom_ts)
+                info_msg = "持仓已强制修正！"
+                if custom_ts: info_msg += f" (补录时间: {custom_ts})"
+                st.success(info_msg)
             
-            if st.form_submit_button("记录交易"):
-                if trade_action == "买入":
-                    update_position(code, trade_shares, trade_price, "buy")
-                    st.success("买入记录已更新！")
-                elif trade_action == "卖出":
-                    update_position(code, trade_shares, trade_price, "sell")
-                    st.success("卖出记录已更新！")
-                else:
-                    update_position(code, trade_shares, trade_price, "override")
-                    st.success("持仓已强制修正！")
-                time.sleep(1)
-                st.rerun()
+            time.sleep(1)
+            st.rerun()
         
         st.markdown("---")
         st.caption("📜 交易记录 (History)")
@@ -146,21 +195,36 @@ def render_stock_dashboard(code: str, name: str, total_capital: float, risk_pct:
     
     # 1. Minute Data
     with st.expander("⏱️ 分时明细 (Minute Data)", expanded=False):
-        hist_df = get_stock_minute_data(code)
+        # [v2.0] Load from Disk Only
+        hist_df = load_minute_data(code)
+        
         if not hist_df.empty:
             def get_direction(row):
-                if row['收盘'] > row['开盘']: return "买盘"
-                elif row['收盘'] < row['开盘']: return "卖盘"
-                else: return "平盘"
+                if '开盘' in row:
+                    if row['收盘'] > row['开盘']: return "买盘"
+                    elif row['收盘'] < row['开盘']: return "卖盘"
+                return "平盘"
             
             display_df = hist_df.copy()
-            display_df['性质'] = display_df.apply(get_direction, axis=1)
-            display_df = display_df[['时间', '收盘', '成交量', '性质']]
-            display_df.columns = ['时间', '价格', '成交量', '性质']
+            # Ensure columns exist before apply
+            if '收盘' in display_df.columns and '开盘' in display_df.columns:
+                display_df['性质'] = display_df.apply(get_direction, axis=1)
+                cols_to_show = ['时间', '收盘', '成交量', '性质']
+            else:
+                cols_to_show = ['时间', '收盘', '成交量']
+                
+            # Filter existing cols
+            cols_to_show = [c for c in cols_to_show if c in display_df.columns]
+            
+            display_df = display_df[cols_to_show]
+            # Rename for display
+            rename_map = {'收盘': '价格', '性质': '方向'}
+            display_df = display_df.rename(columns=rename_map)
+            
             display_df = display_df.sort_values('时间', ascending=False)
             st.dataframe(display_df, width=1000, height=400, hide_index=True)
         else:
-            st.warning("暂无实时数据")
+            st.info("暂无本地分时数据")
             
     # 2. Volume Profile
     with st.expander("📊 筹码分布 (Volume Profile)", expanded=False):
@@ -217,6 +281,9 @@ def render_stock_dashboard(code: str, name: str, total_capital: float, risk_pct:
         else:
              st.info("暂无资金流向数据")
 
+    # Render Strategy + AI
+    # Note: Strategy Section returns strategy result which Intel Hub might need (to show current signal)
+    # So we capture it.
     # Render Strategy + AI
     # Note: Strategy Section returns strategy result which Intel Hub might need (to show current signal)
     # So we capture it.

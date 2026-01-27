@@ -65,7 +65,36 @@ trigger: always_on
 
 ---
 
-## 5. 最终检查
+## 5. 项目架构铁律 (Project Architecture Rules) [CRITICAL]
+
+为防止功能迭代导致架构回退，必须严格遵守以下业务规则：
+
+### 5.1 数据持久化 (Persistence)
+> **原则**: 动态数据进数据库，静态配置进 JSON。
+- **SQLite (`user_data.db`)**: 必须用于存储所有高频变动或累积型业务数据。包括但不限于：
+    - `positions` (持仓状态、成本、**底仓/Base Shares**)
+    - `watchlist` (关注股票列表)
+    - `allocations` (个股资金限额)
+    - `intelligence` (情报数据、Metaso 结果)
+    - `strategy_logs` (AI 研判历史、策略回测记录)
+- **JSON (`user_config.json`)**: 仅用于存储**静态**系统配置。
+    - API Keys (如 `deepseek_api_key`)
+    - 全局设置 (如 `total_capital`, `risk_pct`)
+    - **加密后的** 提示词模板 (`prompts`)
+- **禁止**: 禁止将持仓数、关注列表等“状态”写回 `user_config.json`。
+
+### 5.2 提示词工程 (Prompt Engineering)
+- **时间锚点**: 在编写所有涉及未来预测的 Prompt 时，必须使用 **"下一个交易日 (Next Trading Day)"** 代替 "明天/Tommorow"。
+    - 防止 AI 在周五或节假日前夕做出错误的时间推断。
+    - 示例: `预测下一个交易日的开盘情绪...`
+- **安全存储**: 源代码 (`.py`) 中禁止出现明文的核心提示词。所有提示词必须存储在 `user_config.json` (加密) 中。
+
+### 5.3 错误处理
+- **列表兼容性**: 处理 `intelligence` 等 JSON 数据时，必须兼容 `list` 和 `dict` 两种格式，防止读取解析崩溃。
+
+---
+
+## 6. 最终检查
 
 输出前进行视觉扫描：
 > "这段内容发给不懂英文的产品经理，他能看懂 80% 吗？"

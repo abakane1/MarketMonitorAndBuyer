@@ -47,7 +47,7 @@ if 'selected_code' not in st.session_state:
     st.session_state.selected_code = None
 
 # --- Main App ---
-st.title("📈 A股智能盯盘与策略辅助系统 v1.3.1")
+st.title("📈 A股复盘与预判辅助系统 v1.3.1")
 
 # Sidebar
 sidebar_data = render_sidebar()
@@ -60,7 +60,11 @@ auto_refresh = sidebar_data["auto_refresh"]
 refresh_rate = sidebar_data["refresh_rate"]
 
 # Main Area
-if app_mode == "提示词中心":
+if app_mode == "策略实验室":
+    from components.lab import render_strategy_lab
+    render_strategy_lab()
+
+elif app_mode == "提示词中心":
     st.header("🧠 提示词模板中心")
     st.caption("查看并管理系统中使用的所有 AI 提示词模板。这些模板当前存储在 `user_config.json` 中。")
     
@@ -113,7 +117,7 @@ if app_mode == "提示词中心":
         with st.expander("1️⃣ 基础辅助 (gemini_base)", expanded=True):
             st.code(prompts.get("gemini_base", ""), language="text")
 
-elif app_mode == "实时盯盘":
+elif app_mode == "复盘与预判":
     if not selected_labels:
         st.info("请在左侧侧边栏选择股票开始监控。")
     else:
@@ -139,10 +143,11 @@ elif app_mode == "实时盯盘":
                     # Dashboard component does NOT include backtest widget.
                     # So we render it here.
                     
-                    st.markdown("---")
-                    with st.expander("🛠️ 策略回测模拟 (Strategy Backtest)", expanded=False):
-                        from utils.sim_ui import render_backtest_widget as render_backtest
-                        render_backtest(code, current_holding_shares=get_position(code).get('shares', 0), current_holding_cost=get_position(code).get('cost', 0))
+                    # Render Backtest Section (Removed: Moved to Strategy Lab)
+                    # st.markdown("---")
+                    # with st.expander("🛠️ 策略回测模拟 (Strategy Backtest)", expanded=False):
+                    #    from utils.sim_ui import render_backtest_widget as render_backtest
+                    #    render_backtest(code, current_holding_shares=get_position(code).get('shares', 0), current_holding_cost=get_position(code).get('cost', 0))
         # Initial Draw
         update_view()
     

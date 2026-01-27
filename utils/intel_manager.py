@@ -41,6 +41,7 @@ def get_claims_for_prompt(code: str, hours: Optional[int] = None) -> str:
     verified_list = []
     false_list = []
     pending_list = []
+    user_manual_list = []
     
     for c in claims:
         try:
@@ -52,6 +53,12 @@ def get_claims_for_prompt(code: str, hours: Optional[int] = None) -> str:
                 continue
 
             line = f"- [{c['timestamp']}] {c['content']}"
+            
+            # Special handling for User Manual Input
+            if c.get('source') == 'UserManual':
+                user_manual_list.append(line)
+                continue
+                
             if c.get('status') == 'verified':
                 verified_list.append(line)
             elif c.get('status') == 'false_info':
@@ -62,6 +69,8 @@ def get_claims_for_prompt(code: str, hours: Optional[int] = None) -> str:
             continue
             
     sections = []
+    if user_manual_list:
+        sections.append("【🚨 核心情报 (用户强制输入/Critical Info - HIGHEST PRIORITY)】:\n" + "\n".join(user_manual_list))
     if verified_list:
         sections.append("【✅ 用户已人工核实 (绝对事实/Trust User)】:\n" + "\n".join(verified_list))
     if false_list:
@@ -97,10 +106,12 @@ def add_claims(code: str, claims: List[any], source: str = "Metaso"):
     updated = False
     for date_key, texts in claims_by_date.items():
         target_entry = None
-        for item in current_claims:
-            if item['timestamp'].startswith(date_key):
-                target_entry = item
-                break
+        # Don't merge if source is UserManual (keep them distinct for visibility)
+        if source != "UserManual":
+            for item in current_claims:
+                if item['timestamp'].startswith(date_key) and item.get('source') == source:
+                    target_entry = item
+                    break
         
         if target_entry:
             new_lines = []
@@ -115,12 +126,16 @@ def add_claims(code: str, claims: List[any], source: str = "Metaso"):
                 updated = True
         else:
             formatted = [f"• [{current_time_str}] {t}" for t in texts]
+            
+            # Auto-verify UserManual
+            init_status = "verified" if source == "UserManual" else "pending"
+            
             new_item = {
                 "id": str(uuid.uuid4())[:8],
                 "content": "\n".join(formatted),
                 "timestamp": f"{date_key} {current_time_str}", 
                 "source": source,
-                "status": "pending",
+                "status": init_status,
                 "note": "",
                 "distinct_from": []
             }

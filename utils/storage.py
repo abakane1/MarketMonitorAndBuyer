@@ -1,7 +1,8 @@
 import pandas as pd
 import os
 from datetime import datetime
-from utils.data_fetcher import get_stock_minute_data
+
+import streamlit as st
 
 DATA_DIR = "stock_data"
 
@@ -13,6 +14,39 @@ def get_file_path(symbol: str, type: str) -> str:
     """Type: 'daily' or 'minute'"""
     return os.path.join(DATA_DIR, f"{symbol}_{type}.parquet")
 
+SPOT_DATA_PATH = os.path.join(DATA_DIR, "realtime_quotes.parquet")
+
+def save_realtime_data(df: pd.DataFrame):
+    """
+    Saves the full market snapshot to disk.
+    """
+    init_storage()
+    if not df.empty:
+        df.to_parquet(SPOT_DATA_PATH)
+
+def load_realtime_quote(symbol: str) -> dict:
+    """
+    Reads latest quote for a symbol from local disk.
+    Returns dict or None.
+    """
+    if not os.path.exists(SPOT_DATA_PATH):
+        return None
+        
+    try:
+        # Optim: We could cache the whole DF in memory (st.cache_resource) but for now read is fast enough for UI?
+        # Maybe use st.cache_data?
+        # But if we want instant manual refresh updates, cache needs to be invalidated.
+        # Let's read file directly for "One Source of Truth". Parquet is fast.
+        df = pd.read_parquet(SPOT_DATA_PATH)
+        
+        row = df[df['代码'] == symbol]
+        if row.empty:
+            return None
+            
+        return row.iloc[0].to_dict()
+    except Exception:
+        return None
+
 def save_minute_data(symbol: str):
     """
     Fetches latest minute data and merges with local history.
@@ -21,6 +55,7 @@ def save_minute_data(symbol: str):
     file_path = get_file_path(symbol, 'minute')
     
     # 1. Fetch new data (usually last 5 days from API)
+    from utils.data_fetcher import get_stock_minute_data
     new_df = get_stock_minute_data(symbol)
     if new_df.empty:
         return
@@ -45,6 +80,7 @@ def save_minute_data(symbol: str):
     else:
         new_df.to_parquet(file_path)
 
+# @st.cache_data(ttl=60)
 def load_minute_data(symbol: str) -> pd.DataFrame:
     file_path = get_file_path(symbol, 'minute')
     if os.path.exists(file_path):
@@ -58,6 +94,7 @@ def has_minute_data(symbol: str) -> bool:
     file_path = get_file_path(symbol, 'minute')
     return os.path.exists(file_path)
 
+# @st.cache_data(ttl=60)
 def get_volume_profile(symbol: str):
     """
     Calculates Volume by Price from local minute data.

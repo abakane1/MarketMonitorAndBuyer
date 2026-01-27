@@ -11,7 +11,7 @@ def render_ai_monitor(code: str):
     """
     渲染 AI 盯盘监控面板
     """
-    st.markdown("### 👁️ AI 实时盯盘 (Live Monitor)")
+    st.markdown("### 👁️ AI 复盘助手 (Market Review)")
     
     # 获取状态
     state_data = get_ai_monitor_state(code)

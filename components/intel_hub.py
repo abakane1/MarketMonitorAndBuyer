@@ -113,6 +113,25 @@ def render_intel_hub(code: str, name: str, price: float, avg_cost: float, shares
                         st.rerun()
         
         st.markdown("---")
+        
+        # [NEW] Manual Input Section
+        with st.expander("📝 手动录入重要情报 (Manual Input)", expanded=True):
+            user_intel = st.text_area(
+                "请输入您获得的情报 (将作为最高优先级传给AI):", 
+                height=100, 
+                key=f"manual_intel_{code}",
+                help="此处输入的信息会被标记为【UserManual】来源，并在DeepSeek提示词中置顶显示。"
+            )
+            if st.button("💾 保存情报", key=f"btn_save_manual_{code}"):
+                if not user_intel.strip():
+                    st.warning("内容不能为空")
+                else:
+                    add_claims(code, [user_intel.strip()], source="UserManual")
+                    st.success("已保存！该情报将作为核心信息传给AI。")
+                    time.sleep(1)
+                    st.rerun()
+
+        st.markdown("---")
         current_claims = get_claims(code)
         if not current_claims:
             st.info("暂无收回的情报。请点击上方按钮进行抓取。")
@@ -127,6 +146,9 @@ def render_intel_hub(code: str, name: str, price: float, avg_cost: float, shares
                         "false_info": "❌"
                     }
                     status_icon = status_map.get(item['status'], "⚪")
+                    
+                    if item.get('source') == 'UserManual':
+                        status_icon = "🚨 (用户)"
                     
                     # Strikethrough if false
                     content_display = item['content']
