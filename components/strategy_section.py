@@ -19,6 +19,7 @@ def render_strategy_section(code: str, name: str, price: float, shares_held: int
     """
     
     # 1. Capital Allocation UI
+    prompts = load_config().get("prompts", {}) # Load Prompts Early for Refinement Logic
     current_alloc = get_allocation(code)
     eff_capital = total_capital # Default
     
@@ -97,6 +98,14 @@ def render_strategy_section(code: str, name: str, price: float, shares_held: int
 
     # --- AI Section (Review / Pre-market) ---
     with st.expander("🧠 复盘与预判 (Review & Prediction)", expanded=True):
+        # [UX] Toast Feedback
+        toast_key = f"toast_msg_{code}"
+        if toast_key in st.session_state:
+            msg = st.session_state[toast_key]
+            st.toast(msg, icon="✅")
+            st.success(msg) # Persistent anchor
+            del st.session_state[toast_key]
+
         st.markdown("---")
         
         # Check for Pending Draft
@@ -108,15 +117,383 @@ def render_strategy_section(code: str, name: str, price: float, shares_held: int
             ai_strat_log = st.session_state[pending_key]
             st.warning("⚠️ 新生成策略待确认 (Draft Mode)")
             
+            # [Display Strategy Result]
+            from components.strategy_display_helper import display_strategy_content
+            display_strategy_content(ai_strat_log.get('result', ''))
+            
+            # [Display Reasoning]
+            if ai_strat_log.get('reasoning'):
+                with st.expander("💭 查看 AI 思考过程 (Reasoning)", expanded=False):
+                    st.markdown(ai_strat_log['reasoning'])
+            
+            # --- Display Gemini Audit (Red Team) ---
+            # --- Display Qwen Audit (Red Team) ---
+            # --- STAGE 2: RED TEAM AUDIT ---
+            if ai_strat_log.get('audit'):
+                # [Display Audit Result]
+                with st.expander(f"🔴 {ai_strat_log.get('red_model', 'Qwen')} 风控官审查报告 (Red Team Audit)", expanded=True):
+                    st.markdown(ai_strat_log['audit'])
+                    
+                    # --- STAGE 3: REFINEMENT ---
+                    if not ai_strat_log.get('is_refined'):
+                        st.markdown("---")
+                        
+                        # [Refinement Workflow]
+                        refine_preview_key = f"refine_preview_{code}"
+                        
+                        # A. Trigger Button
+                        if refine_preview_key not in st.session_state:
+                            if st.button("🔄 准备优化策略 (Prepare Refinement)", key=f"btn_prep_refine_{code}"):
+                                with st.spinner("🤖 正在构建优化指令..."):
+                                    from utils.ai_advisor import build_refinement_prompt
+                                    blue_model = ai_strat_log.get('blue_model', 'DeepSeek')
+                                    
+                                    # Build Prompt
+                                    sys_p, user_p = build_refinement_prompt(
+                                        ai_strat_log.get('raw_context', ''), 
+                                        ai_strat_log['result'], 
+                                        ai_strat_log['audit'], 
+                                        prompts
+                                    )
+                                    
+                                    st.session_state[refine_preview_key] = {
+                                        'sys_p': sys_p,
+                                        'user_p': user_p,
+                                        'model': blue_model
+                                    }
+                                    st.rerun()
+                        
+                        # B. Preview & Confirm
+                        else:
+                            r_data = st.session_state[refine_preview_key]
+                            st.info(f"📝 确认优化指令 ({r_data['model']})")
+                            
+                            new_sys = st.text_area("System Prompt (Refine)", value=r_data['sys_p'], key=f"sys_r_{code}", height=100)
+                            new_user = st.text_area("User Instruction (Refine)", value=r_data['user_p'], key=f"user_r_{code}", height=200)
+                            
+                            rc1, rc2 = st.columns([1, 1])
+                            with rc1:
+                                if st.button("🚀 确认执行优化 (Run Refinement)", key=f"btn_run_refine_{code}", type="primary"):
+                                    # Get Key
+                                    b_key = st.session_state.get("input_apikey", "")
+                                    if r_data['model'] == "Qwen":
+                                        b_key = st.session_state.get("input_qwen", "")
+                                        if not b_key: b_key = load_config().get("settings", {}).get("qwen_api_key", "")
+                                    
+                                    if not b_key:
+                                        st.error(f"Missing Key for {r_data['model']}")
+                                    else:
+                                        with st.spinner(f"♻️ {r_data['model']} 正在根据审查意见优化策略..."):
+                                            from utils.ai_advisor import call_ai_model
+                                            
+                                            v2_plan, v2_reason = call_ai_model(
+                                                r_data['model'].lower(), b_key, new_sys, new_user
+                                            )
+                                            
+                                            if "Error" in v2_plan:
+                                                st.error(v2_plan)
+                                            else:
+                                                # Update Session State
+                                                st.session_state[pending_key]['result'] = f"{v2_plan}\n\n[Refined v2.0]"
+                                                st.session_state[pending_key]['reasoning'] = f"{ai_strat_log.get('reasoning','')}\n\n--- 🔄 Refinement Logic ---\n{v2_reason}"
+                                                st.session_state[pending_key]['is_refined'] = True
+                                                
+                                                # Capture Prompt
+                                                if 'prompts_history' not in st.session_state[pending_key]:
+                                                    st.session_state[pending_key]['prompts_history'] = {}
+                                                st.session_state[pending_key]['prompts_history']['refine_sys'] = new_sys
+                                                st.session_state[pending_key]['prompts_history']['refine_user'] = new_user
+                                                
+                                                del st.session_state[refine_preview_key]
+                                                st.rerun()
+                            with rc2:
+                                if st.button("❌ 取消优化", key=f"btn_cancel_refine_{code}"):
+                                    del st.session_state[refine_preview_key]
+                                    st.rerun()
+                    
+                    # --- STAGE 4: FINAL VERDICT (Audit Round 2) ---
+                    # Only show if Refined AND no Final Audit yet
+                    if ai_strat_log.get('is_refined'):
+                         st.markdown("---")
+                         final_audit_key = f"final_audit_preview_{code}"
+                         
+                         if not ai_strat_log.get('final_audit'):
+                             # [Trigger Final Audit]
+                             red_model = ai_strat_log.get('red_model', 'Qwen')
+                             st.info(f"⚖️ 等待红军 ({red_model}) 终极裁决 (Final Verdict)...")
+                             
+                             if final_audit_key not in st.session_state:
+                                 if st.button(f"⚖️ 准备终审 (Prepare Final Verdict)", key=f"btn_prep_final_{code}"):
+                                     with st.spinner("🤖 正在构建终审指令..."):
+                                         from utils.ai_advisor import build_red_team_prompt
+                                         # Context is V2 Plan
+                                         bg_info = ai_strat_log.get('raw_context') or ai_strat_log.get('prompt', '')
+                                         audit_ctx = {
+                                             "code": code,
+                                             "name": name,
+                                             "price": price,
+                                             "daily_stats": bg_info,  
+                                             "deepseek_plan": ai_strat_log['result'] # This is V2 now
+                                         }
+                                         sys_p, user_p = build_red_team_prompt(audit_ctx, prompts, is_final_round=True)
+                                         
+                                         st.session_state[final_audit_key] = {
+                                             'sys_p': sys_p, 'user_p': user_p, 'model': red_model
+                                         }
+                                         st.rerun()
+                             else:
+                                 # Preview
+                                 fa_data = st.session_state[final_audit_key]
+                                 st.warning(f"📝 确认终审指令 ({fa_data['model']})")
+                                 f_sys = st.text_area("System (Final)", value=fa_data['sys_p'], key=f"sys_fa_{code}", height=100)
+                                 f_usr = st.text_area("User (Final)", value=fa_data['user_p'], key=f"usr_fa_{code}", height=200)
+                                 
+                                 fc1, fc2 = st.columns(2)
+                                 with fc1:
+                                     if st.button("🚀 执行终审 (Run Final Verdict)", key=f"btn_run_final_{code}", type="primary"):
+                                         # Key Check
+                                         r_key = load_config().get("settings", {}).get("qwen_api_key", "")
+                                         if fa_data['model'] == "DeepSeek": r_key = st.session_state.get("input_apikey", "")
+                                         elif fa_data['model'] == "Qwen": r_key = st.session_state.get("input_qwen", "") or r_key
+
+                                         if not r_key: st.error("Missing Key"); st.stop()
+                                         
+                                         with st.spinner(f"⚖️ {fa_data['model']} 正在宣判..."):
+                                             from utils.ai_advisor import call_ai_model
+                                             fa_res, _ = call_ai_model(fa_data['model'].lower(), r_key, f_sys, f_usr)
+                                             if "Error" in fa_res: st.error(fa_res)
+                                             else:
+                                                 st.session_state[pending_key]['final_audit'] = fa_res
+                                                 
+                                                 # Capture Prompt
+                                                 if 'prompts_history' not in st.session_state[pending_key]:
+                                                     st.session_state[pending_key]['prompts_history'] = {}
+                                                 st.session_state[pending_key]['prompts_history']['final_sys'] = f_sys
+                                                 st.session_state[pending_key]['prompts_history']['final_user'] = f_usr
+                                                 
+                                                 del st.session_state[final_audit_key]
+                                                 st.rerun()
+                                 with fc2:
+                                     if st.button("❌ 取消终审", key=f"btn_ccl_final_{code}"):
+                                         del st.session_state[final_audit_key]
+                                         st.rerun()
+                                         
+                         else:
+                             # Display Final Audit
+                             with st.expander(f"⚖️ {ai_strat_log.get('red_model','Qwen')} 终极裁决 (Final Verdict)", expanded=True):
+                                 st.markdown(ai_strat_log['final_audit'])
+                                
+                             # --- STAGE 5: FINAL DECISION (Blue Team) ---
+                             st.markdown("---")
+                             final_exec_key = f"final_exec_preview_{code}"
+                             
+                             if not ai_strat_log.get('final_exec'):
+                                 # Trigger Step 5
+                                 blue_model = ai_strat_log.get('blue_model', 'DeepSeek')
+                                 st.info(f"🏁 等待蓝军 ({blue_model}) 签署最终执行令...")
+                                 
+                                 if final_exec_key not in st.session_state:
+                                      if st.button("🏁 准备最终执行令 (Prepare Execution)", key=f"btn_prep_exec_{code}"):
+                                          with st.spinner("🤖 正在拟定执行令..."):
+                                              from utils.ai_advisor import build_final_decision_prompt
+                                              sys_fin, user_fin = build_final_decision_prompt(ai_strat_log['final_audit'], prompts)
+                                              
+                                              st.session_state[final_exec_key] = {
+                                                  'sys_p': sys_fin,
+                                                  'user_p': user_fin,
+                                                  'model': blue_model
+                                              }
+                                              st.rerun()
+                                 else:
+                                      # Preview
+                                      fe_data = st.session_state[final_exec_key]
+                                      st.warning(f"📝 确认执行令指令 ({fe_data['model']})")
+                                      fe_sys = st.text_area("System (Exec)", value=fe_data['sys_p'], key=f"sys_fe_{code}", height=100)
+                                      fe_usr = st.text_area("User (Exec)", value=fe_data['user_p'], key=f"usr_fe_{code}", height=200) 
+                                      
+                                      ec1, ec2 = st.columns(2)
+                                      with ec1:
+                                          if st.button("🚀 签署执行令 (Sign Order)", key=f"btn_sign_exec_{code}", type="primary"):
+                                               # Key Check
+                                               b_key = st.session_state.get("input_apikey", "")
+                                               if fe_data['model'] == "Qwen": 
+                                                   b_key = st.session_state.get("input_qwen", "") or load_config().get("settings", {}).get("qwen_api_key", "")
+                                               
+                                               if not b_key: st.error("Missing Key"); st.stop()
+                                               
+                                               with st.spinner(f"🏁 {fe_data['model']} 正在签署..."):
+                                                   from utils.ai_advisor import call_ai_model
+                                                   exec_res, exec_reason = call_ai_model(fe_data['model'].lower(), b_key, fe_sys, fe_usr)
+                                                   
+                                                   if "Error" in exec_res: st.error(exec_res)
+                                                   else:
+                                                       st.session_state[pending_key]['final_exec'] = exec_res
+                                                       
+                                                       # RECONSTRUCT FULL RESULT for Parser
+                                                       c_v2_full = st.session_state[pending_key].get('result', '')
+                                                       c_audit1 = st.session_state[pending_key].get('audit', '')
+                                                       c_audit2 = st.session_state[pending_key].get('final_audit', '')
+                                                       
+                                                       full_res = f"{exec_res}\n\n[Final Execution Order]"
+                                                       full_res += f"\n\n--- 🔄 v2.0 Refined ---\n{c_v2_full}"
+                                                       if c_audit2: full_res += f"\n\n--- ⚖️ Final Verdict ---\n{c_audit2}"
+                                                       if c_audit1: full_res += f"\n\n--- 🔴 Round 1 Audit ---\n{c_audit1}"
+                                                       
+                                                       st.session_state[pending_key]['result'] = full_res
+                                                       
+                                                       old_r = st.session_state[pending_key].get('reasoning', '')
+                                                       st.session_state[pending_key]['reasoning'] = f"{old_r}\n\n### [Final Decision]\n{exec_reason}"
+                                                       
+                                                       if 'prompts_history' not in st.session_state[pending_key]:
+                                                             st.session_state[pending_key]['prompts_history'] = {}
+                                                       st.session_state[pending_key]['prompts_history']['decision_sys'] = fe_sys
+                                                       st.session_state[pending_key]['prompts_history']['decision_user'] = fe_usr
+                                                       
+                                                       del st.session_state[final_exec_key]
+                                                       st.rerun()
+
+                                      with ec2:
+                                          if st.button("❌ 取消", key=f"btn_ccl_exec_{code}"):
+                                              del st.session_state[final_exec_key]
+                                              st.rerun()
+
+
+            elif ai_strat_log.get('red_model') and ai_strat_log.get('red_model') != "None":
+                # [Audit Missing -> Trigger Audit Workflow]
+                red_model = ai_strat_log.get('red_model')
+                audit_preview_key = f"audit_preview_{code}"
+                
+                st.info(f"🔴 等待红军 ({red_model}) 介入审查...")
+                
+                # A. Trigger Button
+                if audit_preview_key not in st.session_state:
+                   if st.button(f"🛡️ 准备红军审查 (Prepare {red_model} Audit)", key=f"btn_prep_audit_{code}"):
+                       with st.spinner("🤖 正在构建审查指令..."):
+                            from utils.ai_advisor import build_red_team_prompt
+                            
+                            # Prepare Context
+                            # Use original raw prompt (contains News, Indicators, Fund Flow) as background
+                            bg_info = ai_strat_log.get('raw_context') or ai_strat_log.get('prompt', 'No Data Available')
+                            
+                            audit_ctx = {
+                                "code": code,
+                                "name": name,
+                                "price": price,
+                                "daily_stats": bg_info,  # Inject FULL Context here
+                                "deepseek_plan": ai_strat_log['result']
+                            }
+                            
+                            sys_p, user_p = build_red_team_prompt(audit_ctx, prompts, is_final_round=False)
+                            
+                            st.session_state[audit_preview_key] = {
+                                'sys_p': sys_p,
+                                'user_p': user_p,
+                                'model': red_model
+                            }
+                            st.rerun()
+                
+                # B. Preview & Confirm
+                else:
+                    a_data = st.session_state[audit_preview_key]
+                    st.warning(f"📝 确认审查指令 ({a_data['model']})")
+                    
+                    new_sys = st.text_area("System Prompt (Audit)", value=a_data['sys_p'], key=f"sys_a_{code}", height=100)
+                    new_user = st.text_area("User Instruction (Audit)", value=a_data['user_p'], key=f"user_a_{code}", height=200)
+                    
+                    ac1, ac2 = st.columns([1, 1])
+                    with ac1:
+                         if st.button(f"🚀 确认执行审查 (Run Audit)", key=f"btn_run_audit_{code}", type="primary"):
+                             # Get Key
+                             r_key = st.session_state.get("input_apikey", "") # Default to DS key check
+                             if a_data['model'] == "Qwen":
+                                 r_key = st.session_state.get("input_qwen", "")
+                                 if not r_key: r_key = load_config().get("settings", {}).get("qwen_api_key", "")
+                             elif a_data['model'] == "DeepSeek":
+                                 r_key = st.session_state.get("input_apikey", "")
+                             
+                             if not r_key:
+                                 st.error(f"Missing Key for {a_data['model']}")
+                             else:
+                                 with st.spinner(f"🔴 {a_data['model']} 正在进行风控审查..."):
+                                     from utils.ai_advisor import call_ai_model
+                                     
+                                     audit_content, _ = call_ai_model(
+                                         a_data['model'].lower(), r_key, new_sys, new_user
+                                     )
+                                     
+                                     if "Error" in audit_content:
+                                         st.error(audit_content)
+                                     else:
+                                         # Update Session State
+                                         st.session_state[pending_key]['audit'] = audit_content
+                                         
+                                         # Capture Prompt
+                                         if 'prompts_history' not in st.session_state[pending_key]:
+                                             st.session_state[pending_key]['prompts_history'] = {}
+                                         st.session_state[pending_key]['prompts_history']['audit1_sys'] = new_sys
+                                         st.session_state[pending_key]['prompts_history']['audit1_user'] = new_user
+                                         
+                                         del st.session_state[audit_preview_key]
+                                         st.rerun()
+                    with ac2:
+                        if st.button("❌ 跳过审查", key=f"btn_skip_audit_{code}"):
+                            del st.session_state[audit_preview_key]
+                            # Mark audit as skipped to stop pestering? Or just leave it None and allow user to Confirm Draft directly.
+                            # Let's set it to "Skipped" to hide the prompt
+                            st.session_state[pending_key]['audit'] = "【用户手动跳过审查】" 
+                            st.rerun()
+            
             # Action Bar
             col_conf, col_disc = st.columns(2)
             with col_conf:
                 if st.button("✅ 确认入库 (Confirm)", key=f"btn_confirm_{code}", use_container_width=True):
                     # Save to disk
+                    # 1. Formatting Full Result
+                    full_result = f"{ai_strat_log.get('tag', '')} {ai_strat_log['result']}"
+                    
+                    if ai_strat_log.get('audit'):
+                        full_result += f"\n\n--- 🔴 Round 1 Audit ---\n{ai_strat_log['audit']}"
+                    
+                    if ai_strat_log.get('final_audit'):
+                        full_result += f"\n\n--- ⚖️ Final Verdict ---\n{ai_strat_log['final_audit']}"
+                    
+                    # 2. Formatting Full Prompt History
+                    full_prompt_log = ai_strat_log['prompt'] # Default fallback
+                    
+                    ph = ai_strat_log.get('prompts_history', {})
+                    if ph:
+                        full_prompt_log = f"""
+# 🧠 Round 1: Strategy Draft
+## System
+{ph.get('draft_sys', '')}
+## User
+{ph.get('draft_user', '')}
+
+---
+# 🛡️ Round 1: Red Audit
+## System
+{ph.get('audit1_sys', '')}
+## User
+{ph.get('audit1_user', '')}
+
+---
+# 🔄 Round 2: Refinement
+## System
+{ph.get('refine_sys', '')}
+## User
+{ph.get('refine_user', '')}
+
+---
+# ⚖️ Final Verdict
+## System
+{ph.get('final_sys', '')}
+## User
+{ph.get('final_user', '')}
+"""
                     save_research_log(
                         code, 
-                        ai_strat_log['prompt'], 
-                        f"{ai_strat_log.get('tag', '')} {ai_strat_log['result']}", 
+                        full_prompt_log, 
+                        full_result, 
                         ai_strat_log['reasoning']
                     )
                     # Clear draft
@@ -226,8 +603,9 @@ def render_strategy_section(code: str, name: str, price: float, shares_held: int
         # Control Buttons
         st.markdown("---")
         # Control Buttons
-        from utils.time_utils import is_trading_time, get_target_date_for_strategy
+        from utils.time_utils import is_trading_time, get_target_date_for_strategy, get_market_session
         market_open = is_trading_time()
+        session_status = get_market_session()
         
         # Display Base Position Info (if configured)
         from utils.database import db_get_position
@@ -237,34 +615,50 @@ def render_strategy_section(code: str, name: str, price: float, shares_held: int
              tradable_s_ui = max(0, shares_held - base_s_ui)
              st.info(f"🛡️ **风控护盾已激活** | 总持仓: {shares_held} | 🔒 底仓(Locked): **{base_s_ui}** | 🔄 可交易: **{tradable_s_ui}**")
         
-        c_p1, c_p2 = st.columns(2)
+        # Fund Flow History Display Moved to Dashboard
+    with st.container():
+        # Load Config/Prompts globally for this section
+        prompts = load_config().get("prompts", {})
+        
+        col1, col2 = st.columns([3, 1])
+        
         start_pre = False
         start_intra = False
+        target_suffix_key = "deepseek_new_strategy_suffix" # Default
         
-        start_intra = False # Intraday Removed
-        
-        with c_p1:
-            if st.button("💡 生成复盘与预判 (Review & Plan)", key=f"btn_pre_{code}", type="primary", use_container_width=True):
-                target_suffix_key = "deepseek_new_strategy_suffix"
-                start_pre = True
-        
-        # Intraday Button Removed
+        with col1:
+            if session_status == "morning_break":
+                # Noon Break: 11:30 - 13:00 -> Noon Review
+                if st.button("☕ 生成午间复盘 (Morning Review)", key=f"btn_noon_{code}", type="primary", use_container_width=True):
+                    target_suffix_key = "deepseek_noon_suffix"
+                    start_pre = True
+                    
+            elif session_status == "closed":
+                # After Close: > 15:00 -> Daily Review
+                if st.button("📝 生成全天复盘 (Daily Review)", key=f"btn_daily_{code}", type="primary", use_container_width=True):
+                    target_suffix_key = "deepseek_new_strategy_suffix"
+                    start_pre = True
+            else:
+                # Trading Hours (or Pre-market before 9:15)
+                # Show generic warning button
+                if st.button("💡 生成即时预判 (Instant Preview)", key=f"btn_live_{code}", type="primary", use_container_width=True):
+                    target_suffix_key = "deepseek_new_strategy_suffix"
+                    start_pre = True
 
-        if start_pre or start_intra:
+        if start_pre:
             warning_msg = None
-            if start_pre and market_open:
-                warning_msg = "⚠️ 警告: 市场正在交易中，您选择了【盘前策略】。盘前计划可能不包含最新的盘口特征。"
-            if start_intra and not market_open:
-                warning_msg = "⚠️ 警告: 市场已休市或未开盘，您选择了【盘中对策】。缺乏实时盘口数据可能导致AI判断失真。"
-                 
-            prompts = load_config().get("prompts", {})
+            if session_status == "trading":
+                warning_msg = "⚠️ 警告: 市场正在交易中或未休盘。盘中生成的策略数据可能快速过时。"  
+
+            # prompts loaded above
             if not deepseek_api_key:
                 st.warning("请在侧边栏设置 DeepSeek API Key")
             else:
                 with st.spinner(f"🧠 正在构建提示词上下文..."):
                     from utils.ai_advisor import build_advisor_prompt, call_deepseek_api
                     from utils.intel_manager import get_claims_for_prompt
-                    from utils.data_fetcher import aggregate_minute_to_daily, get_price_precision, analyze_intraday_pattern, get_stock_fund_flow, get_stock_fund_flow_history, get_stock_news
+                    from utils.intelligence_processor import summarize_intelligence
+                    from utils.data_fetcher import aggregate_minute_to_daily, get_price_precision, analyze_intraday_pattern, get_stock_fund_flow, get_stock_fund_flow_history, get_stock_news, get_stock_news_raw
                     from utils.storage import load_minute_data
                     from utils.indicators import calculate_indicators
                     
@@ -281,16 +675,24 @@ def render_strategy_section(code: str, name: str, price: float, shares_held: int
                     base_shares = pos_data.get("base_shares", 0)
                     tradable_shares = max(0, shares_held - base_shares)
                     
+                    # Calculate Available Cash (Buying Power for this stock)
+                    current_market_value = shares_held * price
+                    available_cash = max(0.0, eff_capital - current_market_value)
+                    
                     context = {
                         "base_shares": base_shares,
                         "tradable_shares": tradable_shares,
                         "limit_base_price": limit_base_price,
                         "code": code, 
                         "name": name, 
+                        "name": name, 
                         "price": price, 
                         "pre_close": pre_close if pre_close > 0 else price,
-                        "cost": avg_cost, 
-                        "current_shares": shares_held, 
+                        "change_pct": (price - pre_close) / pre_close * 100 if pre_close > 0 else 0.0,
+                        "cost": avg_cost,
+                        "shares": shares_held,         # FIXED: Key for ai_advisor.py
+                        "current_shares": shares_held, # Keep for backward compatibility if any
+                        "available_cash": available_cash, # FIXED: Added available cash
                         "support": strat_res.get('support'), 
                         "resistance": strat_res.get('resistance'), 
                         "signal": strat_res.get('signal'),
@@ -303,22 +705,42 @@ def render_strategy_section(code: str, name: str, price: float, shares_held: int
                         "known_info": get_claims_for_prompt(code)
                     }
                     
+                    
+                    # [2-Stage Logic] Pre-process Intelligence if too long
+                    raw_claims = get_claims_for_prompt(code) # Intel DB
+                    news_items = get_stock_news_raw(code)
+                    
+                    final_research_context = raw_claims
+                    if news_items:
+                        full_news_text = "".join([n.get('title','')+n.get('content','') for n in news_items])
+                        if len(full_news_text) > 1000 or len(news_items) > 5:
+                            with st.spinner("🤖 正在进行第一阶段情报提炼 (Intelligence Refining)..."):
+                                summary_intel = summarize_intelligence(deepseek_api_key, news_items, name)
+                                if summary_intel:
+                                    final_research_context += f"\n\n【最新市场情报摘要】\n{summary_intel}"
+                        else:
+                             # Short enough, append directly
+                             news_str = ""
+                             for n in news_items[:5]:
+                                 news_str += f"- {n.get('date')} {n.get('title')}\n"
+                             final_research_context += f"\n\n【最新新闻】\n{news_str}"
+
                     minute_df = load_minute_data(code)
                     tech_indicators = calculate_indicators(minute_df)
                     tech_indicators["daily_stats"] = aggregate_minute_to_daily(minute_df, precision=get_price_precision(code))
                     
                     intraday_pattern = analyze_intraday_pattern(minute_df)
                     
-                    # Merge Metaso Search + Professional News
-                    metaso_claims = get_claims_for_prompt(code)
-                    prof_news = get_stock_news(code, n=5)
-                    full_intel_context = f"{metaso_claims}\n\n【最新权威新闻 (Professional News)】\n{prof_news}"
-
+                    
+                    # Force update history for Prompt Context (Ensure freshness before AI reads it)
+                    # We pass the same dataframe structure, but force check API
+                    ff_history_prompt = get_stock_fund_flow_history(code, force_update=True)
+                    
                     # 1. Build Prompt
                     sys_p, user_p = build_advisor_prompt(
-                        context, research_context=full_intel_context, 
+                        context, research_context=final_research_context, 
                         technical_indicators=tech_indicators, fund_flow_data=get_stock_fund_flow(code),
-                        fund_flow_history=get_stock_fund_flow_history(code), prompt_templates=prompts,
+                        fund_flow_history=ff_history_prompt, prompt_templates=prompts,
                         intraday_summary=intraday_pattern,
                         suffix_key=target_suffix_key,
                         symbol=code
@@ -329,7 +751,8 @@ def render_strategy_section(code: str, name: str, price: float, shares_held: int
                         "sys_p": sys_p,
                         "user_p": user_p,
                         "target_suffix_key": target_suffix_key,
-                        "warning_msg": warning_msg
+                        "warning_msg": warning_msg,
+                        "context_snapshot": context # Saved for Blue Legion (MoE)
                     }
                     st.rerun()
 
@@ -351,37 +774,225 @@ def render_strategy_section(code: str, name: str, price: float, shares_held: int
                 char_count = len(full_text)
                 st.caption(f"总字符数: {char_count} (约 {int(char_count/1.5)} tokens)")
             
+            # Gemini Toggle
+            # Qwen Toggle
+            # Model Selection UI
+            st.caption("🤖 模型战队配置 (AI Team Config - LOCKED)")
+            ms_c1, ms_c2 = st.columns(2)
+            with ms_c1:
+                # blue_model = st.selectbox("🔵 蓝军 (进攻/策略)", ["Qwen", "DeepSeek"], index=0, key=f"blue_sel_{code}", help="负责生成交易计划 (Qwen-Max Commander)")
+                st.info("🔵 **蓝军军团 (Blue Legion)**\n\n主帅: **Qwen-Max**\n参谋: Quant + Intel (Qwen-Plus)")
+                blue_model = "Qwen" # Hardcoded
+            with ms_c2:
+                # red_model = st.selectbox("🔴 红军 (防守/审查)", ["DeepSeek", "Qwen", "None"], index=0, key=f"red_sel_{code}", help="负责风险审计 (DeepSeek R1)")
+                st.info("🔴 **红军风控 (Red Audit)**\n\n审计官: **DeepSeek-R1** (Reasoner)")
+                red_model = "DeepSeek" # Hardcoded
+            
+            # Auto-Drive Toggle
+            auto_drive = st.checkbox("⚡ 极速模式 (Auto-Drive)", value=False, help="一键全自动：蓝军草案 -> 红军初审 -> 蓝军反思优化(v2.0) -> 红军终审", key=f"auto_drive_{code}")
+
+            # Validate Keys
+            qwen_key_chk = st.session_state.get("input_qwen", "")
+            if not qwen_key_chk: qwen_key_chk = load_config().get("settings", {}).get("qwen_api_key", "")
+            
+            ds_key_chk = st.session_state.get("input_apikey", "")
+            
+            # Helper to get key
+            def get_key_for_model(m_name):
+                if m_name == "DeepSeek": return ds_key_chk
+                if m_name == "Qwen": return qwen_key_chk
+                return ""
+
             p_col1, p_col2 = st.columns(2)
             with p_col1:
-                if st.button("🚀 确认发送 (Send to DeepSeek)", key=f"btn_send_{code}", use_container_width=True):
-                    with st.spinner("🧠 DeepSeek 正在思考 (Reasoning)... 这可能需要 30-60 秒"):
-                        from utils.ai_advisor import call_deepseek_api
-                        # Call API
-                        content, reasoning = call_deepseek_api(
-                            st.session_state.get("input_apikey", ""), 
-                            preview_data['sys_p'], 
-                            preview_data['user_p']
-                        )
+                if st.button(f"🚀 确认发送 (Send to {blue_model})", key=f"btn_send_{code}", use_container_width=True):
+                    
+                    target_key = get_key_for_model(blue_model)
+                    if not target_key:
+                        st.error(f"未检测到 {blue_model} API Key")
+                    else:
+                        from utils.ai_advisor import call_ai_model, build_red_team_prompt, build_refinement_prompt
                         
-                        if "Error" in content or "Request Failed" in content:
-                           st.error(content)
+                        # --- AUTO DRIVE MODE ---
+                        # --- AUTO DRIVE MODE ---
+                        if auto_drive and red_model != "None":
+                             step_logs = []
+                             
+                             red_key = get_key_for_model(red_model)
+                             if not red_key:
+                                 st.error(f"Auto-Drive Aborted: Missing Key for Red Team ({red_model})")
+                             else:
+                                 try:
+                                     with st.status("⚡ Auto-Drive 正在极速执行...", expanded=True) as status:
+                                         # Step 1: Blue v1
+                                         status.write(f"🧠 Step 1: {blue_model} 生成初始草案 (v1.0)...")
+                                         if blue_model == "Qwen":
+                                             # [Blue Legion Mode]
+                                             status.write(f"⚔️ 蓝军军团 (MoE) 正在联合作战 (Quant + Intel + Commander)...")
+                                             from utils.legion_advisor import run_blue_legion
+                                             c1, r1, _, moe_logs = run_blue_legion(code, name, price, target_key, preview_data.get('context_snapshot', {}), prompts)
+                                         else:
+                                             # [Legacy Mode]
+                                             c1, r1 = call_ai_model(blue_model.lower(), target_key, preview_data['sys_p'], preview_data['user_p'])
+                                             
+                                         if "Error" in c1:
+                                             st.error(f"Generate Draft Failed: {c1}")
+                                             status.update(label="❌ 执行中断", state="error")
+                                             st.stop()
+                                         step_logs.append(f"### [v1.0 Draft (Commander: {blue_model})]\n{c1}")
+                                         
+                                         # Step 2: Red Audit 1
+                                         status.write(f"🛡️ Step 2: {red_model} 进行初审 (Audit Round 1)...")
+                                         # Context construction
+                                         bg_info = preview_data['user_p']
+                                         audit_ctx = {"code": code, "name": name, "price": price, "daily_stats": bg_info, "deepseek_plan": c1}
+                                         sys_r1, user_r1 = build_red_team_prompt(audit_ctx, prompts, is_final_round=False)
+                                         
+                                         audit1, _ = call_ai_model(red_model.lower(), red_key, sys_r1, user_r1)
+                                         step_logs.append(f"### [Red Team Audit 1]\n{audit1}")
+                                         
+                                         # Step 3: Blue Refinement (v2)
+                                         status.write(f"🔄 Step 3: {blue_model} 进行反思与优化 (Refining)...")
+                                         sys_ref, user_ref = build_refinement_prompt(bg_info, c1, audit1, prompts)
+                                         c2, r2 = call_ai_model(blue_model.lower(), target_key, sys_ref, user_ref)
+                                         step_logs.append(f"### [v2.0 Refined Strategy]\n{c2}")
+                                         
+                                         # Step 4: Red Audit 2 (Final)
+                                         status.write(f"⚖️ Step 4: {red_model} 进行终极裁决 (Final Verdict)...")
+                                         audit_ctx_v2 = {"code": code, "name": name, "price": price, "daily_stats": bg_info, "deepseek_plan": c2}
+                                         sys_r2, user_r2 = build_red_team_prompt(audit_ctx_v2, prompts, is_final_round=True)
+                                         audit2, _ = call_ai_model(red_model.lower(), red_key, sys_r2, user_r2)
+                                         step_logs.append(f"### [Final Verdict]\n{audit2}")
+                                         
+                                         # Step 5: Blue Final Decision (The Order)
+                                         status.write(f"🏁 Step 5: {blue_model} 签署最终执行令 (Final Execution)...")
+                                         from utils.ai_advisor import build_final_decision_prompt
+                                         sys_fin, user_fin = build_final_decision_prompt(audit2, prompts)
+                                         c3, r3 = call_ai_model(blue_model.lower(), target_key, sys_fin, user_fin)
+                                         step_logs.append(f"### [Final Decision]\n{c3}")
+
+                                         # Construct Results (v3.0 Format: FinalExec at TOP)
+                                         final_result = c3 + "\n\n[Final Execution Order]"
+                                         
+                                         # Append History for Parsing
+                                         final_result += f"\n\n--- 📜 v1.0 Draft ---\n{c1}"
+                                         final_result += f"\n\n--- 🔴 Round 1 Audit ---\n{audit1}"
+                                         final_result += f"\n\n--- 🔄 v2.0 Refined ---\n{c2}"
+                                         final_result += f"\n\n--- ⚖️ Final Verdict ---\n{audit2}"
+
+                                         if "Error" in c3: 
+                                             # Fallback? If Step 5 fails, show c2
+                                             pass
+                                         
+                                         final_reasoning = f"### [R1 Reasoning]\n{r1}\n\n### [R2 Refinement]\n{r2}\n\n### [Final Decision]\n{r3}"
+                                         
+                                         status.update(label="✅ 全流程执行完毕! 正在保存...", state="complete", expanded=False)
+                                         
+                                         # Save State (Full Capture)
+                                         strategy_tag = "【极速复盘】"
+                                         
+                                         # --- CRITICAL SAVE BLOCK ---
+                                         save_payload = {
+                                            'result': final_result, 
+                                            'reasoning': final_reasoning, 
+                                            'audit': audit1,             
+                                            'final_audit': audit2, 
+                                            'prompt': preview_data['user_p'],  
+                                            'prompts_history': {
+                                                'draft_sys': preview_data['sys_p'],
+                                                'draft_user': preview_data['user_p'],
+                                                'audit1_sys': sys_r1,
+                                                'audit1_user': user_r1,
+                                                'refine_sys': sys_ref,
+                                                'refine_user': user_ref,
+                                                'final_sys': sys_r2,
+                                                'final_user': user_r2,
+                                                'decision_sys': sys_fin,
+                                                'decision_user': user_fin
+                                            },
+                                            'tag': strategy_tag,
+                                            'timestamp': datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
+                                            'blue_model': blue_model,
+                                            'red_model': red_model,
+                                            'raw_context': preview_data['user_p'],
+                                            'stage': 'auto_done',
+                                            'final_exec': c3, 
+                                            'is_refined': True
+                                        }
+                                         
+                                         target_save_key = f"pending_ai_result_{code}"
+                                         st.session_state[target_save_key] = save_payload
+                                         
+                                         # [UX] Set Toast Message
+                                         st.session_state[f"toast_msg_{code}"] = "✅ 极速复盘已完成！请查看上方结果区域。"
+                                         
+                                         del st.session_state[preview_key]
+                                         st.rerun()
+                                         
+                                 except Exception as e:
+                                     st.error(f"❌ Auto-Drive Execution Error: {str(e)}")
+                                     # Do not delete preview so user can try again
+
+
+                        # --- MANUAL MODE (Original) ---
                         else:
-                            # Determine Tag
-                            strategy_tag = "【盘前策略】"
-                            if "intraday" in preview_data.get('target_suffix_key', ''):
-                                strategy_tag = "【盘中对策】"
+                            # 1. Execute Blue Team (Manual Step 1)
+                            with st.spinner(f"🧠 {blue_model} (Blue Team) 正在思考..."):
                                 
-                            # Success -> to Draft
-                            st.session_state[f"pending_ai_result_{code}"] = {
-                                'result': content, 
-                                'reasoning': reasoning, 
-                                'prompt': preview_data['user_p'],
-                                'tag': strategy_tag,
-                                'timestamp': datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S")
-                            }
-                            # Clear Preview
-                            del st.session_state[preview_key]
-                            st.rerun()
+                                if blue_model == "Qwen":
+                                    # [Blue Legion Mode]
+                                    from utils.legion_advisor import run_blue_legion
+                                    content, reasoning, _, moe_logs = run_blue_legion(code, name, price, target_key, preview_data.get('context_snapshot', {}), prompts)
+                                else:
+                                    # [Legacy Mode]
+                                    content, reasoning = call_ai_model(
+                                        blue_model.lower(), 
+                                        target_key, 
+                                        preview_data['sys_p'], 
+                                        preview_data['user_p']
+                                    )
+                            
+                            if "Error" in content or "Request Failed" in content:
+                               st.error(content)
+                            else:
+                                # Determine Tag
+                                strategy_tag = "【盘前策略】"
+                                if "noon" in preview_data.get('target_suffix_key', ''):
+                                    strategy_tag = "【午间复盘】"
+                                elif "intraday" in preview_data.get('target_suffix_key', ''):
+                                    strategy_tag = "【盘中对策】"
+                                elif "new_strategy" in preview_data.get('target_suffix_key', '') and session_status == "closed":
+                                    strategy_tag = "【盘后复盘】"
+                                    
+                                # Success -> Save Draft, Move to Stage 2
+                                st.session_state[f"pending_ai_result_{code}"] = {
+                                    'result': content, 
+                                    'reasoning': reasoning, 
+                                    'audit': None, # Wait for Stage 2
+                                    'prompt': preview_data['user_p'],
+                                    
+                                    # Init Prompts History
+                                    'prompts_history': {
+                                        'draft_sys': preview_data['sys_p'],
+                                        'draft_user': preview_data['user_p']
+                                    },
+                                    
+                                    'tag': strategy_tag,
+                                    'timestamp': datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
+                                    'blue_model': blue_model,
+                                    'red_model': red_model,
+                                    'raw_context': preview_data['user_p'],
+                                    'stage': 'draft_created' # TRACK STATE
+                                }
+                                # Clear Preview
+                                del st.session_state[preview_key]
+                                
+                                # [UX] Set Toast Message
+                                st.session_state[f"toast_msg_{code}"] = f"✅ 草案已生成！正在切换至详细视图..."
+                                
+                                st.rerun()
+                                
+
 
             with p_col2:
                 if st.button("❌ 取消 (Cancel)", key=f"btn_cancel_p_{code}", use_container_width=True):
@@ -500,15 +1111,79 @@ def render_strategy_section(code: str, name: str, price: float, shares_held: int
                     if linked_tx != "-":
                         st.info(f"⚡ **关联执行**: {linked_tx}")
                         
-                    st.markdown(selected_log.get('result', ''))
+                    res_text = selected_log.get('result', '')
+                    
+                    from components.strategy_display_helper import display_strategy_content
+                    display_strategy_content(res_text)
                     
                     if selected_log.get('reasoning'):
-                        with st.expander("💭 思考过程", expanded=False):
-                            st.markdown(f"```text\n{selected_log['reasoning']}\n```")
+                        r_content = selected_log['reasoning'].strip()
+                        # Check if it's effectively empty (just headers)
+                        is_empty = False
+                        if "### [Round 1 Reasoning]" in r_content and len(r_content) < 100:
+                             # Heuristic: if it only contains headers and newlines
+                             pass 
+                        
+                        r_title = "💭 思考过程 (Chain of Thought)"
+                        if not r_content or r_content == "N/A":
+                            r_title += " [不可用]"
+                        
+                        with st.expander(r_title, expanded=False):
+                            if r_content:
+                                st.markdown(r_content)
+                            else:
+                                st.caption("此模型 (如 Qwen) 未提供思考过程元数据。")
                     
                     if selected_log.get('prompt'):
-                        with st.expander("📝 DeepSeek 提示词", expanded=False):
-                            st.markdown(f"```text\n{selected_log['prompt']}\n```")
+                        p_text = selected_log['prompt']
+                        
+                        # Detect if this is a "Mega Log" (v2.1+)
+                        if "# 🧠 Round 1: Strategy Draft" in p_text:
+                            with st.expander("📝 全流程详情 (Full Process History)", expanded=True):
+                                # Split by Headers
+                                # We can uses Tabs for rounds
+                                h_tab1, h_tab2, h_tab3, h_tab4 = st.tabs(["Draft (草案)", "Audit (初雪)", "Refine (反思)", "Final (终审)"])
+                                
+                                def extract_section(full_txt, start_marker, end_marker=None):
+                                    try:
+                                        p1 = full_txt.find(start_marker)
+                                        if p1 == -1: return "N/A"
+                                        p1 += len(start_marker)
+                                        
+                                        if end_marker:
+                                            p2 = full_txt.find(end_marker, p1)
+                                            if p2 == -1: return full_txt[p1:].strip()
+                                            return full_txt[p1:p2].strip()
+                                        else:
+                                            return full_txt[p1:].strip()
+                                    except:
+                                        return "N/A"
+                                
+                                with h_tab1:
+                                    st.caption("🔵 Blue Team - Initial Prompt")
+                                    s1 = extract_section(p_text, "# 🧠 Round 1: Strategy Draft", "# 🛡️ Round 1: Red Audit")
+                                    st.code(s1, language='text')
+
+                                with h_tab2:
+                                    st.caption("🔴 Red Team - Audit Round 1")
+                                    s2 = extract_section(p_text, "# 🛡️ Round 1: Red Audit", "# 🔄 Round 2: Refinement")
+                                    st.code(s2, language='text')
+
+                                with h_tab3:
+                                    st.caption("🔵 Blue Team - Refinement (Reaction to Audit)")
+                                    s3 = extract_section(p_text, "# 🔄 Round 2: Refinement", "# ⚖️ Final Verdict")
+                                    st.code(s3, language='text')
+                                    
+                                with h_tab4:
+                                    st.caption("🔴 Red Team - Final Verdict")
+                                    s4 = extract_section(p_text, "# ⚖️ Final Verdict")
+                                    st.code(s4, language='text')
+
+                        else:
+                            # Legacy Display
+                            with st.expander("📝 原始提示词 (Legacy Prompt)", expanded=False):
+                                st.code(p_text, language='text')
+
                     if st.button("🗑️ 删除此记录", key=f"del_rsch_{code}_{s_ts}"):
                         if delete_research_log(code, s_ts):
                             st.success("已删除")

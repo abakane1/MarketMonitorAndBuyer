@@ -15,7 +15,96 @@ DEFAULT_CONFIG = {
     # "allocations": {},     # DEPRECATED: Moved to DB
     "settings": {},
     "prompts": {
-        "__NOTE__": "CORE IP REMOVED FOR SECURITY. PROMPTS WILL BE AUTO-ENCRYPTED BY SYSTEM."
+        "__NOTE__": "CORE IP REMOVED FOR SECURITY. PROMPTS WILL BE AUTO-ENCRYPTED BY SYSTEM.",
+        "deepseek_noon_suffix": """
+# 午间复盘模式 (Noon Review)
+
+## Context
+当前时间: {generated_time} (午间休盘时段).
+市场完成了上午的交易。
+
+[Morning Session Data]
+Current Price (11:30 Close): {price}
+Yesterday Final Close: {pre_close}
+Morning Change: {change_pct:.2f}%
+
+{capital_flow}
+
+{research_context}
+
+## Task
+1. 结合【最新市场情报】与【历史研判】，回顾上午走势特征 (量能/承接).
+2. 分析当前持仓 {current_shares} 股的风险.
+3. 预判下午开盘后的走势 (下午是延续上涨/下跌，还是反转?).
+4. 给下午的操作建议 (Buy/Sell/Hold).
+
+## Output Format
+【午间复盘摘要】: ...
+【下午预判】: ...
+【操作建议】: ...
+""",
+        "qwen_system": """
+你是一家顶尖对冲基金的首席风控官 (CRO)。
+你的职责不是生成交易策略，而是对其进行【压力测试】和【风险审计】。
+你的性格：多疑、保守、极度厌恶风险。你从不轻信蓝军（策略师）的乐观预测。
+
+你的工作内容：
+1. 寻找逻辑漏洞：策略是否基于错误的数据假设？是否忽略了宏观风险？
+2. 识别陷阱：这是不是典型的诱多/诱空形态？成交量是否配合？
+3. 量化风险：给出一个 0-10 (0=安全, 10=极度危险) 的风险评分。
+
+请用犀利、简练的专业语言进行点评。
+""",
+        "qwen_audit": """
+【审计上下文】
+标的: {code} ({name})
+当前价格: {price}
+市场数据: {daily_stats}
+
+【蓝军策略方案 (待审查)】
+{deepseek_plan}
+
+【审计任务】
+请作为红军（Red Team）对上述策略进行攻击性审查。如果通过审查，请保持沉默或简单通过；如果发现重大隐患，请大声疾呼。
+
+【输出格式】
+1. **风险评分**: X/10 (评分理由)
+2. **核心隐患**:
+   - [ ] Point 1
+   - [ ] Point 2
+3. **CRO 最终意见**: (批准执行 / 建议观望 / 强烈否决)
+""",
+    "refinement_instruction": """
+【指令】
+你之前生成的策略受到了红军（风控官）的审查。
+请仔细阅读红军的【核心隐患】和【CRO 意见】。
+
+【任务】
+1. 如果红军指出的风险确实存在，请修正你的原策略（如收紧止损、降低仓位、放弃交易）。
+2. 如果你认为红军过于保守，请给出强有力的反驳理由。
+3. 输出最终版本的交易计划 (v2.0)。
+
+【红军审查意见】：
+{audit_report}
+""",
+        "deepseek_final_decision": """
+【指令】
+红军最终裁决如下:
+{final_verdict}
+
+请作为蓝军主帅 (Commander)，综合红军意见，签署 **最终执行令 (Final Order)**。
+此指令将直接录入交易系统，请确保格式精确。
+
+【必须严格遵循以下输出格式】:
+【标的】: [代码] [名称]
+【方向】: [买入/卖出/观望/持有/调仓]
+【价格】: [具体价格 / 市价 / 对手价]
+【数量】: [具体股数 (如 1000股) / 仓位比例 (如 30%)]
+【止损】: [具体价格 / 动态]
+【止盈】: [具体价格 / 动态]
+【有效期】: [仅限今日 / 仅限明日 (如盘后) / 长期]
+【决策依据】: [一句话总结 GTO 核心理由]
+"""
     }
 }
 
@@ -27,7 +116,10 @@ def get_stock_profit(symbol: str, current_price: float) -> float:
     Formula: Net Cash Flow (Sell - Buy) + Current Market Value
     """
     # 1. Get History (Buy/Sell) from DB
+    # 1. Get History (Buy/Sell/Override) from DB
+    # Ensure chronological order (DB query usually sorts it, but to be safe)
     history = db_get_history(symbol)
+    history = sorted(history, key=lambda x: x['timestamp'])
     
     net_cash_flow = 0.0
     
@@ -36,12 +128,20 @@ def get_stock_profit(symbol: str, current_price: float) -> float:
         price = float(tx['price'])
         amount = float(tx['amount'])
         
-        if 'buy' in t_type or '买' in t_type:
+        if 'override' in t_type or '修正' in t_type:
+             # Override establishes a new basis, effectively resetting previous PnL history.
+             # We treat it as a "Virtual Buy" of the new position size at the new cost.
+             # Net Cash Flow resets to: -(Shares * Cost)
+             # This means "I effectively spent this much to acquire this new position state".
+             net_cash_flow = -(amount * price)
+             
+        elif 'buy' in t_type or '买' in t_type:
             net_cash_flow -= (price * amount)
         elif 'sell' in t_type or '卖' in t_type:
             net_cash_flow += (price * amount)
             
     # 2. Get Current Market Value
+    # Note: If history is perfect, db_get_position should match the result of replaying history.
     pos = db_get_position(symbol)
     shares = pos.get('shares', 0)
     market_value = shares * current_price
@@ -73,7 +173,14 @@ def load_config():
                 prompts = config.get("prompts")
                 if prompts and is_encrypted(prompts):
                     try:
-                        config["prompts"] = decrypt_dict(prompts)
+                        decrypted = decrypt_dict(prompts)
+                        # [PATCH] Merge missing defaults (e.g. new Noon Suffix)
+                        defaults = DEFAULT_CONFIG.get("prompts", {})
+                        if isinstance(defaults, dict):
+                            for k, v in defaults.items():
+                                if k not in decrypted:
+                                    decrypted[k] = v
+                        config["prompts"] = decrypted
                     except Exception as e:
                         print(f"Decryption failed: {e}")
                         # Fallback to default prompts if decryption fails provided key is wrong/missing

@@ -2,7 +2,7 @@ import streamlit as st
 import pandas as pd
 import time
 from datetime import datetime
-from utils.database import db_get_strategy_logs, db_get_watchlist
+from utils.database import db_get_strategy_logs, db_get_watchlist, db_delete_strategy_logs_by_date
 from utils.storage import load_minute_data
 from utils.backtester import simulate_day, simulate_day_generator
 from utils.prompt_optimizer import generate_prompt_improvement, generate_human_vs_ai_review
@@ -191,10 +191,39 @@ def render_strategy_lab():
                     cumulative_trades.extend(day_res['trades'])
             
             progress_bar.progress(1.0)
-            st.success("周期回溯完成！")
             
-            # Show Master Result
-            # Show Master Result
+            # Persist Result to Session State
+            st.session_state[f"multi_sim_res_{selected_stock}"] = {
+                'master_curve': master_curve,
+                'init_cash': init_cash,
+                'init_pos': init_pos,
+                'curr_cash': curr_cash,
+                'curr_shares': curr_shares,
+                'curr_real_cash': curr_real_cash,
+                'curr_real_shares': curr_real_shares,
+                'cumulative_trades': cumulative_trades,
+                'start_date': start_date,
+                'end_date': end_date
+            }
+            st.success("周期回溯完成！")
+            st.rerun()
+            
+        # Show Master Result (Check State)
+        sim_res_key = f"multi_sim_res_{selected_stock}"
+        if sim_res_key in st.session_state:
+            res = st.session_state[sim_res_key]
+            master_curve = res['master_curve']
+            init_cash = res['init_cash']
+            init_pos = res['init_pos']
+            curr_cash = res['curr_cash']
+            curr_shares = res['curr_shares']
+            curr_real_cash = res['curr_real_cash']
+            curr_real_shares = res['curr_real_shares']
+            cumulative_trades = res['cumulative_trades']
+            # Ensure correct scope dates
+            start_date = res.get('start_date', start_date) 
+            end_date = res.get('end_date', end_date)
+
             if master_curve:
                 df = pd.DataFrame(master_curve)
                 
@@ -299,15 +328,41 @@ def render_strategy_lab():
                         st.markdown("#### 🧬 指令进化 (Evolution)")
                         from utils.config import load_config, save_prompt
                         current_conf = load_config()
-                        current_sys = current_conf.get("prompts", {}).get("deepseek_base", "")
+                        # Align to 'deepseek_system' which is the active key
+                        current_sys = current_conf.get("prompts", {}).get("deepseek_system", "")
                         
                         st.success(f"✨ 建议新增规则:\n{suggestion}")
                         new_prompt_draft = current_sys + f"\n\n[Multi-Day Opt - {end_date}]\n" + suggestion
                         
                         final_prompt = st.text_area("System Prompt Editor", value=new_prompt_draft, height=400, key=f"multi_edit_{opt_key}")
+                        
+                        regen_hist = st.checkbox("⚡ 应用新指令重构历史策略 (Regenerate & Re-Simulate)", value=True, key=f"regen_{opt_key}", help="勾选后，将删除当前回测周期内的旧策略记录，并使用新 Prompt 重新生成，验证优化效果。")
+                        
                         if st.button("💾 更新系统指令", key=f"multi_save_{opt_key}"):
-                            save_prompt("deepseek_base", final_prompt)
+                            save_prompt("deepseek_system", final_prompt)
                             st.success("✅ 系统指令已更新！")
+                            
+                            if regen_hist:
+                                with st.spinner("正在清除旧历史并重置回测环境..."):
+                                    # 1. Identify Dates from Result
+                                    # We can assume 'start_date' and 'end_date' from current context (function scope)
+                                    # Iterate and delete
+                                    curr = start_date
+                                    from datetime import timedelta
+                                    delta = end_date - start_date
+                                    for i in range(delta.days + 1):
+                                        d = start_date + timedelta(days=i)
+                                        d_str = d.strftime("%Y-%m-%d")
+                                        db_delete_strategy_logs_by_date(selected_stock, d_str)
+                                    
+                                    # 2. Clear Session State Result
+                                    sim_res_key_del = f"multi_sim_res_{selected_stock}"
+                                    if sim_res_key_del in st.session_state:
+                                        del st.session_state[sim_res_key_del]
+                                        
+                                    st.toast("🧹 历史策略已清除，准备重新回测...")
+                                    time.sleep(1)
+                                    st.rerun()
                 
             return # Stop here for Multi-Day
 
@@ -606,10 +661,14 @@ def render_strategy_lab():
                 st.markdown("#### 📝 诊断报告")
                 st.info(review_text)
                 
-                # Extract Suggestion
+                # Extract Suggestion (Hardened)
                 suggestion = ""
                 if "【进化建议】" in review_text:
                     parts = review_text.split("【进化建议】")
+                    if len(parts) > 1:
+                        suggestion = parts[1].strip(": \n")
+                elif "Evolution Plan" in review_text: # English fallback
+                    parts = review_text.split("Evolution Plan")
                     if len(parts) > 1:
                         suggestion = parts[1].strip(": \n")
                 
@@ -620,7 +679,8 @@ def render_strategy_lab():
                     
                     from utils.config import load_config, save_prompt
                     current_conf = load_config()
-                    current_sys = current_conf.get("prompts", {}).get("deepseek_base", "")
+                    # Align to deepseek_system
+                    current_sys = current_conf.get("prompts", {}).get("deepseek_system", "")
                     
                     # Highlight diff
                     st.success(f"✨ 建议新增规则 (Proposed New Rule):\n{suggestion}")
@@ -633,7 +693,7 @@ def render_strategy_lab():
                     final_prompt = st.text_area("System Prompt Editor", value=new_prompt_draft, height=400)
                     
                     if st.button("💾 确认更新系统指令 (Update System Prompt)", key=f"save_bat_{battle_key}"):
-                        save_prompt("deepseek_base", final_prompt)
+                        save_prompt("deepseek_system", final_prompt)
                         st.success("✅ 系统指令已更新！")
 
         # Scenario 2: General Failure (only if Alpha analysis didn't run or AI also needs help)
@@ -660,11 +720,15 @@ def render_strategy_lab():
                 st.markdown("### 🧠 AI 进化建议")
                 st.info(sug_text)
                 
-                # Extract Suggestion
+                # Extract Suggestion (Hardened)
                 suggestion = ""
                 if "【优化建议】" in sug_text:
                     parts = sug_text.split("【优化建议】")
                     if len(parts) > 1:
+                        suggestion = parts[1].strip(": \n")
+                elif "Improvement" in sug_text:
+                     parts = sug_text.split("Improvement")
+                     if len(parts) > 1:
                         suggestion = parts[1].strip(": \n")
                         
                 if suggestion:
@@ -673,7 +737,8 @@ def render_strategy_lab():
                     
                     from utils.config import load_config, save_prompt
                     current_conf = load_config()
-                    current_sys = current_conf.get("prompts", {}).get("deepseek_base", "")
+                    # Align to deepseek_system
+                    current_sys = current_conf.get("prompts", {}).get("deepseek_system", "")
                     
                     # Highlight diff
                     st.success(f"✨ 建议新增规则 (Proposed New Rule):\n{suggestion}")
@@ -684,5 +749,5 @@ def render_strategy_lab():
                     final_prompt = st.text_area("System Prompt Editor", value=new_prompt_draft, height=400, key=f"area_{opt_key}")
                     
                     if st.button("💾 确认更新系统指令 (Update System Prompt)", key=f"save_opt_{opt_key}"):
-                        save_prompt("deepseek_base", final_prompt)
+                        save_prompt("deepseek_system", final_prompt)
                         st.success("✅ 系统指令已更新！")

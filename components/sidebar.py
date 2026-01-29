@@ -115,13 +115,17 @@ def render_sidebar() -> dict:
             key="input_apikey"
         )
         
-        # Gemini
-        gemini_api_key = st.text_input(
-            "Gemini API Key",
+        # Qwen (Tongyi Qianwen)
+        if "input_qwen" not in st.session_state:
+            st.session_state.input_qwen = settings.get("qwen_api_key", "")
+            
+        qwen_api_key = st.text_input(
+            "Qwen API Key (DashScope)",
             type="password",
-            help="Google Gemini API Key",
-            key="input_gemini"
+            help="阿里云 DashScope API Key，用于红队审查",
+            key="input_qwen"
         )
+        # gemini_api_key = "" # Removed
         
         # Metaso 设置
         st.markdown("---")
@@ -153,7 +157,7 @@ def render_sidebar() -> dict:
         new_settings = {
             "total_capital": total_capital,
             "deepseek_api_key": deepseek_api_key,
-            "gemini_api_key": gemini_api_key,
+            "qwen_api_key": qwen_api_key,
             "metaso_api_key": metaso_api_key,
             "metaso_base_url": metaso_base_url,
             "proximity_threshold": proximity_pct
@@ -162,7 +166,7 @@ def render_sidebar() -> dict:
         # 检测变化
         if (new_settings["total_capital"] != default_capital or
             new_settings["deepseek_api_key"] != settings.get("deepseek_api_key", "") or
-            new_settings["gemini_api_key"] != settings.get("gemini_api_key", "") or
+            new_settings["qwen_api_key"] != settings.get("qwen_api_key", "") or
             new_settings["metaso_api_key"] != settings.get("metaso_api_key", "") or
             new_settings["metaso_base_url"] != settings.get("metaso_base_url", "") or
             abs(new_settings["proximity_threshold"] - settings.get("proximity_threshold", 0.012)) > 0.0001):
@@ -209,9 +213,10 @@ def render_sidebar() -> dict:
         "selected_labels": selected_labels,
         "total_capital": total_capital,
         "risk_pct": risk_pct,
+        "risk_pct": risk_pct,
         "proximity_pct": proximity_pct,
         "deepseek_api_key": deepseek_api_key,
-        "gemini_api_key": gemini_api_key,
+        "qwen_api_key": qwen_api_key,
         "metaso_api_key": metaso_api_key,
         "metaso_base_url": metaso_base_url,
         "auto_refresh": auto_refresh,

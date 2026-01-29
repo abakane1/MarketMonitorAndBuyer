@@ -5,6 +5,72 @@ All notable changes to the **MarketMonitorAndBuyer** project will be documented 
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [2.5.0] - 2026-01-29 (Blue Legion / MoE)
+### Added (新增)
+- **Blue Legion Architecture (蓝军军团 MoE)**:
+  - 蓝军不再是单兵作战，而是升级为【混合专家模型 (Mixture of Experts)】系统。
+  - **数学官 (Quant Agent)** (Qwen-Plus): 专攻资金流向、分时盘口、盈亏比计算。
+  - **情报官 (Intel Agent)** (Qwen-Plus): 专攻新闻叙事、历史战绩回溯、预期差分析。
+  - **蓝军主帅 (Commander)** (Qwen-Max): 综合专家报告，依据 GTO 策略制定最终作战计划。
+- **Auto-Drive Step 1 Upgrade**: 极速模式下 Step 1 自动触发军团联合作战。
+- **Configuration**:
+  - 默认蓝军升级为 **Qwen-Max** (Commander)。
+  - 默认红军升级为 **DeepSeek** (Risk Auditor)。
+  
+### Fixed (修复)
+- **Auto-Drive Step 5 Empty Data**: 修复了最终定稿数据无法显示的问题 (更新了 `deepseek_final_decision` 模版以强制输出标准格式)。
+- **Post-Market Date Logic**: 修复了盘后复盘时 AI 仍按“今日”制定计划的逻辑错误 (自动判定并指向下一个交易日)。
+
+## [2.2.0] - 2026-01-29 (Closed Loop System)
+### Added (新增)
+- **Step 5: 最终执行令 (Final Execution Order)**:
+  - 核心流程升级为完整的 5 步闭环：蓝军草案 (v1) -> 红军初审 -> 蓝军优化 (v2) -> 红军终审 -> **蓝军定稿 (Execution)**。
+  - 最后一步重归蓝军主帅，由其阅读终审裁决书，签署极简的执行指令 (买/卖/放弃)，确保决策权的回归。
+- **全模式支持**: Step 5 同时支持 **极速模式 (Auto-Drive)** 和 **手动分步模式**。
+- **UI 体验**:
+  - 策略结果全线升级为 5 页签视图，默认置顶显示最新的“定稿”指令。
+  - 优化了即时渲染逻辑，修复了旧版视图中页签缺失的问题。
+
+## [2.1.0] - 2026-01-28 (Full Process Visibility)
+### Added (新增)
+- **全链路溯源 (Full Process Traceability)**: 策略入库时，现在记录完整的 4 阶段提示词历史 (Mega Log)，包括 Draft / Audit 1 / Refinement / Final Verdict 的所有 System & User Prompts。
+- **Auto-Drive 逻辑完善**: 修复了极速模式下“终极裁决”状态未正确传递导致手动按钮残留的问题，确保自动流程的一致性。
+
+## [2.0.0] - 2026-01-28 (Final Architecture Upgrade)
+### Added (新增)
+- **双轮闭环 (2-Round Audit Loop)**: 实现了完整的 AI 迭代闭环：蓝军草案 (v1) -> 红军初审 -> 蓝军反思 (v2) -> 红军终审 (Final Verdict)。
+- **极速模式 (Auto-Drive Mode)**: 全新功能，支持一键自动化执行上述 4 阶段流程，包含完整的中间状态记录。
+- **蓝军自主权 (Blue Team Autonomy)**: 在优化阶段引入独立判断逻辑，蓝军不再盲从红军，而是有权反驳幻觉或接受合理建议。
+- **手动终审 (Manual Final Verdict)**: 为手动模式增加了第 4 阶段（终审环节），补全了交互链路。
+
+### Changed (优化)
+- **红军人设重塑**: 从“保守风控官”升级为“LAG + GTO 专家”，与蓝军同一体系下的 Peer Review。
+- **红军升级 (Red Team Upgrade)**: 审计模型由 `qwen-plus` 升级为阿里巴巴最强模型 `qwen-max`，进一步提升逻辑审查能力。
+- **状态机重构**: 全面重构 `strategy_section.py` 的状态管理，支持多阶段 (Draft -> Refined -> Final) 的平滑切换。
+
+## [1.9.0] - 2026-01-28 (Session Review Upgrade)
+### Added (新增)
+- **分时复盘引擎 (Segmented Session Review)**:
+  - **午间复盘 (Noon Review)**: 智能识别午间休盘时段 (11:30-13:00)。提供上午走势总结与下午开盘预判，侧重于“持仓风险控制”与“日内反转博弈”。
+  - **全天复盘 (Daily Review)**: 盘后 (15:00+) 自动切换为全天复盘模式，侧重于“隔日计划”与“波段趋势”。
+  - **动态 UI**: 策略生成按钮根据当前时间自动跟随变色与更名，减少用户误操作。
+
+### Changed (优化)
+- **提示词架构**: 新增 `deepseek_noon_suffix` 专用模板，针对午间场景做了 Token 剪裁与逻辑优化。
+- **时间感知**: 引入 `get_market_session` 统一管理交易时段状态。
+
+## [1.8.1] - 2026-01-28 (Prompt Optimization & Calc Fixes)
+### Added (新增)
+- **AI 智能提示词优化 (Prompt Optimization)**:
+  - 提示词中心新增 **AI 智能优化** 功能。利用 DeepSeek R1 的推理能力，一键重构、清洗并去重所有系统 Prompt。
+  - **Diff 可视化**: 提供优化前后的代码比对视图 (Diff View)，支持用户确认后一键写入配置。
+
+### Fixed (修复)
+- **累计盈亏计算修正**: 
+  - 修复了 **Holdings Override (持仓修正)** 操作未重置成本流水的 Bug。现在系统会将修正操作视为一次“重置基准”，确保后续累计盈亏计算准确。
+- **AI 决策数据校准**:
+  - 修复了 AI 决策上下文缺失 `available_cash` (可用资金) 和字段名不匹配的问题，消除了【最终决策关键数据】中的显示错误。
+
 ## [1.8.0] - 2026-01-27 (Market Review & Prediction Transformation)
 ### Changed (系统转型)
 - **定位重构**: 系统从“实时盯盘”正式转型为 **“复盘与预判辅助系统”**。

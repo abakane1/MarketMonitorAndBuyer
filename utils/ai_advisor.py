@@ -1,6 +1,7 @@
 import requests
 import json
 import pandas as pd
+from datetime import datetime
 
 from google import genai
 from utils.storage import load_research_log
@@ -22,6 +23,27 @@ def build_advisor_prompt(context_data, research_context="", technical_indicators
     
     if not base_tpl:
         return "", "Error: Prompt templates missing."
+
+    # [Logic] Date Override for Post-Market (After 15:00)
+    # Ensure AI plans for the NEXT trading day, not "Today".
+    now = datetime.now()
+    if now.hour >= 15 or (now.hour == 14 and now.minute >= 55): # Close or near close
+        shift = 1
+        if now.weekday() == 4: # Friday -> Monday
+            shift = 3
+        elif now.weekday() == 5: # Saturday -> Monday
+            shift = 2
+        
+        from datetime import timedelta
+        target_date = now + timedelta(days=shift)
+        target_date_str = target_date.strftime("%Y-%m-%d")
+        
+        # Override context date
+        context_data['date'] = f"{target_date_str} (Next Trading Day)"
+        # Add explicit instruction key if template uses it, or append to base
+        context_data['market_status'] = "CLOSED"
+    else:
+        context_data['market_status'] = "OPEN"
 
     # 2. Format Base
     # Calculate Price Limits
@@ -123,16 +145,28 @@ def build_advisor_prompt(context_data, research_context="", technical_indicators
                 history_logs = load_research_log(symbol)
                 if history_logs:
                     # 1. Get Trades
+                    # 1. Get Trades
                     all_trades = db_get_history(symbol)
-                    real_trades = [t for t in all_trades if t['type'] in ['buy', 'sell'] and t.get('amount', 0) > 0]
+                    
+                    # STRICT FILTER: Only include explicit Buy/Sell actions.
+                    # Exclude 'override', 'correction', 'allocation' to prevent DeepSeek double-counting corrections as new trades.
+                    valid_types = ['buy', 'sell']
+                    real_trades = []
+                    for t in all_trades:
+                        t_type = str(t.get('type', '')).strip().lower()
+                        if t_type in valid_types and t.get('amount', 0) > 0:
+                            # Standardize type for downstream logic
+                            t['type'] = t_type 
+                            real_trades.append(t)
                     
                     history_context_lines = ["\n[历史研判参考 (Previous AI Analysis & User Execution)]"]
                     
                     logs_asc = sorted(history_logs, key=lambda x: x['timestamp'])
-                    recent_subset = logs_asc[-3:] 
+                    # Limit to last 2 to prevent context overflow and distraction
+                    recent_subset = logs_asc[-2:] 
                     
-                    from datetime import datetime
-                        
+                    recent_subset = logs_asc[-2:] 
+                    
                     import re
                     for idx, log in enumerate(recent_subset):
                         h_ts = log.get('timestamp', 'N/A')
@@ -190,7 +224,8 @@ def build_advisor_prompt(context_data, research_context="", technical_indicators
             "bollinger": technical_indicators.get('Bollinger', 'N/A'),
             "tech_summary": technical_indicators.get('signal_summary', 'N/A'),
             "research_context": final_research_context,
-            "capital_flow": capital_flow_str
+            "capital_flow": capital_flow_str,
+            "generated_time": datetime.now().strftime("%Y-%m-%d %H:%M:%S")
         }
         # Merge context_data to provide access to 'price', 'code', 'name' etc. in suffix
         if context_data:
@@ -203,33 +238,45 @@ def build_advisor_prompt(context_data, research_context="", technical_indicators
     elif simple_suffix_tpl:
         base_prompt += simple_suffix_tpl
 
+    # [OPTIMIZATION] Append Critical State Block at the VERY END for Recency Bias
+    # This ensures the AI sees the most important numbers last, reducing calculation errors.
+    if context_data:
+        p = context_data.get('price', 0)
+        cost = context_data.get('avg_cost', context_data.get('cost', 0))
+        shares = context_data.get('shares', 0)
+        cash = context_data.get('available_cash', 0)
+        
+        # Calculate max buy/sell for easy reference
+        max_buy = int(cash / p) if p > 0 else 0
+        max_buy = (max_buy // 100) * 100
+        
+        profit_pct = ((p - cost) / cost * 100) if cost > 0 else 0
+        
+        critical_block = f"""
+\n################################################################
+【🔴 最终决策关键数据 (CRITICAL FACT SHEET) 🔴】
+> 请忽略上文任何与此处冲突的数据，以本栏为准进行计算。
+当前价格: {p}
+持仓数量: {shares} 股
+持仓成本: {cost:.3f}
+浮动盈亏: {profit_pct:.2f}%
+可用资金: {cash:.2f}
+最大可买: {max_buy} 股
+################################################################
+"""
+        base_prompt += critical_block
+
     # System Prompt
     # System Prompt (From Config)
-    # System Prompt Logic (ETF vs Stock)
-    is_etf = False
-    if symbol:
-        # Simple heuristic for China market ETFs: 51xxxx (SH), 15xxxx (SZ), 58xxxx (KCB ETF)
-        # Note: 588xxx is usually 科创50ETF
-        if symbol.startswith(('51', '15', '58')):
-            is_etf = True
-            
-    if is_etf:
-        # Use ETF Strategy
-        sys_key = "deepseek_system_etf"
-        default_sys = (
-            "你那位全球宏观趋势交易者 + 网格策略专家。\n"
-            "【核心】: ETF 代表一篮子资产。请忽略个股黑天鹅，专注于宏观趋势、行业景气度与资金流向分析。\n"
-            "【策略】: 趋势跟踪 (Trend Following) + 网格波动套利 (Grid Trading)。"
-        )
-    else:
-        # Use Stock Strategy
-        sys_key = "deepseek_system"
-        default_sys = (
-            "你是一位专业的股票交易员，奉行 'LAG + GTO' 交易哲学。\n"
-            "【核心心法】：别人恐惧我贪婪，别人贪婪我恐惧。\n"
-            "请基于提供的数据（包含资金流向、分时特征、技术指标、市场情报以及历史研判记录）给出明确的操作建议。"
-        )
-        
+    # System Prompt (From Config)
+    # Unified Strategy (LAG + GTO for All)
+    sys_key = "deepseek_system"
+    default_sys = (
+        "你那位专业的股票交易员，奉行 'LAG + GTO' 交易哲学。\n"
+        "【核心心法】：别人恐惧我贪婪，别人贪婪我恐惧。\n"
+        "请基于提供的数据（包含资金流向、分时特征、技术指标、市场情报以及历史研判记录）给出明确的操作建议。"
+    )
+    
     system_prompt = prompt_templates.get(sys_key, default_sys)
     
     return system_prompt, base_prompt
@@ -285,31 +332,243 @@ def ask_deepseek_advisor(api_key, context_data, research_context="", technical_i
     content, reasoning = call_deepseek_api(api_key, sys_p, user_p)
     return content, reasoning, user_p
 
-def ask_gemini_advisor(api_key, context_data, prompt_templates=None):
+def call_qwen_api(api_key, system_prompt, user_prompt, model="qwen-max"):
     """
-    Calls Google Gemini API for second opinion.
+    Executes the API call to Qwen (Tongyi Qianwen) via DashScope OpenAI-compatible endpoint.
     """
     if not api_key:
-        return "请在侧边栏设置 Gemini API Key。"
+        return "Error: Missing Qwen API Key"
 
-    if not prompt_templates:
-        prompt_templates = {}
+    # DashScope OpenAI Compatible Endpoint
+    url = "https://dashscope.aliyuncs.com/compatible-mode/v1/chat/completions"
+    headers = {
+        "Content-Type": "application/json",
+        "Authorization": f"Bearer {api_key}"
+    }
     
-    tpl = prompt_templates.get("gemini_base", "")
-    if not tpl:
-        return "Error: Gemini prompt template missing."
-        
+    payload = {
+        "model": model,
+        "messages": [
+            {"role": "system", "content": system_prompt},
+            {"role": "user", "content": user_prompt}
+        ],
+        "temperature": 0.5 # Conservative for auditing
+    }
+    
     try:
-        prompt = tpl.format(**context_data)
+        # Increased timeout to 120s for complex reasoning
+        response = requests.post(url, headers=headers, json=payload, timeout=120)
+        print(f"DEBUG: Qwen Status: {response.status_code}")
+        if response.status_code != 200: print(f"DEBUG: Qwen Error: {response.text}")
+        if response.status_code == 200:
+            res_json = response.json()
+            if 'choices' in res_json and len(res_json['choices']) > 0:
+                content = res_json['choices'][0]['message'].get('content', '')
+                return content
+            return f"API Error: Empty response format {res_json}"
+        else:
+            return f"Qwen API Error {response.status_code}: {response.text}"
     except Exception as e:
-        return f"Prompt Format Error: {e}"
+        return f"Qwen Request Failed: {str(e)}"
 
+def build_red_team_prompt(context_data, prompt_templates=None, is_final_round=False):
+    """
+    Constructs System and User prompts for Red Team Audit.
+    is_final_round: If True, this is the 2nd pass (Final Verdict).
+    """
+    if not prompt_templates: prompt_templates = {}
+    
+    # Defaults
+    DEFAULT_RED_SYS = """
+你是一位拥有 20 年经验的【A股德州扑克 LAG + GTO 交易专家】。
+你现在担任【策略审计师】(Auditor)，你的交易哲学与蓝军（策略师）完全一致：LAG (松凶) + GTO (博弈论最优)。
+
+你的职责不是无脑反对风险，而是进行【一致性审查】与【纠错】：
+1. **去幻觉 (De-Hallucination)**：蓝军引用的数据（如资金流、支撑位）是否真实存在？是否基于事实？
+2. **核实逻辑 (Logic Check)**：蓝军的决策是否符合 LAG + GTO 体系？
+   - 进攻性检查：在大松凶 (LAG) 信号出现时，蓝军是否足够果断？有没有该买不敢买？
+   - 赔率检查：GTO 视角下，这笔交易的 EV (期望值) 是否为正？止损赔率是否合理？
+
+目标：确保蓝军的策略是该体系下的**最优解**。如果不认可，请指出违背了哪条交易原则。
+点评风格：像一位严格的德扑教练，一针见血，通过数据和逻辑说话。
+"""
+    if is_final_round:
+        DEFAULT_RED_SYS += "\n【注意】这是**最终轮**审查。如果蓝军已经根据你的前次意见修正了策略，且风险已通过，请直接批准。"
+
+    DEFAULT_RED_USER = """
+【审计上下文】
+标的: {code} ({name})
+当前价格: {price}
+
+【蓝军掌握的情报 (可信事实)】
+{daily_stats}
+
+【蓝军策略方案 (待审查)】
+{deepseek_plan}
+
+【审计任务】
+请以【LAG + GTO 专家】的身份对上述策略进行同行评审 (Peer Review)。
+不要做保守的风控官，要做**追求正期望值的赌手教练**。
+
+【输出格式】
+1. **真实性核查**: 
+   - 蓝军是否捏造了数据？(通过/未通过)
+2. **LAG/GTO 体系评估**: 
+   - 进攻欲望是否匹配当前牌面？(是/否, 理由)
+   - 赔率计算是否合理？
+3. **专家最终裁决**: (批准执行 / 建议修正 / 驳回重做)
+   - *如果是建议修正，请给出具体的 GTO 调整建议。*
+"""
+    if is_final_round:
+        # Try to get dedicated Final Audit template
+        if "qwen_final_audit" in prompt_templates:
+            user_tpl = prompt_templates["qwen_final_audit"]
+            # We don't append the default suffix if we have a custom final template
+            # assuming the custom template handles the "Final Round" context.
+        else:
+            # Fallback to shared audit template + Suffix
+            user_tpl = prompt_templates.get("qwen_audit", DEFAULT_RED_USER)
+            user_tpl += "\n【最终裁决要求】这是蓝军修正后的 v2.0 版本。请检查之前的隐患是否消除。如有核心问题未解决，仍可驳回；否则请批准执行。"
+    else:
+        user_tpl = prompt_templates.get("qwen_audit", DEFAULT_RED_USER)
+        
+    sys_tpl = prompt_templates.get("qwen_system", DEFAULT_RED_SYS)
+    
     try:
-        client = genai.Client(api_key=api_key)
-        response = client.models.generate_content(
-            model='gemini-2.0-flash-exp', 
-            contents=prompt
-        )
-        return response.text
+        user_prompt = user_tpl.format(**context_data)
+        if is_final_round and "qwen_final_audit" not in prompt_templates:
+            user_prompt += "\n\n(This is the Final Round Audit for v2.0)"
+            
+        system_prompt = sys_tpl
+        return system_prompt, user_prompt
     except Exception as e:
-        return f"Gemini 请求失败: {str(e)}"
+        return "", f"Prompt Format Error: {e}"
+
+def call_ai_model(model_name, api_key, system_prompt, user_prompt, specific_model=None):
+    """
+    Unified dispatcher for AI models.
+    model_name: "deepseek" or "qwen"
+    specific_model: (Optional) specific model ID, e.g. 'qwen-plus', 'qwen-turbo'.
+    """
+    if model_name == "deepseek":
+        # DeepSeek currently hardcoded to 'deepseek-reasoner' inside call_deepseek_api
+        # To support switching, we'd need to refactor call_deepseek_api too. 
+        # But for now Red Team uses DeepSeek R1 (reasoner) which is correct.
+        content, reasoning = call_deepseek_api(api_key, system_prompt, user_prompt)
+        return content, reasoning
+    elif model_name == "qwen":
+        target_model = specific_model if specific_model else "qwen-max"
+        content = call_qwen_api(api_key, system_prompt, user_prompt, model=target_model)
+        # Qwen returns only content, no reasoning
+        return content, ""
+    else:
+        return f"Error: Unknown Model {model_name}", ""
+
+def ask_qwen_advisor(api_key, context_data, prompt_templates=None):
+    """
+    Calls Qwen (DashScope) for second opinion (Red Team).
+    Legacy wrapper using the new builder.
+    """
+    sys_p, user_p = build_red_team_prompt(context_data, prompt_templates)
+    if "Error" in user_p and sys_p == "":
+        return user_p
+        
+    return call_qwen_api(api_key, sys_p, user_p)
+
+def build_refinement_prompt(original_context, original_plan, audit_report, prompt_templates=None):
+    """
+    Constructs the Full Prompt for Strategy Refinement.
+    """
+    if not prompt_templates: prompt_templates = {}
+    
+    # 1. Reuse Original System Prompt logic (Role persistence)
+    # Ideally should match the Blue Team's original system prompt
+    sys_key = "deepseek_system"
+    default_sys = "You are a professional trader."
+    system_prompt = prompt_templates.get(sys_key, default_sys)
+    
+    # 2. Build Refinement Instruction (User Prompt)
+    # Default instruction incorporating "Blue Team Autonomy"
+    default_refine_instr = """
+【来自红军 (审计师) 的反馈】
+{audit_report}
+
+【你的任务 / v2.0 迭代】
+你是策略专家（蓝军），不是红军的下属。请仔细阅读上述审计意见，并进行**独立判断**：
+1. **去伪存真**：如果红军指出的事实错误（如看错数据）确实存在，请修正；如果红军产生了幻觉（错误引用），请在思考中反驳并坚持原判。
+2. **吸收建议**：如果红军的 GTO 建议合理（如调整仓位赔率），请优化你的策略。
+
+请输出《交易策略 v2.0 (Refined)》。
+- 如果你完全接受红军意见，请修改策略。
+- 如果你认为红军错了，请保留原策略并说明理由。
+"""
+    refine_tpl = prompt_templates.get("refinement_instruction", default_refine_instr)
+    
+    try:
+        user_prompt = refine_tpl.format(audit_report=audit_report)
+        
+        # MEGA PROMPT CONSTRUCTION:
+        # [Context] -> [Plan] -> [Audit] -> [Refine Instruction]
+        full_user_prompt = f"""
+{original_context}
+
+【前次策略 (Draft v1.0)】
+{original_plan}
+
+{user_prompt}
+"""
+        return system_prompt, full_user_prompt
+    except Exception as e:
+        return "", f"Refinement Prompt Error: {e}"
+
+def build_final_decision_prompt(final_verdict, prompt_templates=None):
+    """
+    Constructs the prompt for Step 5: Final Decision.
+    """
+    if not prompt_templates: prompt_templates = {}
+    
+    # 1. System Prompt (Reuse Blue Team)
+    sys_key = "deepseek_system"
+    default_sys = "You are a professional trader."
+    system_prompt = prompt_templates.get(sys_key, default_sys)
+    
+    # 2. User Prompt (Decision Instruction)
+    # 2. User Prompt (Decision Instruction)
+    default_instr = """
+【指令】
+红军最终裁决如下:
+{final_verdict}
+
+请作为蓝军主帅 (Commander)，综合红军意见，签署 **最终执行令 (Final Order)**。
+此指令将直接录入交易系统，请确保格式精确。
+
+【必须严格遵循以下输出格式】:
+【标的】: [代码] [名称]
+【方向】: [买入/卖出/观望/持有/调仓]
+【价格】: [具体价格]
+【数量】: [具体股数]
+【止损】: [具体价格]
+【止盈】: [具体价格]
+【有效期】: [仅限今日/明日]
+【决策依据】: [简述理由]
+"""
+    user_tpl = prompt_templates.get("deepseek_final_decision", default_instr)
+    
+    try:
+        user_prompt = user_tpl.format(final_verdict=final_verdict)
+        return system_prompt, user_prompt
+    except Exception as e:
+        return "", f"Final Decision Prompt Error: {e}"
+
+def ask_ai_refinement(model_name, api_key, original_context, original_plan, audit_report, prompt_templates=None):
+    """
+    Asks the Blue Team to refine the strategy based on Red Team audit.
+    Legacy wrapper using the new builder.
+    """
+    if not api_key: return "Error: Missing API Key"
+    
+    sys_p, user_p = build_refinement_prompt(original_context, original_plan, audit_report, prompt_templates)
+    if "Error" in user_p and sys_p == "":
+        return user_p, ""
+        
+    return call_ai_model(model_name, api_key, sys_p, user_p)

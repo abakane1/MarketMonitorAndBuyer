@@ -105,7 +105,7 @@ Your goal is to identify WHY the Human was smarter and HOW to teach the AI to le
 def generate_human_vs_ai_review(api_key, daily_result, logs, real_history):
     config = load_config()
     prompts = config.get("prompts", {})
-    input_sys = prompts.get("deepseek_base", "N/A")
+    input_sys = prompts.get("deepseek_system", "N/A")
     
     meta_prompt = get_battle_metaprompt(daily_result, logs, real_history, input_sys)
     
@@ -122,7 +122,7 @@ def generate_prompt_improvement(api_key, daily_result, logs):
     """
     config = load_config()
     prompts = config.get("prompts", {})
-    input_sys = prompts.get("deepseek_base", "N/A")
+    input_sys = prompts.get("deepseek_system", "N/A")
     
     meta_prompt = get_feedback_metaprompt(daily_result, logs, input_sys)
     
@@ -175,7 +175,7 @@ Compare the performance stability over the period.
 def generate_multi_day_review(api_key, summary_data, logs):
     config = load_config()
     prompts = config.get("prompts", {})
-    input_sys = prompts.get("deepseek_base", "N/A")
+    input_sys = prompts.get("deepseek_system", "N/A")
     
     meta_prompt = get_multi_day_feedback_metaprompt(summary_data, logs, input_sys)
     
@@ -185,3 +185,57 @@ def generate_multi_day_review(api_key, summary_data, logs):
         user_prompt=meta_prompt
     )
     return content, reasoning
+
+def optimize_all_prompts(api_key, current_prompts):
+    """
+    Uses DeepSeek Reasoner to analyze and optimize the entire prompt set.
+    """
+    import json
+    
+    # 1. Build Meta-Prompt
+    prompts_json_str = json.dumps(current_prompts, ensure_ascii=False, indent=2)
+    
+    meta_prompt = f"""
+# Role
+You are a Lead AI Architect and Prompt Engineer.
+You are optimizing the System Prompts for an Autonomous Trading Agent.
+
+# Context
+The user has a collection of prompts used for different modules (DeepSeek Strategy, Metaso Search, etc.).
+Over time, these prompts might have become redundant, conflicting, or messy.
+
+# Current Prompts (JSON)
+```json
+{prompts_json_str}
+```
+
+# Goal
+Refactor and Optimize these prompts to achieve:
+1. **MECE Principle**: Mutually Exclusive, Collectively Exhaustive. No overlapping logic between Base and Suffixes.
+2. **Clarity**: Use clear, concise instruction directives.
+3. **Consistency**: Ensure terminology (e.g. "LAG + GTO") is consistent.
+4. **Logic Enhancement**: Strengthen the "Chain of Thought" instructions.
+
+# Critical Constraints
+- **Keys MUST remain unchanged**: You cannot change the dictionary keys (e.g. 'deepseek_base', 'metaso_query' etc.) unless you are removing a deprecated one. 
+- **Return Valid JSON**: Your output must be a pure JSON dictionary string similar to the input.
+
+# Output Format
+Return ONLY the JSON string. Do not include markdown code blocks ```json ... ``` if possible, or I will strip them.
+"""
+
+    # 2. Call API
+    content, reasoning = call_deepseek_api(
+        api_key,
+        system_prompt="You are an advanced Prompt Optimization Engine. Output strictly valid JSON.",
+        user_prompt=meta_prompt
+    )
+    
+    # 3. Parse and Validate
+    try:
+        # Strip markdown if present
+        cleaned_content = content.replace("```json", "").replace("```", "").strip()
+        new_prompts = json.loads(cleaned_content)
+        return new_prompts, reasoning
+    except Exception as e:
+        return None, f"JSON Parsing Failed: {e}\\nRaw Content: {content}"

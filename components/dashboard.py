@@ -276,6 +276,23 @@ def render_stock_dashboard(code: str, name: str, total_capital: float, risk_pct:
             ]
             st.table(f_items)
             st.caption("注：数据来自东方财富当日实时资金流向接口")
+            
+            # [Added] Historical Fund Flow Table
+            st.divider()
+            st.markdown("##### 📅 历史资金流向 (History)")
+            from utils.data_fetcher import get_stock_fund_flow_history
+            ff_hist = get_stock_fund_flow_history(code, force_update=False)
+            if not ff_hist.empty:
+                cols_to_show = ['日期', '收盘价', '主力净流入-净额', '主力净流入-净占比', '超大单净流入-净额', '大单净流入-净额']
+                valid_cols = [c for c in cols_to_show if c in ff_hist.columns]
+                st.dataframe(
+                    ff_hist[valid_cols].sort_values('日期', ascending=False).head(20),
+                    use_container_width=True,
+                    hide_index=True
+                )
+            else:
+                st.info("暂无历史数据")
+
         elif flow_data and flow_data.get("error"):
              st.warning(f"无法获取资金流向数据: {flow_data.get('error')}")
         else:

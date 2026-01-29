@@ -70,52 +70,206 @@ elif app_mode == "提示词中心":
     
     prompts = load_config().get("prompts", {})
     
-    tab1, tab2, tab3 = st.tabs(["DeepSeek (核心大脑)", "Metaso (秘塔搜索)", "Gemini (辅助研判)"])
+    tab1, tab2, tab3, tab4 = st.tabs(["🔵 Blue Team (策略蓝军)", "🔴 Red Team (风控红军)", "🔎 Tools (情报工具)", "Others (其他)"])
     
-    with tab1:
-        st.subheader("DeepSeek 提示词")
-        st.info("DeepSeek 负责核心的博弈逻辑分析和策略生成。")
+    # Define Descriptions & Titles
+    p_map = {
+        "deepseek_system": "🧠 蓝军主帅系统设定 (Commander System)",
+        "deepseek_base": "🏗️ 策略基础模版 (Base Template)",
+        "deepseek_new_strategy_suffix": "📎 场景附录: 盘前规划 (Pre-market Suffix)",
+        "deepseek_intraday_suffix": "📎 场景附录: 盘中突发 (Intraday Suffix)",
+        "deepseek_noon_suffix": "📎 场景附录: 午间复盘 (Noon Suffix)",
+        "deepseek_simple_suffix": "📎 场景附录: 简易分析 (Simple Suffix)",
+        "deepseek_final_decision": "🏁 Step 5: 最终定稿指令 (Final Execution)",
         
-        with st.expander("1️⃣ 基础博弈框架 (deepseek_base)", expanded=True):
-            st.code(prompts.get("deepseek_base", ""), language="text")
-            st.caption("💡 说明: 定义了 LAG + GTO 的交易哲学和手牌（点位）描述逻辑。")
+        "blue_quant_sys": "🔢 蓝军数学官设定 (Quant Agent)",
+        "blue_intel_sys": "🕵️ 蓝军情报官设定 (Intel Agent)",
         
-        with st.expander("2️⃣ 盘前策略 (deepseek_new_strategy_suffix)", expanded=False):
-            st.code(prompts.get("deepseek_new_strategy_suffix", ""), language="text")
-            st.caption("💡 说明: 盘前规划专用。用于跳过算法，完全独立构建包含止损止盈的全天交易计划。")
+        "qwen_system": "🛡️ 红军风控设定 (Red System)",
+        "qwen_audit": "🛡️ 红军初审模版 (Audit Template)",
+        "qwen_final_audit": "⚖️ 红军终审模版 (Final Verdict)",
+    }
+
+    p_desc = {
+        "deepseek_base": "💡 说明: [Blue Commander] 定义了 LAG + GTO 的交易哲学和手牌（点位）描述逻辑。",
+        "deepseek_new_strategy_suffix": "💡 说明: [Blue Commander] 盘前规划专用。用于跳过算法，完全独立构建包含止损止盈的全天交易计划。",
+        "deepseek_intraday_suffix": "💡 说明: [Blue Commander] 盘中突发决策专用。侧重于实时盘口分析、极窄止损和即时行动建议。",
+        "deepseek_noon_suffix": "💡 说明: [Blue Commander] 午间复盘专用。包含上午收盘价与昨日收盘价对比，以及上午资金流向总结。",
+        "deepseek_simple_suffix": "💡 说明: [Blue Commander] 用于简单的资金流向和技术面分析总结。",
+        "deepseek_system": "💡 说明: [Blue Commander] 蓝军主帅 (Qwen-Max) 系统设定。统筹量化与情报官的报告。",
+        "deepseek_final_decision": "💡 说明: [Blue Commander] Step 5 最终定稿指令 (Execution Order)。",
+        "refinement_instruction": "💡 说明: [Blue Commander] 收到红军审查后的反思指令。核心强调独立自主 (Autonomy)。",
+        
+        "blue_quant_sys": "💡 说明: [Blue Quant] 数学官 (Qwen-Plus) 系统设定。专攻数字、资金流模型、盈亏比计算。",
+        "blue_intel_sys": "💡 说明: [Blue Intel] 情报官 (Qwen-Plus) 系统设定。专攻新闻叙事、战绩回溯、预期差。",
+        
+        "qwen_system": "💡 说明: [Red Team] 角色设定，负责一致性审查 (DeepSeek-R1 / Qwen)。",
+        "qwen_audit": "💡 说明: [Red Team] (初审) 审核报告的生成模版。",
+        "qwen_final_audit": "💡 说明: [Red Team] (终审) 对蓝军 v2.0 策略的最终裁决模版。",
+        
+        "metaso_query": "💡 说明: [Tools] 指导 AI 将股票代码转化为有效的搜索 query 组合。",
+        "metaso_parser": "💡 说明: [Tools] 用于从杂乱的搜索结果中提取结构化的利好/利空情报。",
+    }
+    
+    def render_prompts(prefix_list, exclude=None):
+        count = 0
+        target_keys = []
+        for p in prefix_list:
+            target_keys.extend([k for k in prompts.keys() if k.startswith(p)])
+        
+        # Add exact matches if any (like refinement_instruction)
+        for p in prefix_list:
+            if p in prompts and p not in target_keys:
+                target_keys.append(p)
+                
+        sorted_keys = sorted(list(set(target_keys)))
+        
+        for k in sorted_keys:
+            if k == "__NOTE__": continue
+            if exclude and k in exclude: continue
             
-        with st.expander("3️⃣ 盘中对策 (deepseek_intraday_suffix)", expanded=False):
-            st.code(prompts.get("deepseek_intraday_suffix", ""), language="text")
-            st.caption("💡 说明: 盘中突发决策专用。侧重于实时盘口分析、极窄止损和即时行动建议。")
+            v = prompts[k]
+            desc = p_desc.get(k, "")
+            
+            # Header Logic: Use Map if available, else auto-icon
+            if k in p_map:
+                header = p_map[k] # Clean display without legacy key
+            else:
+                header = k
+                if desc:
+                    icon = "🗝️"
+                    if "base" in k: icon = "🏗️"
+                    elif "system" in k: icon = "🧠"
+                    elif "suffix" in k: icon = "📎"
+                    elif "refinement" in k: icon = "🔄"
+                    elif "quant" in k: icon = "🔢"
+                    elif "intel" in k: icon = "🕵️"
+                    elif "final_decision" in k: icon = "🏁"
+                    header = f"{icon} {k}"
+            
+            with st.expander(header, expanded=False):
+                st.text_area(f"Content ({k})", value=v, height=200, disabled=True)
+                if desc: st.info(desc)
+            count += 1
+        return count
 
-        with st.expander("4️⃣ [已弃用] 策略验证后缀 (deepseek_research_suffix)", expanded=False):
-            st.code(prompts.get("deepseek_research_suffix", ""), language="text")
-            st.caption("💡 说明: 旧版本用于验证算法信号的功能 (已合并或下线)。")
-
-        with st.expander("4️⃣ 简单思考后缀 (deepseek_simple_suffix)", expanded=False):
-            st.code(prompts.get("deepseek_simple_suffix", ""), language="text")
-            st.caption("💡 说明: 用于简单的资金流向和技术面分析总结。")
+    with tab1:
+        st.subheader("🔵 蓝军军团 (Blue Legion) - 策略生成")
+        st.info("包含【主帅 Commander】、【数学官 Quant】、【情报官 Intel】三位专家的指令集。")
+        c = render_prompts(["deepseek_", "refinement_instruction", "blue_"])
+        if c == 0: st.info("暂无蓝军提示词")
 
     with tab2:
-        st.subheader("Metaso 搜索提示词")
-        st.info("Metaso 负责实时情报的检索和去伪存真。")
-        
-        with st.expander("1️⃣ 搜索关键词生成 (metaso_query)", expanded=True):
-            st.code(prompts.get("metaso_query", ""), language="text")
-            st.caption("💡 说明: 指导 AI 将股票代码转化为有效的搜索 query 组合。")
-            
-        with st.expander("2️⃣ 搜索备选方案 (metaso_query_fallback)", expanded=False):
-            st.code(prompts.get("metaso_query_fallback", ""), language="text")
-            
-        with st.expander("3️⃣ 情报解析器 (metaso_parser)", expanded=False):
-            st.code(prompts.get("metaso_parser", ""), language="text")
-            st.caption("💡 说明: 用于从杂乱的搜索结果中提取结构化的利好/利空情报。")
+        st.subheader("🔴 红军风控 (Red Team) - 审查审计")
+        st.info("负责一致性审查与风控。默认由 DeepSeek 担任，但也兼容 Qwen。")
+        c = render_prompts(["qwen_"])
+        if c == 0: st.info("暂无红军提示词")
 
     with tab3:
-        st.subheader("Gemini 辅助提示词")
+        st.subheader("🔎 工具与情报 (Tools)")
+        st.info("辅助工具的提示词配置 (如 Metaso 搜索解析)。")
+        c = render_prompts(["metaso_"])
+        if c == 0: st.info("暂无工具提示词")
         
-        with st.expander("1️⃣ 基础辅助 (gemini_base)", expanded=True):
-            st.code(prompts.get("gemini_base", ""), language="text")
+    with tab4:
+        st.subheader("其他 (Others)")
+        # Render anything else
+        all_prefixes = ("deepseek_", "metaso_", "qwen_", "refinement_instruction", "blue_")
+        others = [k for k in prompts.keys() if not k.startswith(all_prefixes) and k != "refinement_instruction"]
+        
+        if others:
+            for k in sorted(others):
+                v = prompts[k]
+                with st.expander(f"🔖 {k}", expanded=False):
+                    st.code(v, language="text")
+        else:
+            st.caption("没有其他未分类的提示词。")
+
+    # --- Optimization Section ---
+    st.markdown("---")
+    st.subheader("🚀 AI 智能优化")
+    st.info("使用 DeepSeek R1 (Reasoner) 模型，基于 MECE 原则自动重构和优化所有提示词。")
+    
+    if "optimized_prompts" not in st.session_state:
+        st.session_state.optimized_prompts = None
+        st.session_state.optimization_reasoning = ""
+        
+    col_opt, col_clear = st.columns([1, 4])
+    
+    with col_opt:
+        if st.button("开始全面优化", type="primary"):
+            api_key = sidebar_data.get("deepseek_api_key")
+            if not api_key:
+                st.error("请先在侧边栏设置 DeepSeek API Key")
+            else:
+                with st.spinner("DeepSeek 正在深度思考中 (可能需要 30-60秒)..."):
+                    from utils.prompt_optimizer import optimize_all_prompts
+                    
+                    current_prompts = load_config().get("prompts", {})
+                    new_prompts, reasoning = optimize_all_prompts(api_key, current_prompts)
+                    
+                    if new_prompts:
+                        st.session_state.optimized_prompts = new_prompts
+                        st.session_state.optimization_reasoning = reasoning
+                        st.success("优化完成！请在下方对比并确认。")
+                    else:
+                        st.error("优化失败，请查看日志或重试。")
+                        if reasoning:
+                            st.text_area("错误详情", reasoning)
+                            
+    with col_clear:
+        if st.session_state.optimized_prompts and st.button("❌ 放弃/清空结果"):
+            st.session_state.optimized_prompts = None
+            st.session_state.optimization_reasoning = ""
+            st.rerun()
+
+    # --- Diff View & Confirmation ---
+    if st.session_state.optimized_prompts:
+        st.divider()
+        st.subheader("🔍 优化对比 (Diff View)")
+        
+        # Reasoning
+        if st.session_state.optimization_reasoning:
+            with st.expander("🤔 查看 AI 思考过程 (Chain of Thought)", expanded=False):
+                st.markdown(st.session_state.optimization_reasoning)
+        
+        new_prompts = st.session_state.optimized_prompts
+        from utils.config import load_config
+        old_prompts = load_config().get("prompts", {})
+        
+        # Iterating over keys to show diffs
+        all_keys = set(old_prompts.keys()) | set(new_prompts.keys())
+        
+        # Sort keys to make diff view stable
+        for key in sorted(all_keys):
+            old_val = old_prompts.get(key, "(Missing)")
+            new_val = new_prompts.get(key, "(Removed)")
+            
+            # Simple check for diff
+            if old_val != new_val:
+                with st.expander(f"📝 {key} (Has Changes)", expanded=True):
+                    c1, c2 = st.columns(2)
+                    with c1:
+                        st.caption("🔴 旧版本/Old")
+                        st.code(old_val, language="text")
+                    with c2:
+                        st.caption("🟢 新版本/New")
+                        st.code(new_val, language="text")
+            else:
+                with st.expander(f"✅ {key} (No Change)", expanded=False):
+                     st.code(old_val, language="text")
+
+        st.warning("⚠️ 确认保存将覆盖现有配置。")
+        if st.button("✅ 确认保存并应用", type="primary"):
+            from utils.config import save_config
+            full_config = load_config()
+            full_config["prompts"] = new_prompts
+            save_config(full_config)
+            
+            st.session_state.optimized_prompts = None
+            st.success("已保存全新优化后的提示词！")
+            time.sleep(1)
+            st.rerun()
 
 elif app_mode == "复盘与预判":
     if not selected_labels:

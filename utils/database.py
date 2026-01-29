@@ -255,6 +255,19 @@ def db_delete_strategy_log(symbol: str, timestamp: str) -> bool:
     conn.close()
     return affected > 0
 
+def db_delete_strategy_logs_by_date(symbol: str, date_str: str) -> int:
+    """
+    Delete all logs for a symbol on a specific date (YYYY-MM-DD).
+    """
+    conn = get_db_connection()
+    c = conn.cursor()
+    # Match strings starting with the date
+    c.execute("DELETE FROM strategy_logs WHERE symbol = ? AND timestamp LIKE ?", (symbol, f"{date_str}%"))
+    affected = c.rowcount
+    conn.commit()
+    conn.close()
+    return affected
+
 def db_get_latest_strategy_log(symbol: str) -> dict:
     conn = get_db_connection()
     c = conn.cursor()
