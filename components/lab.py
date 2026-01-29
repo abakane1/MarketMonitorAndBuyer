@@ -131,7 +131,8 @@ def render_strategy_lab():
                 # Active Gen Check
                 if not any("盘前" in l.get('tag', '') or "盘前" in l.get('result', '') for l in d_logs):
                      with st.spinner(f"⏳ {day_str} 策略缺失，正在回补..."):
-                         new_strat = generate_missing_strategy(selected_stock, "Simulated", day_str, "09:25:00")
+                         # Default to DeepSeek for Multi-Day simple mode
+                         new_strat = generate_missing_strategy(selected_stock, "Simulated", day_str, "09:25:00", model_type="DeepSeek")
                          if new_strat: d_logs.append(new_strat)
                 
                 # 2. Run Sim
@@ -156,7 +157,7 @@ def render_strategy_lab():
                         # Auto-reply for multi-day to avoid blocking? 
                         # Or just generate silently?
                         sim_time_str = state['time'].strftime("%H:%M:%S")
-                        new_strat = generate_missing_strategy(selected_stock, "Simulated", day_str, sim_time_str)
+                        new_strat = generate_missing_strategy(selected_stock, "Simulated", day_str, sim_time_str, model_type="DeepSeek")
                         if new_strat:
                             state = gen.send(new_strat)
                         else:
@@ -426,14 +427,28 @@ def render_strategy_lab():
         
         # v1.8.0: Active Strategy Injection
         # Check again if we need to generate
+        
+        # [v2.0] Expert Validation Mode (Siloed Backtest)
+        expert_mode = st.checkbox("🧪 专家自证模式 (Expert Validation Mode)", value=False, help="开启后，将忽略历史数据库中的记录，强制使用选定的 AI 专家实时重新生成策略。用于验证特定模型的独立作战能力。")
+        candidate_expert = "DeepSeek"
+        if expert_mode:
+            candidate_expert = st.selectbox("⚔️ 选择考核专家 (Candidate Expert)", ["DeepSeek", "Qwen"])
+            st.info(f"已进入 {candidate_expert} 独立考核模式。所有历史策略将被屏蔽，由该专家现场生成决策。")
+            
+            # CLEAR HISTORICAL LOGS for simulation scope (Siloed)
+            day_logs = [] 
+            # But we might want to keep Pre-market if it was just generated? 
+            # Actually, for pure validation, we should generate Pre-market too if missing.
+        
         if not any("盘前" in l.get('tag', '') or "盘前" in l.get('result', '') for l in day_logs):
              with st.spinner("⏳ 历史策略缺失，正在回溯生成 (Time Travel Generation)..."):
                  # Generate Pre-market (09:25)
-                 new_strat = generate_missing_strategy(selected_stock, "Simulated", selected_date, "09:25:00")
+                 model_for_gen = candidate_expert if expert_mode else "DeepSeek"
+                 new_strat = generate_missing_strategy(selected_stock, "Simulated", selected_date, "09:25:00", model_type=model_for_gen)
                  if new_strat:
                      day_logs.append(new_strat)
                      day_logs.sort(key=lambda x: x['timestamp'])
-                     st.toast("✅ 历史策略已生成并入库！")
+                     st.toast(f"✅ {model_for_gen} 盘前策略已生成！")
                      time.sleep(1)
         
         # Animation UI Setup
@@ -484,7 +499,8 @@ def render_strategy_lab():
                 with st.spinner(f"🧠 盘中策略缺失 ({state.get('point')})，正在动态研判..."):
                     # Use current simulation time from state backtest context
                     sim_time_str = state['time'].strftime("%H:%M:%S")
-                    new_strat = generate_missing_strategy(selected_stock, "Simulated", selected_date, sim_time_str)
+                    model_gen = candidate_expert if expert_mode else "DeepSeek"
+                    new_strat = generate_missing_strategy(selected_stock, "Simulated", selected_date, sim_time_str, model_type=model_gen)
                     if new_strat:
                         st.toast(f"✅ 已补全 {state.get('point')} 盘中策略")
                         state = gen.send(new_strat) 

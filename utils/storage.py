@@ -124,35 +124,48 @@ def get_volume_profile(symbol: str):
 
 from utils.database import (
     db_save_strategy_log, db_get_strategy_logs, 
-    db_delete_strategy_log, db_get_latest_strategy_log
+    db_delete_strategy_log, db_get_latest_strategy_log,
+    db_save_review_log, db_get_review_logs,
+    db_delete_review_log, db_get_latest_review_log
 )
 
 def save_research_log(symbol: str, prompt: str, result: str, reasoning: str):
     """
-    Saves a research record (Prompt + AI Response) to SQLite DB.
+    Saves a research record to LAB strategy_logs (Experimental).
     """
     db_save_strategy_log(symbol, prompt, result, reasoning)
 
 def load_research_log(symbol: str) -> list:
     """
-    Loads past research records from SQLite DB.
-    Returns: list of dicts.
+    Loads past research records from LAB strategy_logs.
     """
     return db_get_strategy_logs(symbol, limit=50)
 
 def delete_research_log(symbol: str, timestamp: str) -> bool:
-    """
-    删除指定时间戳的研报记录。
-    Returns True if deleted, False otherwise.
-    """
     return db_delete_strategy_log(symbol, timestamp)
 
 def get_latest_strategy_log(symbol: str):
-    """
-    Returns the most recent log.
-    Returns None if not found or empty.
-    """
     return db_get_latest_strategy_log(symbol)
+
+# --- Production Logs (Review & Prediction) ---
+
+def save_production_log(symbol: str, prompt: str, result: str, reasoning: str, model: str = "DeepSeek"):
+    """
+    Saves a finalized strategy to review_logs (Production).
+    """
+    db_save_review_log(symbol, prompt, result, reasoning, model)
+
+def load_production_log(symbol: str) -> list:
+    """
+    Loads confirmed strategies from review_logs (Production).
+    """
+    return db_get_review_logs(symbol, limit=50)
+
+def delete_production_log(symbol: str, timestamp: str) -> bool:
+    return db_delete_review_log(symbol, timestamp)
+
+def get_latest_production_log(symbol: str):
+    return db_get_latest_review_log(symbol)
 
 def get_strategy_storage_path(symbol: str) -> str:
     return os.path.join(DATA_DIR, f"{symbol}_strategies.json")

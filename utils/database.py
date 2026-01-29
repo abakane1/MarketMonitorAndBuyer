@@ -52,15 +52,16 @@ def init_db():
         updated_at TEXT
     )''')
     
-    # [NEW] Strategy Logs table
-    c.execute('''CREATE TABLE IF NOT EXISTS strategy_logs (
+    # [NEW] Review Logs table (Production)
+    c.execute('''CREATE TABLE IF NOT EXISTS review_logs (
         id INTEGER PRIMARY KEY AUTOINCREMENT,
         symbol TEXT,
         timestamp TEXT,
         result TEXT,
         reasoning TEXT,
         prompt TEXT,
-        tag TEXT
+        tag TEXT,
+        model TEXT DEFAULT 'DeepSeek'
     )''')
     
     # --- Schema Migration: Check if base_shares exists ---
@@ -70,6 +71,14 @@ def init_db():
         # Column missing, add it
         print("Migrating DB: Adding base_shares column to positions table...")
         c.execute("ALTER TABLE positions ADD COLUMN base_shares INTEGER DEFAULT 0")
+        conn.commit()
+
+    # --- Schema Migration: Check if model exists in strategy_logs ---
+    try:
+        c.execute("SELECT model FROM strategy_logs LIMIT 1")
+    except sqlite3.OperationalError:
+        print("Migrating DB: Adding model column to strategy_logs table...")
+        c.execute("ALTER TABLE strategy_logs ADD COLUMN model TEXT DEFAULT 'DeepSeek'")
         conn.commit()
     
     conn.commit()
@@ -203,22 +212,23 @@ def db_load_intelligence(symbol: str) -> any:
              return [] if "watchlist" not in symbol else {} # Context unaware fallback
     return [] # Default to empty list as mostly used for claims list
 
-# --- Strategy Logs ---
+# --- Strategy Logs (For Lab) ---
 
-def db_save_strategy_log(symbol: str, prompt: str, result: str, reasoning: str):
+def db_save_strategy_log(symbol: str, prompt: str, result: str, reasoning: str, model: str = "DeepSeek", custom_timestamp: str = None):
     conn = get_db_connection()
     c = conn.cursor()
-    ts = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+    ts = custom_timestamp if custom_timestamp else datetime.now().strftime("%Y-%m-%d %H:%M:%S")
     
     # Try extract Tag
     import re
     tag_match = re.search(r"【(.*?)】", result)
     tag = tag_match.group(0) if tag_match else ""
     
+    # Ensure model column exists (double check handled by Schema Migration but safe to be explicit in INSERT)
     c.execute("""
-        INSERT INTO strategy_logs (symbol, timestamp, result, reasoning, prompt, tag)
-        VALUES (?, ?, ?, ?, ?, ?)
-    """, (symbol, ts, result, reasoning, prompt, tag))
+        INSERT INTO strategy_logs (symbol, timestamp, result, reasoning, prompt, tag, model)
+        VALUES (?, ?, ?, ?, ?, ?, ?)
+    """, (symbol, ts, result, reasoning, prompt, tag, model))
     conn.commit()
     conn.close()
 
@@ -236,13 +246,16 @@ def db_get_strategy_logs(symbol: str, limit: int = 20) -> list:
     
     res = []
     for r in rows:
+        # Compatibility with old DB rows that might have None
+        mdl = r["model"] if "model" in r.keys() and r["model"] else "DeepSeek"
         res.append({
             "id": r["id"],
             "timestamp": r["timestamp"],
             "result": r["result"],
             "reasoning": r["reasoning"],
             "prompt": r["prompt"],
-            "tag": r["tag"]
+            "tag": r["tag"],
+            "model": mdl
         })
     return res
 
@@ -280,12 +293,91 @@ def db_get_latest_strategy_log(symbol: str) -> dict:
     row = c.fetchone()
     conn.close()
     if row:
+        mdl = row["model"] if "model" in row.keys() and row["model"] else "DeepSeek"
         return {
             "timestamp": row["timestamp"],
             "result": row["result"],
             "reasoning": row["reasoning"],
             "prompt": row["prompt"],
-            "tag": row["tag"]
+            "tag": row["tag"],
+            "model": mdl
+        }
+    return None
+
+# --- Review Logs (For Strategy Section) ---
+
+def db_save_review_log(symbol: str, prompt: str, result: str, reasoning: str, model: str = "DeepSeek", custom_timestamp: str = None):
+    conn = get_db_connection()
+    c = conn.cursor()
+    ts = custom_timestamp if custom_timestamp else datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+    
+    # Try extract Tag
+    import re
+    tag_match = re.search(r"【(.*?)】", result)
+    tag = tag_match.group(0) if tag_match else ""
+    
+    c.execute("""
+        INSERT INTO review_logs (symbol, timestamp, result, reasoning, prompt, tag, model)
+        VALUES (?, ?, ?, ?, ?, ?, ?)
+    """, (symbol, ts, result, reasoning, prompt, tag, model))
+    conn.commit()
+    conn.close()
+
+def db_get_review_logs(symbol: str, limit: int = 20) -> list:
+    conn = get_db_connection()
+    c = conn.cursor()
+    c.execute("""
+        SELECT * FROM review_logs 
+        WHERE symbol = ? 
+        ORDER BY id DESC 
+        LIMIT ?
+    """, (symbol, limit))
+    rows = c.fetchall()
+    conn.close()
+    
+    res = []
+    for r in rows:
+        mdl = r["model"] if "model" in r.keys() and r["model"] else "DeepSeek"
+        res.append({
+            "id": r["id"],
+            "timestamp": r["timestamp"],
+            "result": r["result"],
+            "reasoning": r["reasoning"],
+            "prompt": r["prompt"],
+            "tag": r["tag"],
+            "model": mdl
+        })
+    return res
+
+def db_delete_review_log(symbol: str, timestamp: str) -> bool:
+    conn = get_db_connection()
+    c = conn.cursor()
+    c.execute("DELETE FROM review_logs WHERE symbol = ? AND timestamp = ?", (symbol, timestamp))
+    affected = c.rowcount
+    conn.commit()
+    conn.close()
+    return affected > 0
+
+def db_get_latest_review_log(symbol: str) -> dict:
+    conn = get_db_connection()
+    c = conn.cursor()
+    c.execute("""
+        SELECT * FROM review_logs 
+        WHERE symbol = ? 
+        ORDER BY id DESC 
+        LIMIT 1
+    """, (symbol,))
+    row = c.fetchone()
+    conn.close()
+    if row:
+        mdl = row["model"] if "model" in row.keys() and row["model"] else "DeepSeek"
+        return {
+            "timestamp": row["timestamp"],
+            "result": row["result"],
+            "reasoning": row["reasoning"],
+            "prompt": row["prompt"],
+            "tag": row["tag"],
+            "model": mdl
         }
     return None
 

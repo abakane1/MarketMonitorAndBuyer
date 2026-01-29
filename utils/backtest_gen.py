@@ -11,7 +11,7 @@ from utils.ai_advisor import build_advisor_prompt, call_deepseek_api
 from utils.intel_manager import get_claims_for_prompt
 from utils.database import db_get_strategy_logs
 
-def generate_missing_strategy(code: str, name: str, target_date_str: str, current_time_str: str = "09:25:00"):
+def generate_missing_strategy(code: str, name: str, target_date_str: str, current_time_str: str = "09:25:00", **kwargs):
     """
     Generates a strategy for a past date if it doesn't exist.
     'Time Travel': Uses only data available up to target_date + current_time.
@@ -126,64 +126,96 @@ def generate_missing_strategy(code: str, name: str, target_date_str: str, curren
         "known_info": get_claims_for_prompt(code) # This is timeless (Knowledge Base)
     }
 
-    # 5. Build Prompt
+    # 5. Build Prompt & Call AI (via ExpertRegistry)
     prompts = load_config().get("prompts", {})
-    api_key = load_config().get("settings", {}).get("deepseek_api_key")
+    settings = load_config().get("settings", {})
     
-    if not api_key:
+    # Map keys for Registry
+    api_keys = {
+        "deepseek_api_key": settings.get("deepseek_api_key"),
+        "qwen_api_key": settings.get("qwen_api_key") or settings.get("dashscope_api_key")
+    }
+    
+    # Model Dispatch
+    model_type = kwargs.get("model_type", "DeepSeek")
+    from utils.expert_registry import ExpertRegistry
+    
+    expert = ExpertRegistry.get_expert(model_type, api_keys)
+    if not expert:
         return None
         
-    sys_p, user_p = build_advisor_prompt(
-        context, 
-        research_context=f"【历史回溯模式 (Backtest Time Travel)】\n当前模拟时间: {target_dt}\n(请基于此时刻以前的数据进行决策)",
-        technical_indicators=tech_indicators, 
-        fund_flow_data=None, # Historical fund flow tricky to get exact snapshot, skip
-        fund_flow_history=None, 
-        prompt_templates=prompts,
-        intraday_summary=intraday_pattern,
-        suffix_key=suffix_key,
-        symbol=code
+    tag_prefix = "【历史回补】" if is_pre_market else "【盘中回补】"
+    
+    # Prepare Prompt/Context depending on Expert ?
+    # Expert.propose() interface: propose(context_data, prompt_templates, **kwargs)
+    
+    # Inject Specific Contexts
+    extra_kwargs = {
+        "technical_indicators": tech_indicators,
+        "intraday_summary": intraday_pattern,
+        "suffix_key": suffix_key
+    }
+    
+    # DeepSeek specific context
+    if model_type == "DeepSeek":
+        extra_kwargs["research_context"] = f"【历史回溯模式 (Backtest Time Travel)】\n当前模拟时间: {target_dt}\n(请基于此时刻以前的数据进行决策)"
+        
+    # Qwen specific context
+    if model_type == "Qwen":
+         # QwenExpert expects 'intraday_summary' in context or kwargs (we added it to kwargs)
+         # It might need 'capital_flow_str' which is usually pre-formatted.
+         # For backtest, we might lack real-time flow data unless we have history.
+         # Let's try to fetch history flow if possible?
+         # For now, pass a placeholder.
+         context['capital_flow_str'] = "N/A (Backtest Mode)"
+         context['history_log_str'] = "N/A"
+         context['limit_up'] = "N/A"
+         context['limit_down'] = "N/A"
+
+    # CALL EXPERT
+    final_res = ""
+    reasoning = ""
+    user_p = ""
+    
+    try:
+        content, r_log, full_prompt, logs = expert.propose(context, prompts, **extra_kwargs)
+        
+        # Format Result
+        final_res = f"{tag_prefix} {content}"
+        # If logs returned (e.g. Qwen sub-agents), use them as reasoning
+        reasoning = r_log 
+        user_p = full_prompt
+        
+        if "Error" in content or "Request Failed" in content:
+            return None
+            
+    except Exception as e:
+        print(f"Expert Propose Error: {e}")
+        return None
+
+    # 7. Save to DB using New Function
+    from utils.database import db_save_strategy_log
+    
+    # Save with custom timestamp and model info
+    db_save_strategy_log(
+        symbol=code,
+        prompt=user_p,
+        result=final_res,
+        reasoning=reasoning,
+        model=model_type,
+        custom_timestamp=target_dt.strftime("%Y-%m-%d %H:%M:%S")
     )
     
-    # 6. Call API
-    content, reasoning = call_deepseek_api(api_key, sys_p, user_p)
-    
-    if "Error" in content or "Request Failed" in content:
-        return None
-        
-    # 7. Save to DB with SPECIAL TAG
-    tag_prefix = "【历史回补】" if is_pre_market else "【盘中回补】"
-    final_res = f"{tag_prefix} {content}"
-    
-    # We must save it with the TARGET TIMESTAMP so it appears correctly in history
-    # db_save_strategy_log uses datetime.now(). We need to override or insert manually?
-    # db_save_strategy_log does `ts = datetime.now()`.
-    # We need a new function or SQL injection? 
-    # Let's add `db_insert_historical_log` to database.py or modify save.
-    
-    # For now, let's just use `db_save_strategy_log` but we CANNOT because it timestamps NOW.
-    # We need to manually insert.
-    
-    from utils.database import get_db_connection
-    conn = get_db_connection()
-    c = conn.cursor()
-    
-    # Extract tag
+    # Return constructed object
     import re
     tag_match = re.search(r"【(.*?)】", final_res)
     tag = tag_match.group(0) if tag_match else "[Backtest-Generated]"
-    
-    c.execute("""
-        INSERT INTO strategy_logs (symbol, timestamp, result, reasoning, prompt, tag)
-        VALUES (?, ?, ?, ?, ?, ?)
-    """, (code, target_dt.strftime("%Y-%m-%d %H:%M:%S"), final_res, reasoning, user_p, tag))
-    conn.commit()
-    conn.close()
     
     return {
         "timestamp": target_dt.strftime("%Y-%m-%d %H:%M:%S"),
         "result": final_res,
         "reasoning": reasoning,
         "prompt": user_p,
-        "tag": tag
+        "tag": tag,
+        "model": model_type
     }

@@ -5,6 +5,23 @@ All notable changes to the **MarketMonitorAndBuyer** project will be documented 
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [2.6.0] - 2026-01-29 (3-Way Battle Strategy Lab)
+### Added (新增)
+- **Strategy Lab 3-Way Battle (三方博弈)**:
+  - **3-Way Simulation**: 在“人机对弈”复盘中引入 **Qwen Legion** (Qwen 军团) 作为第三方玩家，与 **DeepSeek** 和 **User (实盘)** 同台竞技。
+  - **Multi-Model Backtesting**: 策略回溯支持指定模型 (DeepSeek / Qwen)，并分别记录日志。
+  - **Visualization**: 收益曲线和战绩结算全面升级，支持三方数据对比。
+- **Database Schema Upgrade**:
+  - `strategy_logs` 表自动迁移添加 `model` 字段，用于区分策略来源。
+
+## [2.5.1] - 2026-01-29 (Config Optimization)
+### Changed (变更)
+- **Prompts Storage Split**: 将 `prompts` 从 `user_config.json` 分离到独立的 `prompts_encrypted.json`，优化配置文件结构，减小文件体积。
+- `user_config.json` 现在只保留 `settings`，更加清晰。
+- 保持对旧格式的向后兼容。
+
+---
+
 ## [2.5.0] - 2026-01-29 (Blue Legion / MoE)
 ### Added (新增)
 - **Blue Legion Architecture (蓝军军团 MoE)**:

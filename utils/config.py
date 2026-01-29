@@ -8,6 +8,7 @@ from utils.database import (
 )
 
 CONFIG_FILE = "user_config.json"
+PROMPTS_FILE = "prompts_encrypted.json"  # v2.5.1: 分离 Prompts 存储
 
 DEFAULT_CONFIG = {
     # "selected_stocks": [], # DEPRECATED: Moved to DB
@@ -169,22 +170,33 @@ def load_config():
                 config = DEFAULT_CONFIG.copy()
                 config.update(data)
                 
-                # Decrypt Prompts if needed
-                prompts = config.get("prompts")
-                if prompts and is_encrypted(prompts):
+                # v2.5.1: Load Prompts from separate file if exists
+                if os.path.exists(PROMPTS_FILE):
                     try:
-                        decrypted = decrypt_dict(prompts)
-                        # [PATCH] Merge missing defaults (e.g. new Noon Suffix)
-                        defaults = DEFAULT_CONFIG.get("prompts", {})
-                        if isinstance(defaults, dict):
-                            for k, v in defaults.items():
-                                if k not in decrypted:
-                                    decrypted[k] = v
-                        config["prompts"] = decrypted
+                        with open(PROMPTS_FILE, "r", encoding='utf-8') as pf:
+                            prompts_data = json.load(pf)
+                            encrypted_prompts = prompts_data.get("prompts")
+                            if encrypted_prompts and is_encrypted(encrypted_prompts):
+                                config["prompts"] = decrypt_dict(encrypted_prompts)
                     except Exception as e:
-                        print(f"Decryption failed: {e}")
-                        # Fallback to default prompts if decryption fails provided key is wrong/missing
+                        print(f"Prompts file load error: {e}")
                         config["prompts"] = DEFAULT_CONFIG["prompts"]
+                else:
+                    # Fallback: Decrypt Prompts from main config (legacy)
+                    prompts = config.get("prompts")
+                    if prompts and is_encrypted(prompts):
+                        try:
+                            decrypted = decrypt_dict(prompts)
+                            # [PATCH] Merge missing defaults (e.g. new Noon Suffix)
+                            defaults = DEFAULT_CONFIG.get("prompts", {})
+                            if isinstance(defaults, dict):
+                                for k, v in defaults.items():
+                                    if k not in decrypted:
+                                        decrypted[k] = v
+                            config["prompts"] = decrypted
+                        except Exception as e:
+                            print(f"Decryption failed: {e}")
+                            config["prompts"] = DEFAULT_CONFIG["prompts"]
                 
                 return config
             
@@ -203,9 +215,13 @@ def save_config(config_data):
     import copy
     data_to_save = copy.deepcopy(config_data)
     
-    # Encrypt Prompts
+    # v2.5.1: Save Prompts to separate file
     if "prompts" in data_to_save and isinstance(data_to_save["prompts"], dict):
-        data_to_save["prompts"] = encrypt_dict(data_to_save["prompts"])
+        encrypted_prompts = encrypt_dict(data_to_save["prompts"])
+        with open(PROMPTS_FILE, "w", encoding='utf-8') as pf:
+            json.dump({"prompts": encrypted_prompts, "version": "2.5.1"}, pf, ensure_ascii=False, indent=2)
+        # Remove from main config
+        del data_to_save["prompts"]
         
     with open(CONFIG_FILE, "w", encoding='utf-8') as f:
         json.dump(data_to_save, f, ensure_ascii=False, indent=2)

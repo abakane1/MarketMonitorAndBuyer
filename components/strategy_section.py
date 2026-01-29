@@ -777,25 +777,27 @@ def render_strategy_section(code: str, name: str, price: float, shares_held: int
             # Gemini Toggle
             # Qwen Toggle
             # Model Selection UI
-            st.caption("🤖 模型战队配置 (AI Team Config - LOCKED)")
+            st.caption("🤖 模型战队配置 (AI Team Config)")
             ms_c1, ms_c2 = st.columns(2)
             with ms_c1:
-                # blue_model = st.selectbox("🔵 蓝军 (进攻/策略)", ["Qwen", "DeepSeek"], index=0, key=f"blue_sel_{code}", help="负责生成交易计划 (Qwen-Max Commander)")
-                st.info("🔵 **蓝军军团 (Blue Legion)**\n\n主帅: **Qwen-Max**\n参谋: Quant + Intel (Qwen-Plus)")
-                blue_model = "Qwen" # Hardcoded
+                blue_model = st.selectbox("🔵 蓝军 (进攻/策略)", ["Qwen", "DeepSeek"], index=0, key=f"blue_sel_{code}", help="负责生成交易计划 (Proposer)")
             with ms_c2:
-                # red_model = st.selectbox("🔴 红军 (防守/审查)", ["DeepSeek", "Qwen", "None"], index=0, key=f"red_sel_{code}", help="负责风险审计 (DeepSeek R1)")
-                st.info("🔴 **红军风控 (Red Audit)**\n\n审计官: **DeepSeek-R1** (Reasoner)")
-                red_model = "DeepSeek" # Hardcoded
+                red_model = st.selectbox("🔴 红军 (防守/审查)", ["DeepSeek", "Qwen", "None"], index=0, key=f"red_sel_{code}", help="负责风险审计 (Reviewer)")
             
             # Auto-Drive Toggle
             auto_drive = st.checkbox("⚡ 极速模式 (Auto-Drive)", value=False, help="一键全自动：蓝军草案 -> 红军初审 -> 蓝军反思优化(v2.0) -> 红军终审", key=f"auto_drive_{code}")
 
-            # Validate Keys
-            qwen_key_chk = st.session_state.get("input_qwen", "")
-            if not qwen_key_chk: qwen_key_chk = load_config().get("settings", {}).get("qwen_api_key", "")
+            # Validate Keys (Dynamic)
+            # Helper to get key (Registry handles this, but we check here for UI feedback)
+            settings = load_config().get("settings", {})
+            api_keys = {
+                "deepseek_api_key": st.session_state.get("input_apikey") or settings.get("deepseek_api_key"),
+                "qwen_api_key": st.session_state.get("input_qwen") or settings.get("qwen_api_key") or settings.get("dashscope_api_key")
+            }
             
-            ds_key_chk = st.session_state.get("input_apikey", "")
+            # Legacy Key check for UI feedback
+            ds_key_chk = api_keys["deepseek_api_key"]
+            qwen_key_chk = api_keys["qwen_api_key"]
             
             # Helper to get key
             def get_key_for_model(m_name):
@@ -811,30 +813,35 @@ def render_strategy_section(code: str, name: str, price: float, shares_held: int
                     if not target_key:
                         st.error(f"未检测到 {blue_model} API Key")
                     else:
-                        from utils.ai_advisor import call_ai_model, build_red_team_prompt, build_refinement_prompt
+                        from utils.expert_registry import ExpertRegistry
+                        blue_expert = ExpertRegistry.get_expert(blue_model, api_keys)
+                        red_expert = ExpertRegistry.get_expert(red_model, api_keys) if red_model != "None" else None
                         
+                        if not blue_expert:
+                             st.error(f"Failed to initialize Blue Expert: {blue_model}")
+                             st.stop()
+
                         # --- AUTO DRIVE MODE ---
-                        # --- AUTO DRIVE MODE ---
-                        if auto_drive and red_model != "None":
+                        if auto_drive and red_expert:
                              step_logs = []
                              
-                             red_key = get_key_for_model(red_model)
-                             if not red_key:
+                             if not get_key_for_model(red_model):
                                  st.error(f"Auto-Drive Aborted: Missing Key for Red Team ({red_model})")
                              else:
                                  try:
                                      with st.status("⚡ Auto-Drive 正在极速执行...", expanded=True) as status:
                                          # Step 1: Blue v1
                                          status.write(f"🧠 Step 1: {blue_model} 生成初始草案 (v1.0)...")
-                                         if blue_model == "Qwen":
-                                             # [Blue Legion Mode]
-                                             status.write(f"⚔️ 蓝军军团 (MoE) 正在联合作战 (Quant + Intel + Commander)...")
-                                             from utils.legion_advisor import run_blue_legion
-                                             c1, r1, _, moe_logs = run_blue_legion(code, name, price, target_key, preview_data.get('context_snapshot', {}), prompts)
-                                         else:
-                                             # [Legacy Mode]
-                                             c1, r1 = call_ai_model(blue_model.lower(), target_key, preview_data['sys_p'], preview_data['user_p'])
-                                             
+                                         
+                                         c_snap = preview_data.get('context_snapshot', {})
+                                         
+                                         # Use 'raw_context' as well
+                                         c1, r1, _, moe_logs = blue_expert.propose(
+                                            c_snap, prompts, 
+                                            research_context=c_snap.get('known_info', ""),
+                                            raw_context=preview_data['user_p']
+                                         )
+                                         
                                          if "Error" in c1:
                                              st.error(f"Generate Draft Failed: {c1}")
                                              status.update(label="❌ 执行中断", state="error")
@@ -843,55 +850,40 @@ def render_strategy_section(code: str, name: str, price: float, shares_held: int
                                          
                                          # Step 2: Red Audit 1
                                          status.write(f"🛡️ Step 2: {red_model} 进行初审 (Audit Round 1)...")
-                                         # Context construction
-                                         bg_info = preview_data['user_p']
-                                         audit_ctx = {"code": code, "name": name, "price": price, "daily_stats": bg_info, "deepseek_plan": c1}
-                                         sys_r1, user_r1 = build_red_team_prompt(audit_ctx, prompts, is_final_round=False)
-                                         
-                                         audit1, _ = call_ai_model(red_model.lower(), red_key, sys_r1, user_r1)
+                                         audit1 = red_expert.audit(c_snap, c1, prompts, is_final=False, raw_context=preview_data['user_p'])
                                          step_logs.append(f"### [Red Team Audit 1]\n{audit1}")
                                          
                                          # Step 3: Blue Refinement (v2)
                                          status.write(f"🔄 Step 3: {blue_model} 进行反思与优化 (Refining)...")
-                                         sys_ref, user_ref = build_refinement_prompt(bg_info, c1, audit1, prompts)
-                                         c2, r2 = call_ai_model(blue_model.lower(), target_key, sys_ref, user_ref)
+                                         c2, r2 = blue_expert.refine(preview_data['user_p'], c1, audit1, prompts)
                                          step_logs.append(f"### [v2.0 Refined Strategy]\n{c2}")
                                          
                                          # Step 4: Red Audit 2 (Final)
                                          status.write(f"⚖️ Step 4: {red_model} 进行终极裁决 (Final Verdict)...")
-                                         audit_ctx_v2 = {"code": code, "name": name, "price": price, "daily_stats": bg_info, "deepseek_plan": c2}
-                                         sys_r2, user_r2 = build_red_team_prompt(audit_ctx_v2, prompts, is_final_round=True)
-                                         audit2, _ = call_ai_model(red_model.lower(), red_key, sys_r2, user_r2)
+                                         audit2 = red_expert.audit(c_snap, c2, prompts, is_final=True, raw_context=preview_data['user_p'])
                                          step_logs.append(f"### [Final Verdict]\n{audit2}")
                                          
                                          # Step 5: Blue Final Decision (The Order)
                                          status.write(f"🏁 Step 5: {blue_model} 签署最终执行令 (Final Execution)...")
-                                         from utils.ai_advisor import build_final_decision_prompt
-                                         sys_fin, user_fin = build_final_decision_prompt(audit2, prompts)
-                                         c3, r3 = call_ai_model(blue_model.lower(), target_key, sys_fin, user_fin)
+                                         c3, r3 = blue_expert.decide(audit2, prompts)
                                          step_logs.append(f"### [Final Decision]\n{c3}")
 
-                                         # Construct Results (v3.0 Format: FinalExec at TOP)
+                                         # Construct Results
                                          final_result = c3 + "\n\n[Final Execution Order]"
-                                         
-                                         # Append History for Parsing
                                          final_result += f"\n\n--- 📜 v1.0 Draft ---\n{c1}"
                                          final_result += f"\n\n--- 🔴 Round 1 Audit ---\n{audit1}"
                                          final_result += f"\n\n--- 🔄 v2.0 Refined ---\n{c2}"
                                          final_result += f"\n\n--- ⚖️ Final Verdict ---\n{audit2}"
 
-                                         if "Error" in c3: 
-                                             # Fallback? If Step 5 fails, show c2
-                                             pass
+                                         if "Error" in c3: pass
                                          
                                          final_reasoning = f"### [R1 Reasoning]\n{r1}\n\n### [R2 Refinement]\n{r2}\n\n### [Final Decision]\n{r3}"
+                                         if moe_logs: final_reasoning = "\n".join(moe_logs) + "\n" + final_reasoning
                                          
                                          status.update(label="✅ 全流程执行完毕! 正在保存...", state="complete", expanded=False)
                                          
-                                         # Save State (Full Capture)
+                                         # Save State
                                          strategy_tag = "【极速复盘】"
-                                         
-                                         # --- CRITICAL SAVE BLOCK ---
                                          save_payload = {
                                             'result': final_result, 
                                             'reasoning': final_reasoning, 
@@ -900,15 +892,7 @@ def render_strategy_section(code: str, name: str, price: float, shares_held: int
                                             'prompt': preview_data['user_p'],  
                                             'prompts_history': {
                                                 'draft_sys': preview_data['sys_p'],
-                                                'draft_user': preview_data['user_p'],
-                                                'audit1_sys': sys_r1,
-                                                'audit1_user': user_r1,
-                                                'refine_sys': sys_ref,
-                                                'refine_user': user_ref,
-                                                'final_sys': sys_r2,
-                                                'final_user': user_r2,
-                                                'decision_sys': sys_fin,
-                                                'decision_user': user_fin
+                                                'draft_user': preview_data['user_p']
                                             },
                                             'tag': strategy_tag,
                                             'timestamp': datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
@@ -922,8 +906,6 @@ def render_strategy_section(code: str, name: str, price: float, shares_held: int
                                          
                                          target_save_key = f"pending_ai_result_{code}"
                                          st.session_state[target_save_key] = save_payload
-                                         
-                                         # [UX] Set Toast Message
                                          st.session_state[f"toast_msg_{code}"] = "✅ 极速复盘已完成！请查看上方结果区域。"
                                          
                                          del st.session_state[preview_key]
@@ -931,29 +913,20 @@ def render_strategy_section(code: str, name: str, price: float, shares_held: int
                                          
                                  except Exception as e:
                                      st.error(f"❌ Auto-Drive Execution Error: {str(e)}")
-                                     # Do not delete preview so user can try again
 
-
-                        # --- MANUAL MODE (Original) ---
+                        # --- MANUAL MODE (Expert) ---
                         else:
                             # 1. Execute Blue Team (Manual Step 1)
                             with st.spinner(f"🧠 {blue_model} (Blue Team) 正在思考..."):
-                                
-                                if blue_model == "Qwen":
-                                    # [Blue Legion Mode]
-                                    from utils.legion_advisor import run_blue_legion
-                                    content, reasoning, _, moe_logs = run_blue_legion(code, name, price, target_key, preview_data.get('context_snapshot', {}), prompts)
-                                else:
-                                    # [Legacy Mode]
-                                    content, reasoning = call_ai_model(
-                                        blue_model.lower(), 
-                                        target_key, 
-                                        preview_data['sys_p'], 
-                                        preview_data['user_p']
-                                    )
+                                c_snap = preview_data.get('context_snapshot', {})
+                                c1, reasoning, _, moe_logs = blue_expert.propose(
+                                    c_snap, prompts, 
+                                    research_context=c_snap.get('known_info', ""),
+                                    raw_context=preview_data['user_p']
+                                )
                             
-                            if "Error" in content or "Request Failed" in content:
-                               st.error(content)
+                            if "Error" in c1:
+                               st.error(c1)
                             else:
                                 # Determine Tag
                                 strategy_tag = "【盘前策略】"
@@ -965,31 +938,25 @@ def render_strategy_section(code: str, name: str, price: float, shares_held: int
                                     strategy_tag = "【盘后复盘】"
                                     
                                 # Success -> Save Draft, Move to Stage 2
+                                final_reasoning = reasoning
+                                if moe_logs: final_reasoning = "\n".join(moe_logs) + "\n" + reasoning
+                                
                                 st.session_state[f"pending_ai_result_{code}"] = {
-                                    'result': content, 
-                                    'reasoning': reasoning, 
-                                    'audit': None, # Wait for Stage 2
+                                    'result': c1, 
+                                    'reasoning': final_reasoning, 
+                                    'audit': None, 
                                     'prompt': preview_data['user_p'],
-                                    
-                                    # Init Prompts History
-                                    'prompts_history': {
-                                        'draft_sys': preview_data['sys_p'],
-                                        'draft_user': preview_data['user_p']
-                                    },
-                                    
+                                    'prompts_history': {'draft_sys': preview_data['sys_p'], 'draft_user': preview_data['user_p']},
                                     'tag': strategy_tag,
                                     'timestamp': datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
                                     'blue_model': blue_model,
                                     'red_model': red_model,
                                     'raw_context': preview_data['user_p'],
-                                    'stage': 'draft_created' # TRACK STATE
+                                    'context_snapshot': c_snap, 
+                                    'stage': 'draft_created' 
                                 }
-                                # Clear Preview
                                 del st.session_state[preview_key]
-                                
-                                # [UX] Set Toast Message
                                 st.session_state[f"toast_msg_{code}"] = f"✅ 草案已生成！正在切换至详细视图..."
-                                
                                 st.rerun()
                                 
 
