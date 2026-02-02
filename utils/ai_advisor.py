@@ -8,42 +8,31 @@ from utils.storage import load_production_log
 from utils.data_fetcher import calculate_price_limits
 from utils.database import db_get_history
 
-def build_advisor_prompt(context_data, research_context="", technical_indicators=None, fund_flow_data=None, fund_flow_history=None, intraday_summary=None, prompt_templates=None, suffix_key="deepseek_research_suffix", symbol=None):
-    """
-    Constructs the System Prompt and User Prompt for the AI Advisor.
-    Returns: (system_prompt, user_prompt)
-    """
-    # 1. Get Templates
-    if not prompt_templates:
-        prompt_templates = {}
-        
-    base_tpl = prompt_templates.get("proposer_base", "")
-    suffix_tpl = prompt_templates.get(suffix_key, "")
-    simple_suffix_tpl = prompt_templates.get("proposer_simple_suffix", "")
-    
-    if not base_tpl:
-        return "", "Error: Prompt templates missing."
-
-    # [Logic] Date Override for Post-Market (After 15:00)
-    # Ensure AI plans for the NEXT trading day, not "Today".
+    # [Logic] Phase Determination based on Time
     now = datetime.now()
-    if now.hour >= 15 or (now.hour == 14 and now.minute >= 55): # Close or near close
+    hour, minute = now.hour, now.minute
+    
+    # Define Tunnels
+    is_pre_market = (hour < 9) or (hour == 9 and minute < 30)
+    is_noon_break = (hour == 11 and minute >= 30) or (hour == 12) or (hour == 13 and minute < 0)
+    is_post_market = (hour >= 15) or (hour == 14 and minute >= 55)
+    
+    if is_post_market:
         shift = 1
-        if now.weekday() == 4: # Friday -> Monday
-            shift = 3
-        elif now.weekday() == 5: # Saturday -> Monday
-            shift = 2
-        
-        from datetime import timedelta
-        target_date = now + timedelta(days=shift)
-        target_date_str = target_date.strftime("%Y-%m-%d")
-        
-        # Override context date
-        context_data['date'] = f"{target_date_str} (Next Trading Day)"
-        # Add explicit instruction key if template uses it, or append to base
-        context_data['market_status'] = "CLOSED"
+        if now.weekday() == 4: shift = 3
+        elif now.weekday() == 5: shift = 2
+        target_date = now + pd.Timedelta(days=shift)
+        context_data['date'] = f"{target_date.strftime('%Y-%m-%d')} (Next Trading Day)"
+        context_data['market_status'] = "CLOSED_POST"
+    elif is_noon_break:
+        context_data['market_status'] = "CLOSED_NOON"
+    elif is_pre_market:
+        context_data['market_status'] = "PRE_OPEN"
     else:
-        context_data['market_status'] = "OPEN"
+        # Intraday - Focused on monitoring, not re-planning unless it's a critical node
+        context_data['market_status'] = "OPEN_INTRADAY"
+        # Optional: Add a note that this is NOT a formal review node
+        research_context += "\n【⚠️ 提示】: 当前处于盘中交易时段，建议以观察为主，待午间或盘后再进行正式策略修定。"
 
     # 2. Format Base
     # Calculate Price Limits
@@ -212,8 +201,11 @@ def build_advisor_prompt(context_data, research_context="", technical_indicators
             except Exception as e:
                 print(f"Error loading history for RAG: {e}")
 
-        if intraday_summary:
-            final_research_context += f"\n\n[分时盘口特征]\n{intraday_summary}"
+        if intraday_summary and context_data.get('market_status') != "OPEN_INTRADAY":
+            final_research_context += f"\n\n[分时盘口特征汇要]\n{intraday_summary}"
+        elif intraday_summary:
+            # For intraday, keep it very brief
+            final_research_context += f"\n\n[盘中分时状态]: {intraday_summary[:100]}..."
 
         suffix_data = {
             "daily_stats": technical_indicators.get('daily_stats', 'N/A'),

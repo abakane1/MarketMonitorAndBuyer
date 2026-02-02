@@ -629,21 +629,23 @@ def render_strategy_section(code: str, name: str, price: float, shares_held: int
         with col1:
             if session_status == "morning_break":
                 # Noon Break: 11:30 - 13:00 -> Noon Review
-                if st.button("☕ 生成午间复盘 (Morning Review)", key=f"btn_noon_{code}", type="primary", use_container_width=True):
+                if st.button("☕ 生成午间复盘 (Noon Strategy)", key=f"btn_noon_{code}", type="primary", use_container_width=True):
                     target_suffix_key = "proposer_noon_suffix"
                     start_pre = True
                     
             elif session_status == "closed":
-                # After Close: > 15:00 -> Daily Review
-                if st.button("📝 生成全天复盘 (Daily Review)", key=f"btn_daily_{code}", type="primary", use_container_width=True):
+                # After Close: > 15:00 -> Daily Review / Tomorrow Prep
+                if st.button("📝 生成全天复盘 (Daily Review/Tomorrow Plan)", key=f"btn_daily_{code}", type="primary", use_container_width=True):
+                    target_suffix_key = "proposer_premarket_suffix"
+                    start_pre = True
+            elif session_status == "pre_market":
+                # Pre-Market: 9:00 - 9:30 -> Opening Preparation
+                if st.button("🌤️ 生成盘前规划 (Opening Plan)", key=f"btn_pre_{code}", type="primary", use_container_width=True):
                     target_suffix_key = "proposer_premarket_suffix"
                     start_pre = True
             else:
-                # Trading Hours (or Pre-market before 9:15)
-                # Show generic warning button
-                if st.button("💡 生成即时预判 (Instant Preview)", key=f"btn_live_{code}", type="primary", use_container_width=True):
-                    target_suffix_key = "proposer_premarket_suffix"
-                    start_pre = True
+                # Trading Hours: Disable instant planning to avoid emotional noise
+                st.button("🔍 盘中焦点监控 (Live Focus Only)", key=f"btn_live_disabled_{code}", disabled=True, use_container_width=True, help="系统专注于关键复盘节点。盘中建议通过【监控看板】观察，待休盘后再行决策。")
 
         if start_pre:
             warning_msg = None
