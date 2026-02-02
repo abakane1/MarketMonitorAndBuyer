@@ -246,7 +246,7 @@ def build_advisor_prompt(context_data, research_context="", technical_indicators
 
     # [PATCH] Label Correction for Post-Market
     # Old templates might hardcode "今日交易边界", but in CLOSED state we want "下一个交易日边界"
-    if context_data.get('market_status') == 'CLOSED':
+    if context_data.get('market_status') == 'CLOSED_POST':
         base_prompt = base_prompt.replace("今日交易边界", "下个交易日预计边界")
         base_prompt = base_prompt.replace("今日涨停", "下日涨停").replace("今日跌停", "下日跌停")
 
