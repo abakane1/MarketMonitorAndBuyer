@@ -834,7 +834,7 @@ def render_strategy_section(code: str, name: str, price: float, shares_held: int
                                          status.write(f"🧠 Step 1: {blue_model} 生成初始草案 (v1.0)...")
                                          
                                          c_snap = preview_data.get('context_snapshot', {})
-                                          round_history = []
+                                         round_history = []
                                          
                                          # Use 'raw_context' as well
                                          c1, r1, p1, moe_logs = blue_expert.propose(
@@ -848,25 +848,25 @@ def render_strategy_section(code: str, name: str, price: float, shares_held: int
                                              status.update(label="❌ 执行中断", state="error")
                                              st.stop()
                                          step_logs.append(f"### [v1.0 Draft (Commander: {blue_model})]\n{c1}")
-                                          round_history.append(f"【回合 1 (草案)】\n思考: {r1}\n建议: {c1}")
+                                         round_history.append(f"【回合 1 (草案)】\n思考: {r1}\n建议: {c1}")
                                          
                                          # Step 2: Red Audit 1
                                          status.write(f"🛡️ Step 2: {red_model} 进行初审 (Audit Round 1)...")
                                          audit1, p_audit1 = red_expert.audit(c_snap, c1, prompts, is_final=False, raw_context=preview_data['user_p'])
                                          step_logs.append(f"### [Red Team Audit 1]\n{audit1}")
-                                          round_history.append(f"【回合 2 (一审审计)】\n审计报告: {audit1}")
+                                         round_history.append(f"【回合 2 (一审审计)】\n审计报告: {audit1}")
                                          
                                          # Step 3: Blue Refinement (v2)
                                          status.write(f"🔄 Step 3: {blue_model} 进行反思与优化 (Refining)...")
                                          c2, r2, p_refine = blue_expert.refine(preview_data['user_p'], c1, audit1, prompts)
                                          step_logs.append(f"### [v2.0 Refined Strategy]\n{c2}")
-                                          round_history.append(f"【回合 3 (优化反思)】\n反思逻辑: {r2}\n优化建议: {c2}")
+                                         round_history.append(f"【回合 3 (优化反思)】\n反思逻辑: {r2}\n优化建议: {c2}")
                                          
                                          # Step 4: Red Audit 2 (Final)
                                          status.write(f"⚖️ Step 4: {red_model} 进行终极裁决 (Final Verdict)...")
                                          audit2, p_audit2 = red_expert.audit(c_snap, c2, prompts, is_final=True, raw_context=preview_data['user_p'])
                                          step_logs.append(f"### [Final Verdict]\n{audit2}")
-                                          round_history.append(f"【回合 4 (红军终审)】\n最终裁决: {audit2}")
+                                         round_history.append(f"【回合 4 (红军终审)】\n最终裁决: {audit2}")
                                          
                                          # Step 5: Blue Final Decision (The Order)
                                          status.write(f"🏁 Step 5: {blue_model} 签署最终执行令 (Final Execution)...")
