@@ -865,7 +865,7 @@ def render_strategy_section(code: str, name: str, price: float, shares_held: int
                                          
                                          # Step 5: Blue Final Decision (The Order)
                                          status.write(f"🏁 Step 5: {blue_model} 签署最终执行令 (Final Execution)...")
-                                         c3, r3, p_decide = blue_expert.decide(audit2, prompts)
+                                         c3, r3, p_decide = blue_expert.decide(audit2, prompts, context_data=c_snap)
                                          step_logs.append(f"### [Final Decision]\n{c3}")
 
                                          # Construct Results

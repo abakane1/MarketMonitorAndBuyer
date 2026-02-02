@@ -528,12 +528,19 @@ def build_refinement_prompt(original_context, original_plan, audit_report, promp
     except Exception as e:
         return "", f"Refinement Prompt Error: {e}"
 
-def build_final_decision_prompt(final_verdict, prompt_templates=None):
+def build_final_decision_prompt(final_verdict, prompt_templates=None, context_data=None):
     """
     Constructs the prompt for Step 5: Final Decision.
     """
     if not prompt_templates: prompt_templates = {}
     
+    # Extract scope info to anchor the model
+    target_info = "当前操作标的"
+    if context_data:
+        code = context_data.get('code', 'N/A')
+        name = context_data.get('name', 'N/A')
+        target_info = f"【{code} / {name}】"
+
     # 1. System Prompt (Reuse Blue Team)
     sys_key = "proposer_system"
     default_sys = "You are a professional trader."
@@ -541,16 +548,17 @@ def build_final_decision_prompt(final_verdict, prompt_templates=None):
     
     # 2. User Prompt (Decision Instruction)
     # 2. User Prompt (Decision Instruction)
-    default_instr = """
+    default_instr = f"""
 【指令】
 红军最终裁决如下:
-{final_verdict}
+{{final_verdict}}
 
-请作为蓝军主帅 (Commander)，综合红军意见，签署 **最终执行令 (Final Order)**。
+请作为蓝军主帅 (Commander)，综合红军意见，签署 {target_info} 的 **最终执行令 (Final Order)**。
+【强制锚定】: 当前签署的是 {target_info} 的执行令，严禁提及或混淆任何历史参考记录中的其他标的。
 此指令将直接录入交易系统，请确保格式精确。
 
 【必须严格遵循以下输出格式】:
-【标的】: [代码] [名称]
+【标的】: {target_info}
 【方向】: [买入/卖出/观望/持有/调仓]
 【价格】: [具体价格]
 【数量】: [具体股数]

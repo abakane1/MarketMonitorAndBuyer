@@ -49,7 +49,7 @@ class BaseExpert(ABC):
         pass
     
     @abstractmethod
-    def decide(self, final_verdict: str, prompt_templates: Dict[str, str], **kwargs) -> Tuple[str, str, str]:
+    def decide(self, final_verdict: str, prompt_templates: Dict[str, str], context_data: Dict[str, Any] = None, **kwargs) -> Tuple[str, str, str]:
         """
         Makes the final decision based on final verdict.
         Returns: (content, reasoning, debug_prompt)
@@ -128,11 +128,11 @@ class DeepSeekExpert(BaseExpert):
         c, r = call_deepseek_api(self.api_key, sys_p, user_p)
         return c, r, full_prompt
 
-    def decide(self, final_verdict: str, prompt_templates: Dict[str, str], **kwargs) -> Tuple[str, str, str]:
+    def decide(self, final_verdict: str, prompt_templates: Dict[str, str], context_data: Dict[str, Any] = None, **kwargs) -> Tuple[str, str, str]:
         """
         Sign Final Order.
         """
-        sys_p, user_p = build_final_decision_prompt(final_verdict, prompt_templates)
+        sys_p, user_p = build_final_decision_prompt(final_verdict, prompt_templates, context_data=context_data)
         
         full_prompt = f"System: {sys_p}\n\nUser: {user_p}"
         
@@ -214,8 +214,8 @@ class QwenExpert(BaseExpert):
         content = call_qwen_api(self.api_key, sys_p, user_p)
         return content, "", full_prompt
 
-    def decide(self, final_verdict: str, prompt_templates: Dict[str, str], **kwargs) -> Tuple[str, str, str]:
-        sys_p, user_p = build_final_decision_prompt(final_verdict, prompt_templates)
+    def decide(self, final_verdict: str, prompt_templates: Dict[str, str], context_data: Dict[str, Any] = None, **kwargs) -> Tuple[str, str, str]:
+        sys_p, user_p = build_final_decision_prompt(final_verdict, prompt_templates, context_data=context_data)
         
         full_prompt = f"System: {sys_p}\n\nUser: {user_p}"
         
