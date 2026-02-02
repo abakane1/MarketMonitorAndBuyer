@@ -8,6 +8,20 @@ from utils.storage import load_production_log
 from utils.data_fetcher import calculate_price_limits
 from utils.database import db_get_history
 
+def build_advisor_prompt(context_data, research_context="", technical_indicators=None, fund_flow_data=None, fund_flow_history=None, intraday_summary=None, prompt_templates=None, suffix_key="proposer_premarket_suffix", symbol=None):
+    """
+    Constructs the System Prompt and User Prompt for the AI Advisor.
+    Returns: (system_prompt, user_prompt)
+    """
+    if not prompt_templates: prompt_templates = {}
+    
+    base_tpl = prompt_templates.get("proposer_base", "")
+    suffix_tpl = prompt_templates.get(suffix_key, "")
+    simple_suffix_tpl = prompt_templates.get("proposer_simple_suffix", "")
+    
+    if not base_tpl:
+        return "", "Error: Prompt templates missing."
+
     # [Logic] Phase Determination based on Time
     now = datetime.now()
     hour, minute = now.hour, now.minute
