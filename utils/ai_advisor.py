@@ -4,7 +4,7 @@ import pandas as pd
 from datetime import datetime
 
 from google import genai
-from utils.storage import load_research_log
+from utils.storage import load_production_log
 from utils.data_fetcher import calculate_price_limits
 from utils.database import db_get_history
 
@@ -17,9 +17,9 @@ def build_advisor_prompt(context_data, research_context="", technical_indicators
     if not prompt_templates:
         prompt_templates = {}
         
-    base_tpl = prompt_templates.get("deepseek_base", "")
+    base_tpl = prompt_templates.get("proposer_base", "")
     suffix_tpl = prompt_templates.get(suffix_key, "")
-    simple_suffix_tpl = prompt_templates.get("deepseek_simple_suffix", "")
+    simple_suffix_tpl = prompt_templates.get("proposer_simple_suffix", "")
     
     if not base_tpl:
         return "", "Error: Prompt templates missing."
@@ -142,7 +142,7 @@ def build_advisor_prompt(context_data, research_context="", technical_indicators
         
         if symbol:
             try:
-                history_logs = load_research_log(symbol)
+                history_logs = load_production_log(symbol)
                 if history_logs:
                     # 1. Get Trades
                     # 1. Get Trades
@@ -238,6 +238,12 @@ def build_advisor_prompt(context_data, research_context="", technical_indicators
     elif simple_suffix_tpl:
         base_prompt += simple_suffix_tpl
 
+    # [PATCH] Label Correction for Post-Market
+    # Old templates might hardcode "今日交易边界", but in CLOSED state we want "下一个交易日边界"
+    if context_data.get('market_status') == 'CLOSED':
+        base_prompt = base_prompt.replace("今日交易边界", "下个交易日预计边界")
+        base_prompt = base_prompt.replace("今日涨停", "下日涨停").replace("今日跌停", "下日跌停")
+
     # [OPTIMIZATION] Append Critical State Block at the VERY END for Recency Bias
     # This ensures the AI sees the most important numbers last, reducing calculation errors.
     if context_data:
@@ -270,7 +276,7 @@ def build_advisor_prompt(context_data, research_context="", technical_indicators
     # System Prompt (From Config)
     # System Prompt (From Config)
     # Unified Strategy (LAG + GTO for All)
-    sys_key = "deepseek_system"
+    sys_key = "proposer_system"
     default_sys = (
         "你那位专业的股票交易员，奉行 'LAG + GTO' 交易哲学。\n"
         "【核心心法】：别人恐惧我贪婪，别人贪婪我恐惧。\n"
@@ -397,6 +403,7 @@ def build_red_team_prompt(context_data, prompt_templates=None, is_final_round=Fa
 
     DEFAULT_RED_USER = """
 【审计上下文】
+交易日期: {date}
 标的: {code} ({name})
 当前价格: {price}
 
@@ -421,22 +428,22 @@ def build_red_team_prompt(context_data, prompt_templates=None, is_final_round=Fa
 """
     if is_final_round:
         # Try to get dedicated Final Audit template
-        if "qwen_final_audit" in prompt_templates:
-            user_tpl = prompt_templates["qwen_final_audit"]
+        if "reviewer_final_audit" in prompt_templates:
+            user_tpl = prompt_templates["reviewer_final_audit"]
             # We don't append the default suffix if we have a custom final template
             # assuming the custom template handles the "Final Round" context.
         else:
             # Fallback to shared audit template + Suffix
-            user_tpl = prompt_templates.get("qwen_audit", DEFAULT_RED_USER)
+            user_tpl = prompt_templates.get("reviewer_audit", DEFAULT_RED_USER)
             user_tpl += "\n【最终裁决要求】这是蓝军修正后的 v2.0 版本。请检查之前的隐患是否消除。如有核心问题未解决，仍可驳回；否则请批准执行。"
     else:
-        user_tpl = prompt_templates.get("qwen_audit", DEFAULT_RED_USER)
+        user_tpl = prompt_templates.get("reviewer_audit", DEFAULT_RED_USER)
         
-    sys_tpl = prompt_templates.get("qwen_system", DEFAULT_RED_SYS)
+    sys_tpl = prompt_templates.get("reviewer_system", DEFAULT_RED_SYS)
     
     try:
         user_prompt = user_tpl.format(**context_data)
-        if is_final_round and "qwen_final_audit" not in prompt_templates:
+        if is_final_round and "reviewer_final_audit" not in prompt_templates:
             user_prompt += "\n\n(This is the Final Round Audit for v2.0)"
             
         system_prompt = sys_tpl
@@ -483,7 +490,7 @@ def build_refinement_prompt(original_context, original_plan, audit_report, promp
     
     # 1. Reuse Original System Prompt logic (Role persistence)
     # Ideally should match the Blue Team's original system prompt
-    sys_key = "deepseek_system"
+    sys_key = "proposer_system"
     default_sys = "You are a professional trader."
     system_prompt = prompt_templates.get(sys_key, default_sys)
     
@@ -528,7 +535,7 @@ def build_final_decision_prompt(final_verdict, prompt_templates=None):
     if not prompt_templates: prompt_templates = {}
     
     # 1. System Prompt (Reuse Blue Team)
-    sys_key = "deepseek_system"
+    sys_key = "proposer_system"
     default_sys = "You are a professional trader."
     system_prompt = prompt_templates.get(sys_key, default_sys)
     
@@ -552,7 +559,7 @@ def build_final_decision_prompt(final_verdict, prompt_templates=None):
 【有效期】: [仅限今日/明日]
 【决策依据】: [简述理由]
 """
-    user_tpl = prompt_templates.get("deepseek_final_decision", default_instr)
+    user_tpl = prompt_templates.get("proposer_final_decision", default_instr)
     
     try:
         user_prompt = user_tpl.format(final_verdict=final_verdict)

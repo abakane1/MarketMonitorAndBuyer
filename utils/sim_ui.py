@@ -478,7 +478,7 @@ def render_backtest_widget(code, current_holding_shares=0, current_holding_cost=
                             api_key, context, 
                             technical_indicators=raw_indicators,
                             prompt_templates=prompts,
-                            suffix_key="deepseek_new_strategy_suffix"
+                            suffix_key="proposer_premarket_suffix"
                         )
                         
                         save_daily_strategy(code, selected_date, advice, reasoning, used_prompt)
@@ -512,7 +512,7 @@ def render_backtest_widget(code, current_holding_shares=0, current_holding_cost=
                             api_key, context, 
                             technical_indicators=raw_indicators,
                             prompt_templates=prompts,
-                            suffix_key="deepseek_new_strategy_suffix"
+                            suffix_key="proposer_premarket_suffix"
                         )
                         
                         save_daily_strategy(code, selected_date, advice, reasoning, used_prompt)
@@ -641,7 +641,7 @@ def render_backtest_widget(code, current_holding_shares=0, current_holding_cost=
                     technical_indicators=tech_inds,
                     intraday_summary=intraday_summary,
                     prompt_templates=prompts,
-                    suffix_key="deepseek_new_strategy_suffix" # Reuse suffix logic
+                    suffix_key="proposer_intraday_suffix" # Reuse suffix logic
                 )
                 
                 parsed = parse_deepseek_plan(advice)

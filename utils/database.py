@@ -52,7 +52,19 @@ def init_db():
         updated_at TEXT
     )''')
     
-    # [NEW] Review Logs table (Production)
+    # [LAB] Strategy Logs table (For Lab/Backtest)
+    c.execute('''CREATE TABLE IF NOT EXISTS strategy_logs (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        symbol TEXT,
+        timestamp TEXT,
+        result TEXT,
+        reasoning TEXT,
+        prompt TEXT,
+        tag TEXT,
+        model TEXT DEFAULT 'DeepSeek'
+    )''')
+    
+    # [PROD] Review Logs table (For Strategy Section)
     c.execute('''CREATE TABLE IF NOT EXISTS review_logs (
         id INTEGER PRIMARY KEY AUTOINCREMENT,
         symbol TEXT,
@@ -81,6 +93,22 @@ def init_db():
         c.execute("ALTER TABLE strategy_logs ADD COLUMN model TEXT DEFAULT 'DeepSeek'")
         conn.commit()
     
+    # --- Schema Migration: Check if details exists in strategy_logs ---
+    try:
+        c.execute("SELECT details FROM strategy_logs LIMIT 1")
+    except sqlite3.OperationalError:
+        print("Migrating DB: Adding details column to strategy_logs table...")
+        c.execute("ALTER TABLE strategy_logs ADD COLUMN details TEXT")
+        conn.commit()
+    
+    # --- Schema Migration: Check if details exists in review_logs ---
+    try:
+        c.execute("SELECT details FROM review_logs LIMIT 1")
+    except sqlite3.OperationalError:
+        print("Migrating DB: Adding details column to review_logs table...")
+        c.execute("ALTER TABLE review_logs ADD COLUMN details TEXT")
+        conn.commit()
+
     conn.commit()
     conn.close()
 
@@ -214,7 +242,7 @@ def db_load_intelligence(symbol: str) -> any:
 
 # --- Strategy Logs (For Lab) ---
 
-def db_save_strategy_log(symbol: str, prompt: str, result: str, reasoning: str, model: str = "DeepSeek", custom_timestamp: str = None):
+def db_save_strategy_log(symbol: str, prompt: str, result: str, reasoning: str, model: str = "DeepSeek", custom_timestamp: str = None, details: dict = None):
     conn = get_db_connection()
     c = conn.cursor()
     ts = custom_timestamp if custom_timestamp else datetime.now().strftime("%Y-%m-%d %H:%M:%S")
@@ -224,11 +252,15 @@ def db_save_strategy_log(symbol: str, prompt: str, result: str, reasoning: str, 
     tag_match = re.search(r"【(.*?)】", result)
     tag = tag_match.group(0) if tag_match else ""
     
+    # Serialize details
+    import json
+    details_json = json.dumps(details, ensure_ascii=False) if details else None
+    
     # Ensure model column exists (double check handled by Schema Migration but safe to be explicit in INSERT)
     c.execute("""
-        INSERT INTO strategy_logs (symbol, timestamp, result, reasoning, prompt, tag, model)
-        VALUES (?, ?, ?, ?, ?, ?, ?)
-    """, (symbol, ts, result, reasoning, prompt, tag, model))
+        INSERT INTO strategy_logs (symbol, timestamp, result, reasoning, prompt, tag, model, details)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+    """, (symbol, ts, result, reasoning, prompt, tag, model, details_json))
     conn.commit()
     conn.close()
 
@@ -315,6 +347,15 @@ def db_save_review_log(symbol: str, prompt: str, result: str, reasoning: str, mo
     import re
     tag_match = re.search(r"【(.*?)】", result)
     tag = tag_match.group(0) if tag_match else ""
+    
+    # Migration logic: Check if 'model' column exists in 'review_logs' table
+    # This is a simple check; a more robust migration system would be preferred for complex changes.
+    try:
+        c.execute("SELECT model FROM review_logs LIMIT 1")
+    except sqlite3.OperationalError:
+        # If 'model' column does not exist, add it
+        c.execute("ALTER TABLE review_logs ADD COLUMN model TEXT DEFAULT 'DeepSeek'")
+        conn.commit()
     
     c.execute("""
         INSERT INTO review_logs (symbol, timestamp, result, reasoning, prompt, tag, model)

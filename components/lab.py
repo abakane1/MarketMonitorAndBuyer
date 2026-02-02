@@ -10,6 +10,7 @@ from utils.backtest_gen import generate_missing_strategy
 from utils.config import get_settings
 
 def render_strategy_lab():
+    
     st.header("🧪 策略实验室 (Strategy Lab - Event Driven)")
     st.info("全天侯事件驱动回测：模拟真实的盘中决策流，验证策略有效性。")
     
@@ -107,8 +108,6 @@ def render_strategy_lab():
             
             progress_bar = st.progress(0)
             status_text = st.empty()
-            
-            from utils.backtester import simulate_day_generator
             
             base_equity = curr_cash + (curr_shares * 0) # Price unknown yet
             real_base_equity = base_equity # Approx
@@ -330,7 +329,7 @@ def render_strategy_lab():
                         from utils.config import load_config, save_prompt
                         current_conf = load_config()
                         # Align to 'deepseek_system' which is the active key
-                        current_sys = current_conf.get("prompts", {}).get("deepseek_system", "")
+                        current_sys = current_conf.get("prompts", {}).get("proposer_system", "")
                         
                         st.success(f"✨ 建议新增规则:\n{suggestion}")
                         new_prompt_draft = current_sys + f"\n\n[Multi-Day Opt - {end_date}]\n" + suggestion
@@ -340,7 +339,7 @@ def render_strategy_lab():
                         regen_hist = st.checkbox("⚡ 应用新指令重构历史策略 (Regenerate & Re-Simulate)", value=True, key=f"regen_{opt_key}", help="勾选后，将删除当前回测周期内的旧策略记录，并使用新 Prompt 重新生成，验证优化效果。")
                         
                         if st.button("💾 更新系统指令", key=f"multi_save_{opt_key}"):
-                            save_prompt("deepseek_system", final_prompt)
+                            save_prompt("proposer_system", final_prompt)
                             st.success("✅ 系统指令已更新！")
                             
                             if regen_hist:
@@ -367,10 +366,7 @@ def render_strategy_lab():
                 
             return # Stop here for Multi-Day
 
-    # Single Day Logic Flow Continuation
-    if mode.startswith("单日"):    
-        selected_date = st.selectbox("选择回测日期", all_available_dates, key="single_day_date_select_bottom")
-    
+    # Single Day Logic Flow Continuation (selected_date already assigned at top)
     if not selected_date:
         return
 
@@ -395,7 +391,7 @@ def render_strategy_lab():
         is_same_day = (ts.date() == target_date_obj.date())
         is_prev_day_after_close = (
             (target_date_obj.date() - ts.date()).days == 1 and 
-            ts.time() >= datetime.strptime("15:00", "%H:%M").time()
+            ts.time() >= datetime.strptime("14:00", "%H:%M").time() # More relaxed
         )
         
         if is_same_day or is_prev_day_after_close:
@@ -428,28 +424,72 @@ def render_strategy_lab():
         # v1.8.0: Active Strategy Injection
         # Check again if we need to generate
         
-        # [v2.0] Expert Validation Mode (Siloed Backtest)
-        expert_mode = st.checkbox("🧪 专家自证模式 (Expert Validation Mode)", value=False, help="开启后，将忽略历史数据库中的记录，强制使用选定的 AI 专家实时重新生成策略。用于验证特定模型的独立作战能力。")
-        candidate_expert = "DeepSeek"
-        if expert_mode:
-            candidate_expert = st.selectbox("⚔️ 选择考核专家 (Candidate Expert)", ["DeepSeek", "Qwen"])
-            st.info(f"已进入 {candidate_expert} 独立考核模式。所有历史策略将被屏蔽，由该专家现场生成决策。")
-            
-            # CLEAR HISTORICAL LOGS for simulation scope (Siloed)
-            day_logs = [] 
-            # But we might want to keep Pre-market if it was just generated? 
-            # Actually, for pure validation, we should generate Pre-market too if missing.
+        # [v2.6] 3-Way Battle Mode
+        st.subheader(f"⚔️ 三方博弈竞技场 (User vs AI Legion)")
+        st.info("本模式将对比【实盘操作】与两支 AI 战队的表现：\n1. **DeepSeek** (红军/智库): 严谨、保守、风控导向。\n2. **Qwen** (蓝军/军团): 激进、多维度、GTO 导向。")
         
-        if not any("盘前" in l.get('tag', '') or "盘前" in l.get('result', '') for l in day_logs):
-             with st.spinner("⏳ 历史策略缺失，正在回溯生成 (Time Travel Generation)..."):
-                 # Generate Pre-market (09:25)
-                 model_for_gen = candidate_expert if expert_mode else "DeepSeek"
-                 new_strat = generate_missing_strategy(selected_stock, "Simulated", selected_date, "09:25:00", model_type=model_for_gen)
-                 if new_strat:
-                     day_logs.append(new_strat)
-                     day_logs.sort(key=lambda x: x['timestamp'])
-                     st.toast(f"✅ {model_for_gen} 盘前策略已生成！")
+        # Expert Selection
+        c1, c2 = st.columns(2)
+        with c1:
+            enable_deepseek = st.checkbox("启用 DeepSeek (DeepSeek-V3)", value=True)
+        with c2:
+            enable_qwen = st.checkbox("启用 Qwen (Qwen-Max Legion)", value=True)
+            
+        if not (enable_deepseek or enable_qwen):
+            st.error("请至少选择一个 AI 对手")
+            return
+
+        # Time Travel Logic for BOTH models
+        # We need to ensure logs exist for enabled models
+        
+        if st.checkbox("🔎 强制校验/补全历史策略 (Check & Backfill)", value=True):
+            missing_tasks = []
+            
+            # Key decision points to verify
+            # User Feedback: Only ensure Pre-market (09:25) is present. 
+            # Intraday should be dynamic or event-driven, not forced at fixed times.
+            checkpoints = ["09:25:00"]
+            
+            check_models = []
+            if enable_deepseek: check_models.append("DeepSeek")
+            if enable_qwen: check_models.append("Qwen")
+            
+            from datetime import timedelta, time as dtime
+            
+            for m in check_models:
+                for cp in checkpoints:
+                    # Construct time window for this checkpoint
+                    cp_time = datetime.strptime(f"{selected_date} {cp}", "%Y-%m-%d %H:%M:%S")
+                    
+                    found = False
+                    
+                    # 1. Special Case: Pre-market (09:25)
+                    # Any log with "盘前" or "回补" tag/content, OR time <= 09:30
+                    if cp == "09:25:00":
+                        found = any(
+                            l.get('model', 'DeepSeek') == m and 
+                            (any(k in (l.get('tag', '') + l.get('result', '')) for k in ["盘前", "回补", "Backtest"]) or datetime.strptime(l['timestamp'], "%Y-%m-%d %H:%M:%S").time() <= dtime(9, 30))
+                            for l in day_logs
+                        )
+                    
+                    if not found:
+                        missing_tasks.append((m, cp))
+            
+            if missing_tasks:
+                 # Group by time for friendlier display? No, just list.
+                 # "DeepSeek @ 09:25"
+                 tasks_str = ", ".join([f"{m} {t}" for m, t in missing_tasks])
+                 
+                 with st.spinner(f"⏳ 正在回溯生成缺失策略: {tasks_str} ..."):
+                     progress_bar = st.progress(0)
+                     for idx, (m, cp) in enumerate(missing_tasks):
+                         new_strat = generate_missing_strategy(selected_stock, "Simulated", selected_date, cp, model_type=m)
+                         if new_strat:
+                             day_logs.append(new_strat)
+                         progress_bar.progress((idx + 1) / len(missing_tasks))
+                         
                      time.sleep(1)
+                     st.rerun() # Refresh to update simulation usage
         
         # Animation UI Setup
         
@@ -480,172 +520,520 @@ def render_strategy_lab():
         init_cash = db_get_allocation(selected_stock)
         if init_cash <= 0: init_cash = 100000.0 # Default if not set
 
-        gen = simulate_day_generator(
-            selected_stock, selected_date, day_logs, 
-            real_trades=real_history,
-            initial_shares=init_pos.get('shares', 0), 
-            initial_cost=init_pos.get('avg_cost', init_pos.get('cost', 0)),
-            initial_cash=init_cash
-        )
+        # Parallel Simulation Loop for Selected Models
+        active_models = []
+        if enable_deepseek: active_models.append("DeepSeek")
+        if enable_qwen: active_models.append("Qwen")
+
+        # Initialize Generators
+        generators = {}
+        states = {} # Current state of each generator
+        results = {} # Final results
         
-        chart_data = []
-        res = None
+        # Base Allocation
+        # We need independent cash tracking for each model to be fair
+        from utils.database import db_get_allocation
+        base_alloc = db_get_allocation(selected_stock)
+        if base_alloc <= 0: base_alloc = 100000.0
+        
+        for m in active_models:
+             # Filter logs for this model
+             # Note: Shared logs is tricky. We should filter by 'model' column.
+             # Existing log structure has 'model' field (added in v2.6).
+             # If 'model' is missing (legacy), assume DeepSeek.
+             model_logs = [l for l in day_logs if l.get('model', 'DeepSeek') == m]
+             
+             # Force calculate correct cash to bypass potential stale backtester logic
+             _shares = init_pos.get('shares', 0)
+             _cost = init_pos.get('avg_cost', init_pos.get('cost', 0))
+             # Fix Zero Cost Double Counting
+             if _cost <= 0 and _shares > 0:
+                 # Estimate cost from open price logic? Rare edge case here or assume 0?
+                 # If we can't estimate, assume 0 means "Free Shares" -> Cash = Alloc.
+                 # But sticking to audit logic:
+                 _spent = 0
+             else:
+                 _spent = _shares * _cost
+                 
+             override_cash = max(0.0, base_alloc - _spent)
+             
+             generators[m] = simulate_day_generator(
+                selected_stock, selected_date, model_logs,
+                real_trades=real_history,
+                initial_shares=_shares,
+                initial_cost=_cost,
+                initial_cash=base_alloc,
+                initial_real_cash=override_cash # INJECTED FIX
+             )
+             states[m] = next(generators[m], None)
+
+        chart_data = [] # Combined data for plotting
         base_price = None
         
-        # v1.8.0: Re-implemented loop to support generator.send() for active simulation
-        state = next(gen, None)
-        while state:
-            if state.get("type") == "need_strategy":
-                with st.spinner(f"🧠 盘中策略缺失 ({state.get('point')})，正在动态研判..."):
-                    # Use current simulation time from state backtest context
-                    sim_time_str = state['time'].strftime("%H:%M:%S")
-                    model_gen = candidate_expert if expert_mode else "DeepSeek"
-                    new_strat = generate_missing_strategy(selected_stock, "Simulated", selected_date, sim_time_str, model_type=model_gen)
-                    if new_strat:
-                        st.toast(f"✅ 已补全 {state.get('point')} 盘中策略")
-                        state = gen.send(new_strat) 
-                    else:
-                        state = next(gen, None)
-                continue
-                
-            if "status" in state and state["status"] in ["completed", "no_data", "error"]:
-                res = state
-                break
-                
-            if state.get("type") in ["signal", "info", "real_trade"]:
-                icon = "🤖" 
-                if state["type"] == "info": icon = "ℹ️"
-                if state["type"] == "real_trade": icon = "👤"
-                
-                log_container.write(f"{icon} {state['message']}")
-                
-            elif state.get("type") == "tick":
-                progress_bar.progress(state["progress"])
-                
-                # Update Real-time Metrics
-                ai_pnl = state['pnl_pct']
-                real_pnl = state['real_pnl_pct']
-                alpha = ai_pnl - real_pnl
-                
-                ai_pnl_metric.metric("AI 建议收益", f"{ai_pnl:.2f}%")
-                real_pnl_metric.metric("您实盘收益", f"{real_pnl:.2f}%")
-                alpha_metric.metric("AI 优化空间 (Alpha)", f"{alpha:+.2f}%", delta=alpha)
-                
-                # Chart Data: Comparison (All in %)
-                # Capture base price at first tick for PnL calculation
-                if base_price is None:
-                     base_price = state['price']
-                
-                price_change = 0.0
-                if base_price > 0:
-                     price_change = (state['price'] - base_price) / base_price * 100
-
-                row = {
-                    "time": state['time'].strftime('%H:%M'), 
-                    "AI 收益率 %": state['pnl_pct'],
-                    "实盘收益率 %": state['real_pnl_pct'],
-                    "标的涨跌幅 %": price_change
-                }
-                chart_data.append(row)
-                
-                if (len(chart_data) % 15 == 0) or state.get("trade"):
-                    chart_df = pd.DataFrame(chart_data).set_index("time")
-                    # Use predefined colors if possible, but default is fine.
-                    chart_placeholder.line_chart(
-                        chart_df[["AI 收益率 %", "实盘收益率 %", "标的涨跌幅 %"]],
-                        color=["#FF4B4B", "#0068C9", "#A64D79"] # Red for AI, Blue for Real, Purple for Price
-                    )
-                    time.sleep(0.01)
+        # Dynamic Columns Definition
+        cols = [f"{m} 收益率 %" for m in active_models] + ["实盘收益率 %", "标的涨跌幅 %"]
+        
+        # Loop until all generators complete
+        while any(s is not None for s in states.values()):
             
-            # Step to next
-            state = next(gen, None)
+            # 1. Process Active States
+            # We align by time? Actually simulate_day_generator yields by tick time.
+            # Ideally we should synchronize, but for simplicity we iterate round-robin or just picking whoever is earliest?
+            # Creating a true event loop is complex. 
+            # Simplified approach: We assume ticks are roughly aligned or we just process sequentially in micro-steps.
+            # Since generator yields are granular (ticks), we can just pull from all.
+            
+            current_row = {"time": None}
+            max_progress = 0
+            
+            # Common Data (Price, Real PnL) - taken from any valid state
+            common_price = 0
+            common_real_pnl = 0
+            common_time = None
+            
+            for m in active_models:
+                st_data = states[m]
+                if not st_data: continue
+                
+                # Handle Need Strategy
+                if st_data.get("type") == "need_strategy":
+                    # Auto-generate or prompt?
+                    # We already did "Check & Backfill" at start.
+                    # This might happen for Intraday signals generated dynamically.
+                    with st.spinner(f"🧠 {m}: 盘中策略缺失 ({st_data.get('point')})..."):
+                         sim_time_str = st_data['time'].strftime("%H:%M:%S")
+                         new_strat = generate_missing_strategy(selected_stock, "Simulated", selected_date, sim_time_str, model_type=m)
+                         if new_strat:
+                             states[m] = generators[m].send(new_strat)
+                         else:
+                             states[m] = next(generators[m], None)
+                    continue
+                
+                # Handle Completion
+                if "status" in st_data and st_data["status"] in ["completed", "no_data", "error"]:
+                    results[m] = st_data
+                    states[m] = None # Stop this generator
+                    continue
 
-        st.session_state[sim_key] = res
+                # Handle Tick / Info / Trade
+                if st_data.get("type") == "info":
+                     log_container.write(f"ℹ️ [{m}] {st_data['message']}")
+                elif st_data.get("type") == "signal":
+                     log_container.write(f"🤖 [{m}] {st_data['message']}")
+                elif st_data.get("type") == "real_trade":
+                     # Only log once to avoid duplicates if multiple models run?
+                     # Actually real_trade is yielded by all generators.
+                     if m == active_models[0]: # Log only for first model
+                         log_container.write(f"👤 {st_data['message']}")
+                
+                # Extract Time/Price if available in any message
+                if st_data.get('time'):
+                    common_time = st_data['time']
+                if st_data.get('price'):
+                    common_price = st_data['price']
+
+                if st_data.get("type") == "tick":
+                    # Capture metrics
+                    current_row[f"{m} 收益率 %"] = st_data.get('pnl_pct', 0)
+                    
+                    # Common Data capture (last one wins)
+                    common_real_pnl = st_data.get('real_pnl_pct', 0)
+                    if st_data.get('progress', 0) > max_progress:
+                        max_progress = st_data['progress']
+
+                    # Advance
+                    states[m] = next(generators[m], None)
+                
+                else:
+                    # Fallback advance
+                    states[m] = next(generators[m], None)
+
+            # Update UI (Once per 'frame')
+            if common_time:
+                # Update Progress
+                progress_bar.progress(max_progress)
+                
+                # Metrics Display (Use Columns)
+                # We need dynamic columns based on models
+                # current metrics ui is fixed mc1/mc2/mc3. Let's reuse.
+                # Just show Real PnL + Top AI PnL
+                
+                best_ai_val = -999
+                best_ai_name = ""
+                for m in active_models:
+                    val = current_row.get(f"{m} 收益率 %", -999)
+                    if val > best_ai_val:
+                        best_ai_val = val
+                        best_ai_name = m
+                
+                # Metric 1: Best AI
+                if best_ai_name:
+                    ai_pnl_metric.metric(f"最佳 AI ({best_ai_name})", f"{best_ai_val:.2f}%")
+                
+                # Metric 2: Real
+                real_pnl_metric.metric("实盘收益", f"{common_real_pnl:.2f}%")
+                
+                # Metric 3: Alpha (Best AI - Real)
+                if best_ai_name:
+                    alpha = best_ai_val - common_real_pnl
+                    alpha_metric.metric("AI Alpha", f"{alpha:+.2f}%", delta=alpha)
+
+                # Chart Data
+                # Base Price Init
+                if base_price is None and common_price > 0:
+                    base_price = common_price
+                
+                # Price Change
+                price_change = 0
+                if base_price and base_price > 0:
+                     price_change = (common_price - base_price) / base_price * 100
+                
+                # Row Assembly
+                # Defensive check: if common_price is 0 (missing data), don't add to chart
+                if common_price > 0 and common_time:
+                    row_save = {
+                        "time": common_time.strftime('%H:%M'),
+                        "实盘收益率 %": common_real_pnl,
+                        "标的涨跌幅 %": price_change
+                    }
+                    # Add AI columns
+                    for m in active_models:
+                        if f"{m} 收益率 %" in current_row:
+                            row_save[f"{m} 收益率 %"] = current_row[f"{m} 收益率 %"]
+                    
+                    chart_data.append(row_save)
+                
+                # Plot
+                # Plot (Refresh every 5 ticks or if at the end)
+                if len(chart_data) > 0:
+                    is_last_step = not any(s is not None for s in states.values())
+                    if len(chart_data) % 5 == 0 or is_last_step:
+                        chart_df = pd.DataFrame(chart_data)
+                        if "time" in chart_df.columns:
+                            chart_df = chart_df.set_index("time")
+                            # Filter columns that actually exist in data
+                            available_cols = [c for c in cols if c in chart_df.columns]
+                            if available_cols:
+                                chart_placeholder.line_chart(chart_df[available_cols])
+                        
+                        if not is_last_step:
+                            time.sleep(0.01)
+
+        st.session_state[sim_key] = results
         st.rerun()
 
     if sim_key in st.session_state:
         res = st.session_state[sim_key]
-        status = res.get('status')
-        if status == 'no_data':
-            st.error(f"❌ 缺少数据: {res.get('reason')}")
-            return
-        elif status == 'error':
-            st.error(f"❌ 错误: {res.get('reason')}")
+        
+        # [v2.6 Fix] Detect Legacy Data (Single dict vs Multi-dict)
+        # Old: {'status': 'completed', ...} -> values are strings/floats
+        # New: {'DeepSeek': {...}, 'Qwen': {...}} -> values are dicts
+        is_legacy = False
+        if res and isinstance(res, dict):
+            first_val = next(iter(res.values())) if res else None
+            if first_val and not isinstance(first_val, dict):
+                is_legacy = True
+        
+        if is_legacy:
+             st.warning("⚠️ 检测到旧版缓存数据，正在清理... (Clearing Legacy Cache)")
+             del st.session_state[sim_key]
+             time.sleep(0.5)
+             st.rerun()
+        
+        # Check Status (Iterate all models)
+        # If any model has 'error', reported? Or as long as one valid?
+        # Let's assume valid results map.
+        
+        
+        # Check if empty
+        if not res:
+            st.warning("暂无回测结果")
             return
             
         st.success("✅ 复盘对比完成")
         
         # Result Dashboard
         st.markdown("### 🏁 胜负结算 (Battle Result)")
-        r1, r2, r3, r4 = st.columns(4)
-        r1.metric("初始资产基数", f"¥{res['base_val']:,.0f}")
-        r2.metric("AI 最终权益", f"¥{res['final_equity']:,.0f}", delta=f"{res['pnl_pct']:.2f}%")
-        r3.metric("实盘最终权益", f"¥{res['real_final_equity']:,.0f}", delta=f"{res['real_pnl_pct']:.2f}%")
         
-        alpha = res['pnl_pct'] - res['real_pnl_pct']
-        r4.metric("AI 超额收益", f"{alpha:+.2f}%", delta_color="normal")
+        # 0. Pre-market Strategy Display
+        st.caption("📋 盘前策略部署 (Pre-market Strategy)")
+        active_models_res = list(res.keys())
+        ps_cols = st.columns(len(active_models_res))
+        for idx, m in enumerate(active_models_res):
+            with ps_cols[idx]:
+                st.markdown(f"**🤖 {m}**")
+                # Find strategy log
+                # Logic: Standardize with the 'Check & Backfill' detection logic
+                # Support partial match (e.g. "DeepSeek" matches "DeepSeek-V3")
+                m_logs = [l for l in day_logs if m in l.get('model', 'DeepSeek')]
+                
+                strat_log = None
+                for l in m_logs:
+                    # Extract time from timestamp
+                    try:
+                        l_time_str = datetime.strptime(l['timestamp'], "%Y-%m-%d %H:%M:%S").strftime("%H:%M")
+                    except:
+                        l_time_str = "23:59"
+                    
+                    is_strat_type = (l.get('type') == 'strategy')
+                    is_pre_market_time = (l_time_str <= "09:35")
+                    has_pre_market_keywords = any(k in (l.get('tag', '') + l.get('result', '') + l.get('content', '')) for k in ["盘前", "回补", "Backtest"])
+                    
+                    if is_strat_type or is_pre_market_time or has_pre_market_keywords:
+                        strat_log = l
+                        break
+                
+                if strat_log:
+                    # Extract nice time
+                    s_time = strat_log.get('timestamp', '')[11:16] # HH:MM
+                    with st.expander(f"📄 策略详情 ({s_time})", expanded=False):
+                         # DB field is 'result', not 'content'
+                         st.markdown(strat_log.get('result', '无内容'))
+                         if strat_log.get('reasoning'):
+                             st.info(f"🧠 AI 思考过程:\n{strat_log['reasoning']}")
+                         if strat_log.get('tag'):
+                             st.caption(f"标签: {strat_log['tag']}")
+                else:
+                    st.caption("未找到盘前策略 (No Record)")
+        
+        st.divider()
+
+        # Determine Winner
+        # We need to find valid results in 'res' dict.
+        # res structure: {'DeepSeek': {...}, 'Qwen': {...}}
+        
+        cols = st.columns(len(res) + 1)
+        
+        # Real Performance
+        real_pnl = 0
+        real_final = 0
+        # Get real data from ANY valid result (they share real history)
+        first_valid = next(iter(res.values()))
+        if first_valid:
+            # v2.6.3 FIX: Override stale cash/equity from session_state with fresh calculation
+            from utils.database import db_get_allocation, db_get_position_at_date
+            _alloc = db_get_allocation(selected_stock) or 100000.0
+            _pos = db_get_position_at_date(selected_stock, selected_date)
+            _shares_start = _pos.get('shares', 0)
+            _cost = _pos.get('avg_cost', 0)
+            _correct_start_cash = max(0, _alloc - (_shares_start * _cost))
+            
+            # Get final shares from result (this is correct as it includes trades)
+            real_shares = first_valid.get('real_final_shares', _shares_start)
+            
+            # Calculate trade cost during the day
+            # Trades are: BUY = reduce cash, SELL = add cash
+            # We need to adjust from start_cash to final_cash
+            # For simplicity, use: final_cash = start_cash - (shares_diff * approx_price)
+            shares_diff = real_shares - _shares_start
+            approx_trade_cost = shares_diff * (_cost if _cost > 0 else 4.0) * 1.02 # Assume slight markup
+            real_cash = _correct_start_cash - approx_trade_cost
+            if real_cash < 0: real_cash = 0
+            
+            # Get final price from result
+            final_price = first_valid.get('final_price', _cost if _cost > 0 else 4.0)
+            
+            # Correct final equity
+            real_final = real_cash + (real_shares * final_price)
+            base_val = _correct_start_cash + (_shares_start * final_price)
+            real_pnl_val = real_final - base_val
+            real_pnl = (real_pnl_val / base_val * 100) if base_val > 0 else 0
+            
+            with cols[0]:
+                st.metric("👤 实盘 (User)", f"¥{real_final:,.0f}", delta=f"{real_pnl_val:+.0f} ({real_pnl:.2f}%)")
+                st.caption(f"持仓: **{real_shares}** 股 | 现金: ¥{real_cash:,.0f}")
+        
+        # AI Performance
+        idx = 1
+        best_ai = None
+        best_alpha = -999
+        
+        for model_name, r in res.items():
+            if not r: continue
+            
+            pnl = r.get('pnl_pct', 0)
+            final = r.get('final_equity', 0)
+            alpha = pnl - real_pnl
+            
+            if alpha > best_alpha:
+                best_alpha = alpha
+                best_ai = model_name
+                
+            
+            pnl_val = final - r.get('base_val', final/(1+pnl/100) if pnl != -100 else final)
+            shares = r.get('final_shares', 0)
+            cash = r.get('final_cash', 0)
+            
+            with cols[idx]:
+                st.metric(f"🤖 {model_name}", f"¥{final:,.0f}", delta=f"{pnl_val:+.0f} ({pnl:.2f}%)")
+                st.caption(f"持仓: **{shares}** 股 | 现金: ¥{cash:,.0f}\nAlpha: {alpha:+.2f}%")
+            idx += 1
+            
+        st.divider()
+        if best_alpha > 0:
+            st.balloons()
+            st.success(f"🏆 获胜者: **{best_ai}** (超额收益 {best_alpha:+.2f}%)")
+        elif best_alpha < 0:
+            st.warning(f"📉 警告: 实盘表现优于所有 AI 模型！")
+        else:
+            st.info("🤝 平局")
         
         # Alpha Analysis
-        if alpha > 0:
-            st.balloons()
-            st.info(f"💡 分析显示：如果完全执行 AI 建议，您今日可多赚 ¥{ (res['final_equity'] - res['real_final_equity']):,.2f}。主要差异在于 AI 识别了成交机会。")
-        elif alpha < 0:
-             st.warning(f"📉 警告：您的实盘操作优于 AI 建议 ({abs(alpha):.2f}%)。")
+        # Re-fetch for debug context (variables local to simulation block above are lost)
+        from utils.database import db_get_allocation, db_get_position_at_date
+        base_alloc = db_get_allocation(selected_stock) or 100000.0
+        init_pos = db_get_position_at_date(selected_stock, selected_date)
+        
+        best_ai_res = res.get(best_ai, {})
+        if best_ai_res and best_alpha > 0:
+            equity_diff = best_ai_res.get('final_equity', 0) - best_ai_res.get('real_final_equity', 0)
+            st.info(f"💡 分析显示：如果完全执行 **{best_ai}** 的建议，您今日可多赚 ¥{equity_diff:,.2f}。主要差异在于 AI 识别了成交机会。")
+        elif best_ai_res and best_alpha < 0:
+             st.warning(f"📉 警告：您的实盘操作优于 AI 建议 ({abs(best_alpha):.2f}%)。")
         else:
              st.info("🤝 人机合一：您的操作与 AI 建议高度一致。")
         
-        # Trades Table
-        t1, t2 = st.columns(2)
-        with t1:
-            if res['trades']:
-                st.write("🤖 AI 策略执行记录:")
-                st.dataframe(pd.DataFrame(res['trades']), use_container_width=True)
-            else:
-                st.caption("AI 无交易")
-                
-        with t2:
-            if res.get('real_trades_details'):
-                st.write("👤 实盘操作回放:")
-                # Format for display
-                real_disp = []
-                for rt in res['real_trades_details']:
-                    real_disp.append({
-                        "Time": rt['time'].strftime("%H:%M:%S"),
-                        "Type": rt['type'],
-                        "Price": rt['price'],
-                        "Amount": rt['amount']
-                    })
-                st.dataframe(pd.DataFrame(real_disp), use_container_width=True)
-            else:
-                st.caption("实盘无交易")
+
+        # 1. Unified Trade Visualization
+        st.write("📝 **交易行为时间轴对比 (Unified Trade Timeline)**")
+        
+        # Merge all trades
+        all_trades_timeline = []
+        
+        # A. Add Real Trades (Fetch from first available result)
+        # Use first_valid derived earlier (reliable)
+        real_trades = first_valid.get('real_trades_details', [])
+        for rt in real_trades:
+            all_trades_timeline.append({
+                "raw_time": rt['time'],
+                "Time": rt['time'].strftime("%H:%M:%S"),
+                "Type": "User (Real)",
+                "Action": f"{rt['type']} {rt['amount']} @ {rt['price']}",
+                "Price": rt['price'],
+                "Source": "User",
+                "Reason": "Manual Trade" # Default for User
+            })
             
-        # Equity Curve
-        if res.get('equity_curve'):
-            ec_df = pd.DataFrame(res['equity_curve'])
-            # We want to show % Change for consistency with dynamic chart
-            if not ec_df.empty:
-                # 1. Calculate Bases
-                base_ai = ec_df.iloc[0]['ai_equity']
-                base_real = ec_df.iloc[0]['real_equity']
-                base_price = ec_df.iloc[0]['price'] if 'price' in ec_df.columns else None
-                
-                # 2. Compute % Change
-                ec_df['AI 收益率 %'] = (ec_df['ai_equity'] - base_ai) / base_ai * 100
-                ec_df['实盘收益率 %'] = (ec_df['real_equity'] - base_real) / base_real * 100
-                
-                cols_to_plot = ['AI 收益率 %', '实盘收益率 %']
-                colors = ["#FF4B4B", "#0068C9"]
-                
-                if base_price and base_price > 0:
-                    ec_df['标的涨跌幅 %'] = (ec_df['price'] - base_price) / base_price * 100
-                    cols_to_plot.append('标的涨跌幅 %')
-                    colors.append("#A64D79")
-                
-                st.write("📈 收益走势对比:")
-                st.line_chart(ec_df.set_index('time')[cols_to_plot], color=colors)
+        # B. Add AI Trades
+        for m_name, m_res in res.items():
+            if not m_res: continue
+            ai_trades = m_res.get('trades', [])
+            for at in ai_trades:
+                 # backtester.py returns "time" as string "HH:MM".
+                 # We need to construct a full datetime for sorting.
+                 dt_str = f"{selected_date} {at['time']}"
+                 try:
+                     # Try parsing HH:MM
+                     dt_obj = datetime.strptime(dt_str, "%Y-%m-%d %H:%M")
+                     # If parsed, seconds are 00.
+                 except:     
+                     dt_obj = datetime.strptime(f"{selected_date} 09:30", "%Y-%m-%d %H:%M") # Fallback
+                     
+                 all_trades_timeline.append({
+                    "raw_time": dt_obj,
+                    "Time": at['time'], # Keep original str
+                    "Type": f"{m_name} (AI)",
+                    "Action": f"{at['action']} {at['shares']} @ {at['price']}",
+                    "Price": at['price'],
+                    "Source": m_name,
+                    "Reason": at.get('reason', 'Strategy Signal') # Extract Reason
+                })
+        
+        if all_trades_timeline:
+            # Sort by time
+            all_trades_timeline.sort(key=lambda x: x['raw_time'])
             
-        # Optimization
-        pnl = res['pnl_pct']
+            # Re-process into unified timeline (Bucket by Time point)
+            timeline_map = {}
+            for t in all_trades_timeline:
+                # Use HH:MM key for grouping (User trades have precise seconds, round them?)
+                # If User trade is 10:30:25, and AI is 10:30.
+                # Let's group by HH:MM to see them together.
+                tm_key = t['raw_time'].strftime("%H:%M")
+                
+                if tm_key not in timeline_map:
+                    timeline_map[tm_key] = {
+                        "Time": tm_key, 
+                        "Price": t['Price'], 
+                        "User": "", 
+                        "DeepSeek": "", 
+                        "Qwen": "",
+                        "Rationale": ""  # New Column
+                    }
+                
+                # If multiple trades in same minute, accumulate text
+                src = t['Source']
+                act = t['Action']
+                reason = t.get('Reason', '')
+                
+                target_col = src
+                if src not in ["User", "DeepSeek", "Qwen"]: target_col = "Other"
+                
+                if target_col in timeline_map[tm_key]: # Safety
+                    if timeline_map[tm_key][target_col]:
+                        timeline_map[tm_key][target_col] += f"; {act}"
+                    else:
+                        timeline_map[tm_key][target_col] = act
+                
+                # Accumulate Rationale
+                if reason:
+                     prefix = f"[{src}] " if src != "User" else ""
+                     if timeline_map[tm_key]["Rationale"]:
+                         timeline_map[tm_key]["Rationale"] += f"; {prefix}{reason}"
+                     else:
+                         timeline_map[tm_key]["Rationale"] = f"{prefix}{reason}"
+            
+            # Convert to DF
+            sorted_times = sorted(timeline_map.keys())
+            final_rows = [timeline_map[k] for k in sorted_times]
+            st.dataframe(pd.DataFrame(final_rows), use_container_width=True, hide_index=True)
+            
+        else:
+            st.caption("全天无任何交易记录")
+
+        
+        # 2. Collapsed Equity Curve
+        with st.expander("📈 查看净值曲线 (Equity Curve)", expanded=False):
+            st.write("多方收益走势对比 (3-Way Comparison)")
+            # 1. Prepare Base DataFrame from Real History (common to all)
+            if best_ai_res.get('equity_curve'):
+                # Base for normalization
+                full_ec_df = pd.DataFrame(best_ai_res['equity_curve'])[['time', 'real_equity', 'price']]
+                base_real = full_ec_df.iloc[0]['real_equity']
+                base_price = full_ec_df.iloc[0]['price']
+                
+                full_ec_df['您的实盘 %'] = (full_ec_df['real_equity'] - base_real) / base_real * 100
+                full_ec_df['标的涨跌 %'] = (full_ec_df['price'] - base_price) / base_price * 100
+                
+                cols_to_plot = ['您的实盘 %', '标的涨跌 %']
+                color_map = ["#0068C9", "#A64D79"] # Blue, Purple
+                
+                # 2. Add AI curves
+                for m_name, m_res in res.items():
+                    if not m_res or not m_res.get('equity_curve'): continue
+                    
+                    m_ec = pd.DataFrame(m_res['equity_curve'])
+                    if m_ec.empty: continue
+                    
+                    base_ai = m_ec.iloc[0]['ai_equity']
+                    m_ec[f'{m_name} 收益 %'] = (m_ec['ai_equity'] - base_ai) / base_ai * 100
+                    
+                    # Merge into full_ec_df
+                    full_ec_df = pd.merge(full_ec_df, m_ec[['time', f'{m_name} 收益 %']], on='time', how='left')
+                    cols_to_plot.append(f'{m_name} 收益 %')
+                    
+                    # Colors: DeepSeek (Red), Qwen (Cyan)
+                    if m_name == "DeepSeek": color_map.append("#FF4B4B")
+                    elif m_name == "Qwen": color_map.append("#29B09D")
+                    else: color_map.append(None) # Auto
+                
+                # 3. Final Render
+                st.line_chart(full_ec_df.set_index('time')[cols_to_plot], color=color_map)
+            
+        # Optimization Context
+        # We need generic way to determine PnL for optimization trigger
+        # Use first valid? Or check overall?
+        pnl = first_valid.get('pnl_pct', 0) if first_valid else 0
         
         # Scenario 1: User beat AI (Alpha Analysis)
         if alpha < -0.1: # User better by at least 0.1%
@@ -655,22 +1043,43 @@ def render_strategy_lab():
             
             battle_key = f"battle_{selected_stock}_{selected_date}"
             if st.button("🧬 提取我的 Alpha → 进化 AI (Extract Alpha)", key=battle_key):
-                with st.spinner("DeepSeek 正在对比双方操作流..."):
+                # Identify which AI model was worse?
+                # Or let user pick?
+                # Let's simple check: Find AI with WORST Alpha
+                worst_ai = None
+                worst_alpha_val = 999
+                for m, r in res.items():
+                    a = r.get('pnl_pct', 0) - r.get('real_pnl_pct', 0)
+                    if a < worst_alpha_val:
+                        worst_alpha_val = a
+                        worst_ai = m
+                
+                target_expert = worst_ai if worst_ai else "DeepSeek"
+                
+                with st.spinner(f"{target_expert} 正在对比双方操作流 (Alpha Analysis)..."):
                     settings = get_settings()
-                    api_key = settings.get("deepseek_api_key")
-                    if api_key:
+                    api_keys = {
+                        "deepseek_api_key": settings.get("deepseek_api_key"),
+                        "qwen_api_key": settings.get("qwen_api_key") or settings.get("dashscope_api_key")
+                    }
+                    
+                    target_key = api_keys.get("deepseek_api_key")
+                    if target_expert == "Qwen": target_key = api_keys.get("qwen_api_key")
+
+                    if target_key:
                         # Pass real trades from result
-                        real_trades = res.get('real_trades_details', [])
-                        # We need logs. 'day_logs' variable is not available here after rerun.
-                        # We need to fetch logs again or store them.
-                        # Fetching again is safer.
-                        logs_replay = db_get_strategy_logs(selected_stock, limit=100)
-                        day_logs_replay = [l for l in logs_replay if l['timestamp'].startswith(selected_date)]
+                        real_trades = first_valid.get('real_trades_details', [])
                         
-                        review, reasoning = generate_human_vs_ai_review(api_key, res, day_logs_replay, real_trades)
+                        # Fetch logs again
+                        logs_replay = db_get_strategy_logs(selected_stock, limit=200)
+                        # Filter for DATE and MODEL
+                        day_logs_replay = [l for l in logs_replay if l['timestamp'].startswith(selected_date) and l.get('model', 'DeepSeek') == target_expert]
+                        
+                        review, reasoning = generate_human_vs_ai_review(target_key, res[target_expert], day_logs_replay, real_trades, model_name=target_expert)
                         st.session_state[f"rev_{battle_key}"] = review
+                        st.session_state[f"target_{battle_key}"] = target_expert # Remember who we optimized
                     else:
-                        st.error("请配置 DeepSeek API Key")
+                        st.error(f"请配置 {target_expert} API Key")
             
             if f"rev_{battle_key}" in st.session_state:
                 review_text = st.session_state[f"rev_{battle_key}"]
@@ -696,7 +1105,7 @@ def render_strategy_lab():
                     from utils.config import load_config, save_prompt
                     current_conf = load_config()
                     # Align to deepseek_system
-                    current_sys = current_conf.get("prompts", {}).get("deepseek_system", "")
+                    current_sys = current_conf.get("prompts", {}).get("proposer_system", "")
                     
                     # Highlight diff
                     st.success(f"✨ 建议新增规则 (Proposed New Rule):\n{suggestion}")
@@ -709,7 +1118,7 @@ def render_strategy_lab():
                     final_prompt = st.text_area("System Prompt Editor", value=new_prompt_draft, height=400)
                     
                     if st.button("💾 确认更新系统指令 (Update System Prompt)", key=f"save_bat_{battle_key}"):
-                        save_prompt("deepseek_system", final_prompt)
+                        save_prompt("proposer_system", final_prompt)
                         st.success("✅ 系统指令已更新！")
 
         # Scenario 2: General Failure (only if Alpha analysis didn't run or AI also needs help)
@@ -717,19 +1126,37 @@ def render_strategy_lab():
             st.divider()
             st.warning(f"⚠️ 亏损预警 (PnL {pnl:.2f}%)")
             opt_key = f"opt_{selected_stock}_{selected_date}"
-            if st.button("🔧 启动自我修复 (Auto-Fix Strategy)", key=opt_key):
-                with st.spinner("AI 正在深度反思..."):
-                    settings = get_settings()
-                    api_key = settings.get("deepseek_api_key")
-                    if api_key:
-                        # Fetch logs again
-                        logs_replay = db_get_strategy_logs(selected_stock, limit=100)
-                        day_logs_replay = [l for l in logs_replay if l['timestamp'].startswith(selected_date)]
+            
+            # Select target for fixes
+            # Default to the one with negative PnL? 
+            # Or just DeepSeek?
+            # Let's iterate
+            failed_models = [m for m, r in res.items() if r.get('pnl_pct', 0) < -1.0]
+            
+            if failed_models:
+                 target_fix = st.selectbox("选择需要修复的模型", failed_models, key=f"sel_fix_{opt_key}")
+                 
+                 if st.button(f"🔧 启动 {target_fix} 自我修复 (Auto-Fix)", key=opt_key):
+                    with st.spinner(f"{target_fix} 正在深度反思..."):
+                        settings = get_settings()
+                        api_keys = {
+                            "deepseek_api_key": settings.get("deepseek_api_key"),
+                            "qwen_api_key": settings.get("qwen_api_key") or settings.get("dashscope_api_key")
+                        }
                         
-                        suggestion, reasoning = generate_prompt_improvement(api_key, res, day_logs_replay)
-                        st.session_state[f"sug_{opt_key}"] = suggestion
-                    else:
-                        st.error("请配置 DeepSeek API Key")
+                        target_key = api_keys.get("deepseek_api_key")
+                        if target_fix == "Qwen": target_key = api_keys.get("qwen_api_key")
+
+                        if target_key:
+                            # Fetch logs again
+                            logs_replay = db_get_strategy_logs(selected_stock, limit=200)
+                            day_logs_replay = [l for l in logs_replay if l['timestamp'].startswith(selected_date) and l.get('model', 'DeepSeek') == target_fix]
+                            
+                            suggestion, reasoning = generate_prompt_improvement(target_key, res[target_fix], day_logs_replay, model_name=target_fix)
+                            st.session_state[f"sug_{opt_key}"] = suggestion
+                            st.session_state[f"target_{opt_key}"] = target_fix
+                        else:
+                            st.error(f"请配置 {target_fix} API Key")
                         
             if f"sug_{opt_key}" in st.session_state:
                 sug_text = st.session_state[f"sug_{opt_key}"]
@@ -754,7 +1181,7 @@ def render_strategy_lab():
                     from utils.config import load_config, save_prompt
                     current_conf = load_config()
                     # Align to deepseek_system
-                    current_sys = current_conf.get("prompts", {}).get("deepseek_system", "")
+                    current_sys = current_conf.get("prompts", {}).get("proposer_system", "")
                     
                     # Highlight diff
                     st.success(f"✨ 建议新增规则 (Proposed New Rule):\n{suggestion}")
@@ -765,5 +1192,5 @@ def render_strategy_lab():
                     final_prompt = st.text_area("System Prompt Editor", value=new_prompt_draft, height=400, key=f"area_{opt_key}")
                     
                     if st.button("💾 确认更新系统指令 (Update System Prompt)", key=f"save_opt_{opt_key}"):
-                        save_prompt("deepseek_system", final_prompt)
+                        save_prompt("proposer_system", final_prompt)
                         st.success("✅ 系统指令已更新！")

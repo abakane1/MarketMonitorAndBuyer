@@ -94,7 +94,7 @@ def has_minute_data(symbol: str) -> bool:
     file_path = get_file_path(symbol, 'minute')
     return os.path.exists(file_path)
 
-# @st.cache_data(ttl=60)
+@st.cache_data(ttl=60)
 def get_volume_profile(symbol: str):
     """
     Calculates Volume by Price from local minute data.

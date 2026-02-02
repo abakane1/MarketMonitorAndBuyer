@@ -54,6 +54,9 @@ def run_blue_legion(code, name, price, api_key_qwen, context_data, prompt_templa
     # Construct Quant User Prompt from Context
     # Incorporate Technicals, Flow, Intraday
     quant_data = f"""
+    Trading Date: {context_data.get('date', 'N/A')}
+    Market Status: {context_data.get('market_status', 'OPEN')}
+    
     Code: {code} ({name})
     Price: {price}
     Limit Up/Down: {context_data.get('limit_up', 'N/A')} / {context_data.get('limit_down', 'N/A')}
@@ -63,6 +66,8 @@ def run_blue_legion(code, name, price, api_key_qwen, context_data, prompt_templa
     
     [Fund Flow]
     {context_data.get('capital_flow_str', 'N/A')}
+    
+    IMPORTANT: 如果 Market Status 是 CLOSED，你的所有量化分析必须服务于【下一个交易日 ({context_data.get('date', 'N/A')})】的预判。
     """
     
     q_res, _ = call_ai_model("qwen", api_key_qwen, quant_sys, quant_data, specific_model=quant_model)
@@ -74,6 +79,9 @@ def run_blue_legion(code, name, price, api_key_qwen, context_data, prompt_templa
     
     # Construct Intel User Prompt
     intel_data = f"""
+    Trading Date: {context_data.get('date', 'N/A')}
+    Market Status: {context_data.get('market_status', 'OPEN')}
+    
     Code: {code} ({name})
     
     [Research/News Context]
@@ -81,6 +89,8 @@ def run_blue_legion(code, name, price, api_key_qwen, context_data, prompt_templa
     
     [History Actions]
     {context_data.get('history_log_str', 'N/A')}
+    
+    IMPORTANT: 如果 Market Status 是 CLOSED，你的情报总结必须侧重于为【下一个交易日 ({context_data.get('date', 'N/A')})】寻找预期差和博弈逻辑。
     """
     
     i_res, _ = call_ai_model("qwen", api_key_qwen, intel_sys, intel_data, specific_model=intel_model)
@@ -90,13 +100,13 @@ def run_blue_legion(code, name, price, api_key_qwen, context_data, prompt_templa
     cmd_model = "qwen-max" # The Brain
     
     # Use the standard "LAG + GTO" System Prompt for the Commander
-    cmd_sys = prompts.get("deepseek_system", "") # Logic is consistent, just brain is Qwen
+    cmd_sys = prompts.get("proposer_system", "") # Logic is consistent, just brain is Qwen
     if not cmd_sys:
         # Fallback to standard
         cmd_sys = "你是战区最高指挥官。基于量化官和情报官的报告，制定最终作战计划 (LAG+GTO)。"
         
     # Commander User Prompt
-    # Matches the structure of `deepseek_base` but filled with Agent Reports instead of raw data?
+    # Matches the structure of `proposer_base` but filled with Agent Reports instead of raw data?
     # Actually, to maintain compatibility with existing Prompts (which expect {price}, {change} etc),
     # We should probably INJECT the Agent Reports into the `research_context` or `intraday_summary` fields 
     # of the existing template?
@@ -106,6 +116,7 @@ def run_blue_legion(code, name, price, api_key_qwen, context_data, prompt_templa
     
     cmd_user_context = f"""
     *** COMMANDER EYES ONLY ***
+    Current Context: {context_data.get('date', 'N/A')} ({context_data.get('market_status', 'OPEN')})
     
     {logs[0]}
     
@@ -113,12 +124,17 @@ def run_blue_legion(code, name, price, api_key_qwen, context_data, prompt_templa
     
     *** END REPORTS ***
     
+    【核心强制指令】：
+    1. 当前交易已结束，你签署的【最终执行令 (Final Order)】必须针对【{context_data.get('date', 'N/A')}】生效。
+    2. 请在【有效期】字段明确写明执行日期。
+    3. 【禁止】不要提供任何针对今日的盘中操作建议（如“做T”、“日内高抛低吸”），因为市场已关闭。
+    
     基于以上专家的深度分析，请制定最终交易策略。
     """
     
     # We merge this with the standard Base Prompt Structure to ensure format compliance
     # We can fetch the base template and append our context.
-    base_tpl = prompts.get("deepseek_base", "{price} {research_context}")
+    base_tpl = prompts.get("proposer_base", "{price} {research_context}")
     
     # We override 'research_context' in the context_data to include our reports!
     # This is a clever way to re-use the existing well-tuned prompt structure.

@@ -64,12 +64,37 @@ def parse_strategy_signal(log_entry: dict) -> StrategySignal:
                 
         return signal
 
-    # Mode 2: Narrative (Pre-market)
-    # Plan A: 低吸 ... @ 3.83
-    # Plan B: ...
-    # This is harder. For now, look for "Plan A" and prices near it.
+    # Mode 3: Conditional / Markdown List (DeepSeek/Qwen V3)
+    # Pattern: "- **突破阻力位4.25**:"
+    # Pattern: "- **跌破支撑位3.83**:"
     
-    # Keyword Heuristics
+    # Check for Breakout (Buy Stop)
+    breakout_match = re.search(r"突破.*?(\d+\.\d{2})", content)
+    if breakout_match:
+        signal.price_target = float(breakout_match.group(1))
+        signal.action = "buy_stop" # New Action Type
+        
+        # Look for details under this section
+        # Heuristic: If we found a breakout price, we assume it's the primary actionable advice unless contradicted.
+        # Check for dependent take profit/stop loss nearby
+        sub_text = content[breakout_match.end():] # Look ahead
+        sl_match = re.search(r"止损.*?(\d+\.\d{2})", sub_text)
+        if sl_match: signal.stop_loss = float(sl_match.group(1))
+        
+        return signal
+
+    # Check for Breakdown (Sell Stop / Short)
+    breakdown_match = re.search(r"跌破.*?(\d+\.\d{2})", content)
+    if breakdown_match:
+        signal.price_target = float(breakdown_match.group(1))
+        # If we have shares, this is a Stop Loss (Sell Stop)
+        # If we don't, it might be Short.
+        # Safe default: sell_stop
+        signal.action = "sell_stop"
+        
+        return signal
+
+    # Keyword Heuristics (Fallback)
     # Buy: "低吸", "买入", "做多"
     # Sell: "止盈", "卖出", "清仓"
     
@@ -103,4 +128,34 @@ def parse_strategy_signal(log_entry: dict) -> StrategySignal:
             
         return signal
         
-    return signal
+    # Mode 4: General Advice (Low Confidence)
+    # Pattern: "建议在4.25元附近买入..." or "建议买入..."
+    # Search for "建议" sentence
+    suggestion_match = re.search(r"建议.*?([买卖].*?)[。！\n]", content)
+    if suggestion_match:
+        s_text = suggestion_match.group(1)
+        
+        # Action
+        if any(w in s_text for w in ["买", "吸", "接", "做多"]):
+             signal.action = "buy"
+        elif any(w in s_text for w in ["卖", "出", "减", "清"]):
+             signal.action = "sell"
+        else:
+             return signal
+             
+        # Price
+        prices = re.findall(r"(\d+\.\d{2})", s_text)
+        if prices:
+            signal.price_target = float(prices[0])
+            
+        # Quantity (e.g. 37000股)
+        qty_match = re.search(r"(\d+)股", s_text)
+        if qty_match:
+            signal.quantity = int(qty_match.group(1))
+            
+        # SL/TP checks (GLOBAL)
+        if signal.stop_loss == 0:
+             sl_match = re.search(r"(?:止损|防守).*?(\d+\.\d{2})", content)
+             if sl_match: signal.stop_loss = float(sl_match.group(1))
+             
+        return signal

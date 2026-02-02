@@ -1,6 +1,7 @@
 # -*- coding: utf-8 -*-
 import streamlit as st
 import pandas as pd
+import os
 import time
 import datetime
 import plotly.graph_objects as go
@@ -240,7 +241,18 @@ def render_stock_dashboard(code: str, name: str, total_capital: float, risk_pct:
         if not vol_profile.empty:
             start_str = str(meta.get('start_date'))
             end_str = str(meta.get('end_date'))
-            st.caption(f"统计区间: {start_str} 至 {end_str}")
+            st.caption(f"📅 统计区间: {start_str} 至 {end_str}")
+            
+            # Show file modification time to verify freshness
+            from utils.storage import get_file_path
+            f_path = get_file_path(code, 'minute')
+            if os.path.exists(f_path):
+                mtime = os.path.getmtime(f_path)
+                mtime_str = datetime.datetime.fromtimestamp(mtime).strftime('%Y-%m-%d %H:%M:%S')
+                st.caption(f"🕒 本地分时数据最后更新: {mtime_str}")
+            
+            # [Added] Log Scale toggle to make small bars visible
+            is_log = st.checkbox("📐 对数坐标 (增强小成交量可见性)", value=True, key=f"vol_log_{code}")
             
             fig_vol = go.Figure()
             fig_vol.add_trace(go.Bar(
@@ -253,7 +265,8 @@ def render_stock_dashboard(code: str, name: str, total_capital: float, risk_pct:
             fig_vol.update_layout(
                 margin=dict(l=0, r=0, t=10, b=0),
                 height=300,
-                yaxis_title="成交量",
+                yaxis_title="成交量 (对数)" if is_log else "成交量",
+                yaxis_type="log" if is_log else "linear",
                 xaxis_title="价格",
                 hovermode="x unified"
             )

@@ -28,7 +28,7 @@ def generate_missing_strategy(code: str, name: str, target_date_str: str, curren
     
     # 1. Determine Type
     is_pre_market = current_time_str < "09:30:00"
-    suffix_key = "deepseek_new_strategy_suffix" if is_pre_market else "deepseek_intraday_suffix"
+    suffix_key = "proposer_premarket_suffix" if is_pre_market else "proposer_intraday_suffix"
     
     target_dt = datetime.strptime(f"{target_date_str} {current_time_str}", "%Y-%m-%d %H:%M:%S")
     

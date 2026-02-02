@@ -52,20 +52,50 @@ def simulate_day_generator(symbol: str, target_date_str: str, logs: list, real_t
     
     # 2. Setup State
     # 我们以“开盘时的总资产”作为 0% 盈亏的基数
-    open_p_first = day_df.iloc[0]['开盘']
+    # find first valid price
+    # find first valid price
+    open_p_first = 0
+    # Scan ENTIRE day for first valid price, not just 10 mins
+    for i in range(len(day_df)):
+        p = day_df.iloc[i]['开盘'] 
+        if p > 0:
+            open_p_first = p
+            break
+            
+    if open_p_first == 0: 
+        # Scan for ANY valid price field
+        for col in ['收盘', '最高', '最低']:
+             for i in range(len(day_df)):
+                 p = day_df.iloc[i][col]
+                 if p > 0:
+                     open_p_first = p
+                     break
+             if open_p_first > 0: break
+             
+    if open_p_first == 0: open_p_first = initial_cost # Deep Fallback
+    if open_p_first == 0: open_p_first = 1.0 # Ultimate Fallback to avoid div by zero?
+    
     initial_shares_val = initial_shares * open_p_first
     
     # --- AI State ---
     # initial_cash is the "Total Allocation Limit" for this stock
     # So available cash = Allocation - Capital tied up in existing shares
-    spent_capital = initial_shares * initial_cost
+    
+    # 2026-01-29 Fix: If initial_cost is 0 (missing history), assume cost is current price
+    # trying to avoid "Double Counting" (Full Cash + Full Stock)
+    calc_cost = initial_cost
+    if calc_cost <= 0 and initial_shares > 0:
+        calc_cost = open_p_first
+        
+    spent_capital = initial_shares * calc_cost
     start_cash = max(0.0, initial_cash - spent_capital)
     
     cash = start_cash
     position = initial_shares
     
     # --- Real State ---
-    real_spent_capital = (initial_real_shares if initial_real_shares is not None else initial_shares) * initial_cost
+    # Apply same fix for Real Account
+    real_spent_capital = (initial_real_shares if initial_real_shares is not None else initial_shares) * calc_cost
     if initial_real_cash is not None:
          real_start_cash = initial_real_cash
     else:
@@ -76,15 +106,19 @@ def simulate_day_generator(symbol: str, target_date_str: str, logs: list, real_t
     
     # Base valuation at the START of the day (used for PnL %)
     # Equity = Cash + Market Value of Shares
-    # For multi-day, base_val should ideally be the initial total equity
+    # v2.6.2 Fix: Simplify base valuation logic to prevent abnormal PnL percentages.
+    # We use the total resources allocated/held at the VERY START of the session.
     base_val = start_cash + (initial_shares * open_p_first)
     real_base_val = real_start_cash + (real_position * open_p_first)
     
+    # Defensive Floor
     if base_val <= 0: base_val = 100000.0
     if real_base_val <= 0: real_base_val = 100000.0
     
-    active_buy_order = None # {"price": float}
-    active_sell_limit = None # {"price": float, "qty": int}
+    active_buy_order = None # Limit Buy {"price": float}
+    active_buy_stop = None # Stop Buy {"price": float}
+    active_sell_limit = None # Limit Sell {"price": float, "qty": int}
+    active_sell_stop = None # Stop Sell {"price": float}
     active_sl = None # float
     active_tp = None # float
     
@@ -135,39 +169,15 @@ def simulate_day_generator(symbol: str, target_date_str: str, logs: list, real_t
         close_p = row['收盘']
         
         # v1.8.0: Check for Dynamic Strategy Gap
-        # Define key intraday decision points (e.g., 10:30, 14:00)
-        decision_times = [time(10, 30), time(14, 0)]
+        # [v2.6 Feedback] User requested REMOVAL of rigid 10:30/14:00 checkpoints.
+        # Logic: First establish Pre-market (09:25), then follow market.
+        # Only trigger optimization if explicit event occurs (Not forced by time).
+        # decision_times = [time(10, 30), time(14, 0)] <--- DISABLED
+        decision_times = [] 
+        
         for dt_point in decision_times:
             if curr_time.time() >= dt_point and dt_point not in dynamic_points_triggered:
-                # Check if we have any log entry specifically for this session window
-                # e.g. for 10:30, check 09:30-10:30. For 14:00, check 13:00-14:00.
-                window_start = (datetime.combine(target_date, dt_point) - pd.Timedelta(minutes=60)).time()
-                
-                has_intra_log = any(
-                    l['time'].date() == target_date and 
-                    l['time'].time() > window_start and
-                    l['time'].time() <= curr_time.time()
-                    for l in day_logs
-                )
-                if not has_intra_log:
-                    # Signal UI to generate
-                    injected = yield {
-                        "type": "need_strategy",
-                        "time": curr_time,
-                        "point": dt_point.strftime("%H:%M")
-                    }
-                    if injected:
-                        # User sent back a new log record
-                        # Add to day_logs and re-parse
-                        ts_new = datetime.strptime(injected['timestamp'], "%Y-%m-%d %H:%M:%S")
-                        day_logs.append({
-                            "time": ts_new,
-                            "signal": parse_strategy_signal(injected),
-                            "original_log": injected
-                        })
-                        day_logs.sort(key=lambda x: x['time'])
-                    
-                    dynamic_points_triggered.add(dt_point)
+                 pass # Logic Skipped
 
         # A. Process Events (Logs)
         while next_log_idx < len(day_logs):
@@ -175,6 +185,9 @@ def simulate_day_generator(symbol: str, target_date_str: str, logs: list, real_t
             if log_entry['time'] <= curr_time:
                 # Apply Signal
                 sig = log_entry['signal']
+                if not sig:
+                    next_log_idx += 1
+                    continue
                 
                 # Yield Signal Event
                 yield {
@@ -217,6 +230,21 @@ def simulate_day_generator(symbol: str, target_date_str: str, logs: list, real_t
                     
                     if sig.stop_loss > 0: active_sl = sig.stop_loss
                     if sig.take_profit > 0: active_tp = sig.take_profit
+                
+                elif sig.action == "buy_stop":
+                     # Breakout Buy
+                     active_buy_stop = {"price": sig.price_target}
+                     if sig.stop_loss > 0: active_sl = sig.stop_loss
+                     if sig.take_profit > 0: active_tp = sig.take_profit
+                     
+                elif sig.action == "sell_stop":
+                     # Breakdown Sell (Stop Loss or Short)
+                     if position > 0:
+                         active_sell_stop = {"price": sig.price_target}
+                         yield {"type": "info", "message": f"设置止损单: 跌破 {sig.price_target} 卖出"}
+                     else:
+                         yield {"type": "info", "message": "跳过做空 (暂不支持无融券做空)"}
+
                     
                 next_log_idx += 1
             else:
@@ -255,6 +283,38 @@ def simulate_day_generator(symbol: str, target_date_str: str, logs: list, real_t
                         trades.append(trade_info)
                         active_buy_order = None
                         trade_happened = trade_info
+
+        # 1.5 Check Buy Stop (Breakout)
+        if active_buy_stop:
+            target = active_buy_stop['price']
+            if high_p >= target:
+                # Triggered!
+                # Triggered!
+                fill_p = target
+                if open_p > target and open_p > 0: fill_p = open_p # Gap up (Safe Check)
+                
+                if fill_p > 0 and cash > 0 and not trade_happened:
+                    shares = int(cash / fill_p / 100) * 100
+                    cost = shares * fill_p
+                    fee = 5
+                    
+                    if shares > 0:
+                        cash -= (cost + fee)
+                        position += shares
+                        avg_cost = fill_p
+                        
+                        trade_info = {
+                            "time": curr_time.strftime("%H:%M"),
+                            "action": "BUY_STOP",
+                            "price": fill_p,
+                            "shares": shares,
+                            "reason": "突破买入"
+                        }
+                        trades.append(trade_info)
+                        trade_happened = trade_info
+                        active_buy_stop = None # One-shot
+                        
+                        yield {"type": "signal", "time": curr_time, "message": f"🔥 突破买入成交 @ {fill_p}"}
         
         # 2. Check Sell (Limit)
         if active_sell_limit and position > 0:
@@ -287,29 +347,44 @@ def simulate_day_generator(symbol: str, target_date_str: str, logs: list, real_t
                 position -= sell_qty
                 active_sell_limit = None
                 trade_happened = trade_info
+                
+        # 3. Check Sell Stop (Breakdown / SL)
+        # Combine valid SLs
+        effective_sl = []
+        if active_sl: effective_sl.append(active_sl)
+        if active_sell_stop: effective_sl.append(active_sell_stop['price'])
         
-        # 3. Check SL/TP (Risk Control)
-        if position > 0:
-            # SL
-            if active_sl and low_p <= active_sl:
-                 fill_p = active_sl
-                 if open_p < active_sl: fill_p = open_p
-                 
-                 if fill_p > 0:
-                     revenue = position * fill_p
-                     fee = max(5, revenue * 0.001)
-                     cash += (revenue - fee)
-                     
-                     trade_info = {
-                        "time": curr_time.strftime("%H:%M"),
-                        "action": "SELL",
-                        "price": fill_p,
-                        "shares": position,
-                        "reason": "止损触发"
-                     }
-                     trades.append(trade_info)
-                     position = 0
-                     trade_happened = trade_info
+        if effective_sl and position > 0 and not trade_happened:
+            # Use HIGHEST SL triggered? Or strict logic?
+            # If price drops, it hits the highest SL first.
+            target = max(effective_sl)
+            
+            if low_p <= target:
+                fill_p = target
+                if open_p < target and open_p > 0: fill_p = open_p # Gap down (Safe Check)
+                
+                # Sell All
+                trade_val = position * fill_p
+                fee = max(5, trade_val * 0.001)
+                tax = trade_val * 0.001
+                
+                real_cash = trade_val - fee - tax
+                cash += real_cash
+                
+                trade_info = {
+                    "time": curr_time.strftime("%H:%M"),
+                    "action": "SELL_STOP",
+                    "price": fill_p,
+                    "shares": position,
+                    "reason": "止损/跌破卖出"
+                }
+                trades.append(trade_info)
+                position = 0
+                trade_happened = trade_info
+                active_sl = None # Reset
+                active_sell_stop = None
+                
+                yield {"type": "signal", "time": curr_time, "message": f"🛡️ 止损卖出成交 @ {fill_p}"}
             
             # TP
             elif active_tp and high_p >= active_tp:

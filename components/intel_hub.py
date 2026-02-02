@@ -4,7 +4,10 @@ import time
 from utils.intel_manager import get_claims, add_claims, delete_claim, mark_claims_distinct
 from utils.ai_parser import parse_metaso_report, find_duplicate_candidates
 from utils.researcher import ask_metaso_research_loop
+from utils.researcher import ask_metaso_research_loop
 from utils.config import load_config
+from utils.data_fetcher import get_stock_news_raw
+from utils.intelligence_processor import summarize_intelligence
 
 def render_intel_hub(code: str, name: str, price: float, avg_cost: float, shares_held: int, strat_res: dict, total_capital: float, current_alloc: float):
     """
@@ -92,8 +95,8 @@ def render_intel_hub(code: str, name: str, price: float, avg_cost: float, shares
                             box_color = "green" if is_rec else "grey"
                             st.markdown(f":{box_color}[**ID: {item_obj['id']}**]")
                             if is_rec: st.caption("✨ 建议保留")
-                            st.text_area("内容", item_obj['content'], height=250, disabled=True, key=f"txt_{item_obj['id']}")
-                            if st.button(f"✅ 保留此条 (合并)", key=f"keep_{item_obj['id']}"):
+                            st.text_area("内容", item_obj['content'], height=250, disabled=True, key=f"txt_{code}_{g_idx}_{item_obj['id']}")
+                            if st.button(f"✅ 保留此条 (合并)", key=f"keep_{code}_{g_idx}_{item_obj['id']}"):
                                 others = [x['id'] for x in items if x['id'] != item_obj['id']]
                                 for oid in others: delete_claim(code, oid)
                                 st.toast(f"✅ 已合并，保留了 ID: {item_obj['id']}")
@@ -130,6 +133,53 @@ def render_intel_hub(code: str, name: str, price: float, avg_cost: float, shares
                     st.success("已保存！该情报将作为核心信息传给AI。")
                     time.sleep(1)
                     st.rerun()
+
+
+        st.markdown("---")
+        
+        # [NEW] Real-time News Section (EastMoney)
+        with st.expander("🌐 实时资讯 (EastMoney/Sina)", expanded=False):
+            n_col1, n_col2 = st.columns([0.3, 0.7])
+            with n_col1:
+                if st.button("🔄 刷新资讯", key=f"btn_refresh_news_{code}"):
+                    st.rerun()
+            with n_col2:
+                if st.button("⚡ AI 提炼入库 (Summarize & Save)", key=f"btn_sum_news_{code}", help="调用 DeepSeek 阅读最新20条新闻，生成摘要并存入情报库"):
+                    if not deepseek_api_key:
+                        st.error("请先设置 DeepSeek API Key")
+                    else:
+                        with st.spinner("🤖 正在阅读并提炼最近20条新闻..."):
+                            try:
+                                raw_news = get_stock_news_raw(code, n=20)
+                                if raw_news:
+                                    summary = summarize_intelligence(deepseek_api_key, raw_news, name)
+                                    if summary:
+                                        # Save as a single consolidated claim
+                                        add_claims(code, [summary], source="EastMoney AI摘要")
+                                        st.success("✅ 已提炼并存入情报库！")
+                                        time.sleep(1)
+                                        st.rerun()
+                                    else:
+                                        st.warning("AI 未生成有效摘要")
+                                else:
+                                    st.warning("无新闻可提炼")
+                            except Exception as e:
+                                st.error(f"提炼失败: {e}")
+                
+            try:
+                news_items = get_stock_news_raw(code, n=10)
+                if not news_items:
+                    st.info("暂无最新资讯。")
+                else:
+                    for news in news_items:
+                        n_title = news.get("title", "无标题")
+                        n_date = news.get("date", "")
+                        n_url = news.get("url", "")
+                        
+                        # Format
+                        st.markdown(f"**[{n_date}]** [{n_title}]({n_url})")
+            except Exception as e:
+                st.error(f"资讯获取失败: {e}")
 
         st.markdown("---")
         current_claims = get_claims(code)

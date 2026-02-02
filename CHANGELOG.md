@@ -5,6 +5,29 @@ All notable changes to the **MarketMonitorAndBuyer** project will be documented 
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [2.7.0] - 2026-02-02 (Structural Integrity & Intelligence Boost)
+### Added (新增)
+- **结构化策略持久化 (Structural Persistence)**:
+  - **Database Upgrade**: 为 `strategy_logs` 增加了 `details` JSON 字段，解决了历史记录中初稿丢失和内容重复的顽疾。
+  - **Full Traceability**: 全流程日志现在能够完美还原“草案-初审-反思-终审-执行”的所有 Prompt 和回答。
+- **情报库实时资讯 (Real-time Intel)**:
+  - **News Integration**: 集成东方财富实时个股新闻源，支持一键刷新。
+  - **AI Summarization**: 新增“AI 提炼入库”功能。调用 DeepSeek 对最新新闻进行去噪摘要，提炼出利好/利空核心情报并存入数据库。
+- **UI/UX 鲁棒性**:
+  - 全流程详情由“字符串切割”升级为“结构化 JSON 解析”，大幅提升了显示稳定性。
+  - 修复了情报去重界面在多组重复时的 Streamlit Key 冲突报错。
+
+### Changed (变更)
+- **专家系统纯化 (Model Rationalization)**:
+  - **DeepSeek Solo**: 根据用户要求“卸载”了 Qwen 专家。现在的蓝军（主帅）和红军（审计）均默认且强制使用 DeepSeek R1，确保策略逻辑的高度严谨。
+  - **Negative Constraints**: 强化了盘后模式下的 Prompt 负面约束，严禁 AI 生成无效的日内操作建议。
+
+### Fixed (修复)
+- **Label Correction**: 自动修复了盘后预判时“今日交易边界”标签的误导，自动修正为“下个交易日预计”。
+- **Expert API**: 重构了 `BaseExpert` 接口及其子类，修复了后续审计轮次日志为空的架构缺陷。
+
+---
+
 ## [2.6.0] - 2026-01-29 (3-Way Battle Strategy Lab)
 ### Added (新增)
 - **Strategy Lab 3-Way Battle (三方博弈)**:

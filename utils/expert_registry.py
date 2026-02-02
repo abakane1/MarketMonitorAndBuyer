@@ -33,26 +33,26 @@ class BaseExpert(ABC):
         pass
 
     @abstractmethod
-    def audit(self, context_data: Dict[str, Any], plan_content: str, prompt_templates: Dict[str, str], is_final: bool = False, **kwargs) -> str:
+    def audit(self, context_data: Dict[str, Any], plan_content: str, prompt_templates: Dict[str, str], is_final: bool = False, **kwargs) -> Tuple[str, str]:
         """
         Audits a strategy proposal.
-        Returns: audit_content
+        Returns: (audit_content, debug_prompt)
         """
         pass
     
     @abstractmethod
-    def refine(self, original_context: str, original_plan: str, audit_report: str, prompt_templates: Dict[str, str], **kwargs) -> Tuple[str, str]:
+    def refine(self, original_context: str, original_plan: str, audit_report: str, prompt_templates: Dict[str, str], **kwargs) -> Tuple[str, str, str]:
         """
         Refines a strategy based on audit.
-        Returns: (content, reasoning)
+        Returns: (content, reasoning, debug_prompt)
         """
         pass
     
     @abstractmethod
-    def decide(self, final_verdict: str, prompt_templates: Dict[str, str], **kwargs) -> Tuple[str, str]:
+    def decide(self, final_verdict: str, prompt_templates: Dict[str, str], **kwargs) -> Tuple[str, str, str]:
         """
         Makes the final decision based on final verdict.
-        Returns: (content, reasoning)
+        Returns: (content, reasoning, debug_prompt)
         """
         pass
 
@@ -86,7 +86,7 @@ class DeepSeekExpert(BaseExpert):
         )
         return content, reasoning, user_prompt, None
 
-    def audit(self, context_data: Dict[str, Any], plan_content: str, prompt_templates: Dict[str, str], is_final: bool = False, **kwargs) -> str:
+    def audit(self, context_data: Dict[str, Any], plan_content: str, prompt_templates: Dict[str, str], is_final: bool = False, **kwargs) -> Tuple[str, str]:
         """
         Conducts Red Team Audit.
         """
@@ -104,13 +104,15 @@ class DeepSeekExpert(BaseExpert):
             is_final_round=is_final
         )
         
+        full_prompt = f"System: {sys_p}\n\nUser: {user_p}"
+        
         if not self.api_key:
-            return "Error: Missing DeepSeek API Key"
+            return "Error: Missing DeepSeek API Key", full_prompt
             
         content, reasoning = call_deepseek_api(self.api_key, sys_p, user_p)
-        return content
+        return content, full_prompt
 
-    def refine(self, original_context: str, original_plan: str, audit_report: str, prompt_templates: Dict[str, str], **kwargs) -> Tuple[str, str]:
+    def refine(self, original_context: str, original_plan: str, audit_report: str, prompt_templates: Dict[str, str], **kwargs) -> Tuple[str, str, str]:
         """
         Refines strategy.
         """
@@ -118,21 +120,27 @@ class DeepSeekExpert(BaseExpert):
             original_context, original_plan, audit_report, prompt_templates
         )
         
+        full_prompt = f"System: {sys_p}\n\nUser: {user_p}"
+        
         if not self.api_key:
-            return "Error: Missing DeepSeek API Key", ""
+            return "Error: Missing DeepSeek API Key", "", full_prompt
             
-        return call_deepseek_api(self.api_key, sys_p, user_p)
+        c, r = call_deepseek_api(self.api_key, sys_p, user_p)
+        return c, r, full_prompt
 
-    def decide(self, final_verdict: str, prompt_templates: Dict[str, str], **kwargs) -> Tuple[str, str]:
+    def decide(self, final_verdict: str, prompt_templates: Dict[str, str], **kwargs) -> Tuple[str, str, str]:
         """
         Sign Final Order.
         """
         sys_p, user_p = build_final_decision_prompt(final_verdict, prompt_templates)
         
+        full_prompt = f"System: {sys_p}\n\nUser: {user_p}"
+        
         if not self.api_key:
-             return "Error: Missing DeepSeek API Key", ""
+             return "Error: Missing DeepSeek API Key", "", full_prompt
              
-        return call_deepseek_api(self.api_key, sys_p, user_p)
+        c, r = call_deepseek_api(self.api_key, sys_p, user_p)
+        return c, r, full_prompt
 
 
 class QwenExpert(BaseExpert):
@@ -183,31 +191,39 @@ class QwenExpert(BaseExpert):
             is_final_round=is_final
         )
         
+        full_prompt = f"System: {sys_p}\n\nUser: {user_p}"
+        
         if not self.api_key:
-             return "Error: Missing Qwen API Key"
+             return "Error: Missing Qwen API Key", full_prompt
              
         # Use simple call_qwen_api wrapper
-        return call_qwen_api(self.api_key, sys_p, user_p)
+        content = call_qwen_api(self.api_key, sys_p, user_p)
+        return content, full_prompt
 
-    def refine(self, original_context: str, original_plan: str, audit_report: str, prompt_templates: Dict[str, str], **kwargs) -> Tuple[str, str]:
+    def refine(self, original_context: str, original_plan: str, audit_report: str, prompt_templates: Dict[str, str], **kwargs) -> Tuple[str, str, str]:
         sys_p, user_p = build_refinement_prompt(
             original_context, original_plan, audit_report, prompt_templates
         )
+        
+        full_prompt = f"System: {sys_p}\n\nUser: {user_p}"
+        
         if not self.api_key:
-             return "Error: Missing Qwen API Key", ""
+             return "Error: Missing Qwen API Key", "", full_prompt
         
         # Qwen doesn't return separate reasoning, so reasoning is empty str
         content = call_qwen_api(self.api_key, sys_p, user_p)
-        return content, ""
+        return content, "", full_prompt
 
-    def decide(self, final_verdict: str, prompt_templates: Dict[str, str], **kwargs) -> Tuple[str, str]:
+    def decide(self, final_verdict: str, prompt_templates: Dict[str, str], **kwargs) -> Tuple[str, str, str]:
         sys_p, user_p = build_final_decision_prompt(final_verdict, prompt_templates)
         
+        full_prompt = f"System: {sys_p}\n\nUser: {user_p}"
+        
         if not self.api_key:
-             return "Error: Missing Qwen API Key", ""
+             return "Error: Missing Qwen API Key", "", full_prompt
              
         content = call_qwen_api(self.api_key, sys_p, user_p)
-        return content, ""
+        return content, "", full_prompt
 
 
 class ExpertRegistry:

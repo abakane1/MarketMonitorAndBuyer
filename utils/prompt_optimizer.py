@@ -1,4 +1,4 @@
-from utils.ai_advisor import call_deepseek_api
+from utils.ai_advisor import call_ai_model
 from utils.config import load_config
 
 def get_feedback_metaprompt(daily_result, logs, current_sys_prompt):
@@ -102,31 +102,33 @@ Your goal is to identify WHY the Human was smarter and HOW to teach the AI to le
 【进化建议】: (Prompt 修改建议，如 "在盘口高潮时允许左侧止盈...")
 """
 
-def generate_human_vs_ai_review(api_key, daily_result, logs, real_history):
+def generate_human_vs_ai_review(api_key, daily_result, logs, real_history, model_name="DeepSeek"):
     config = load_config()
     prompts = config.get("prompts", {})
-    input_sys = prompts.get("deepseek_system", "N/A")
+    input_sys = prompts.get("proposer_system", "N/A")
     
     meta_prompt = get_battle_metaprompt(daily_result, logs, real_history, input_sys)
     
-    content, reasoning = call_deepseek_api(
+    content, reasoning = call_ai_model(
+        model_name.lower(),
         api_key, 
         system_prompt="You are an expert Trading Coach specializing in RLHF (Reinforcement Learning from Human Feedback).",
         user_prompt=meta_prompt
     )
     return content, reasoning
 
-def generate_prompt_improvement(api_key, daily_result, logs):
+def generate_prompt_improvement(api_key, daily_result, logs, model_name="DeepSeek"):
     """
-    Calls DeepSeek to analyze daily failure.
+    Calls AI to analyze daily failure.
     """
     config = load_config()
     prompts = config.get("prompts", {})
-    input_sys = prompts.get("deepseek_system", "N/A")
+    input_sys = prompts.get("proposer_system", "N/A")
     
     meta_prompt = get_feedback_metaprompt(daily_result, logs, input_sys)
     
-    content, reasoning = call_deepseek_api(
+    content, reasoning = call_ai_model(
+        model_name.lower(),
         api_key, 
         system_prompt="You are an expert Prompt Engineer and Trading Coach.",
         user_prompt=meta_prompt
@@ -172,14 +174,15 @@ Compare the performance stability over the period.
 【优化建议】: (Prompt 具体的修改建议，针对长期稳定性)
 """
 
-def generate_multi_day_review(api_key, summary_data, logs):
+def generate_multi_day_review(api_key, summary_data, logs, model_name="DeepSeek"):
     config = load_config()
     prompts = config.get("prompts", {})
-    input_sys = prompts.get("deepseek_system", "N/A")
+    input_sys = prompts.get("proposer_system", "N/A")
     
     meta_prompt = get_multi_day_feedback_metaprompt(summary_data, logs, input_sys)
     
-    content, reasoning = call_deepseek_api(
+    content, reasoning = call_ai_model(
+        model_name.lower(),
         api_key, 
         system_prompt="You are an expert Hedge Fund Manager reviewing a weekly strategy report.",
         user_prompt=meta_prompt

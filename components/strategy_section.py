@@ -2,7 +2,7 @@
 import streamlit as st
 import time
 from utils.strategy import analyze_volume_profile_strategy
-from utils.storage import get_volume_profile, get_latest_strategy_log, save_research_log, load_research_log, delete_research_log
+from utils.storage import get_volume_profile, get_latest_production_log, save_production_log, load_production_log, delete_production_log
 from utils.ai_parser import extract_bracket_content
 from utils.config import load_config, get_allocation, set_allocation
 from utils.monitor_logger import log_ai_heartbeat
@@ -145,7 +145,6 @@ def render_strategy_section(code: str, name: str, price: float, shares_held: int
                         if refine_preview_key not in st.session_state:
                             if st.button("🔄 准备优化策略 (Prepare Refinement)", key=f"btn_prep_refine_{code}"):
                                 with st.spinner("🤖 正在构建优化指令..."):
-                                    from utils.ai_advisor import build_refinement_prompt
                                     blue_model = ai_strat_log.get('blue_model', 'DeepSeek')
                                     
                                     # Build Prompt
@@ -490,11 +489,12 @@ def render_strategy_section(code: str, name: str, price: float, shares_held: int
 ## User
 {ph.get('final_user', '')}
 """
-                    save_research_log(
+                    save_production_log(
                         code, 
                         full_prompt_log, 
                         full_result, 
-                        ai_strat_log['reasoning']
+                        ai_strat_log['reasoning'],
+                        model=ai_strat_log.get('model', 'DeepSeek')
                     )
                     # Clear draft
                     del st.session_state[pending_key]
@@ -514,7 +514,7 @@ def render_strategy_section(code: str, name: str, price: float, shares_held: int
         
         # If no draft, load from disk
         if not ai_strat_log:
-             ai_strat_log = get_latest_strategy_log(code)
+             ai_strat_log = get_latest_production_log(code)
         
         # DeepSeek Config
         settings = load_config().get("settings", {})
@@ -624,25 +624,25 @@ def render_strategy_section(code: str, name: str, price: float, shares_held: int
         
         start_pre = False
         start_intra = False
-        target_suffix_key = "deepseek_new_strategy_suffix" # Default
+        target_suffix_key = "proposer_premarket_suffix" # Default
         
         with col1:
             if session_status == "morning_break":
                 # Noon Break: 11:30 - 13:00 -> Noon Review
                 if st.button("☕ 生成午间复盘 (Morning Review)", key=f"btn_noon_{code}", type="primary", use_container_width=True):
-                    target_suffix_key = "deepseek_noon_suffix"
+                    target_suffix_key = "proposer_noon_suffix"
                     start_pre = True
                     
             elif session_status == "closed":
                 # After Close: > 15:00 -> Daily Review
                 if st.button("📝 生成全天复盘 (Daily Review)", key=f"btn_daily_{code}", type="primary", use_container_width=True):
-                    target_suffix_key = "deepseek_new_strategy_suffix"
+                    target_suffix_key = "proposer_premarket_suffix"
                     start_pre = True
             else:
                 # Trading Hours (or Pre-market before 9:15)
                 # Show generic warning button
                 if st.button("💡 生成即时预判 (Instant Preview)", key=f"btn_live_{code}", type="primary", use_container_width=True):
-                    target_suffix_key = "deepseek_new_strategy_suffix"
+                    target_suffix_key = "proposer_premarket_suffix"
                     start_pre = True
 
         if start_pre:
@@ -780,12 +780,12 @@ def render_strategy_section(code: str, name: str, price: float, shares_held: int
             st.caption("🤖 模型战队配置 (AI Team Config)")
             ms_c1, ms_c2 = st.columns(2)
             with ms_c1:
-                blue_model = st.selectbox("🔵 蓝军 (进攻/策略)", ["Qwen", "DeepSeek"], index=0, key=f"blue_sel_{code}", help="负责生成交易计划 (Proposer)")
+                blue_model = st.selectbox("🔵 蓝军 (进攻/策略)", ["DeepSeek"], index=0, key=f"blue_sel_{code}", help="负责生成交易计划 (Proposer)")
             with ms_c2:
-                red_model = st.selectbox("🔴 红军 (防守/审查)", ["DeepSeek", "Qwen", "None"], index=0, key=f"red_sel_{code}", help="负责风险审计 (Reviewer)")
+                red_model = st.selectbox("🔴 红军 (防守/审查)", ["DeepSeek", "None"], index=0, key=f"red_sel_{code}", help="负责风险审计 (Reviewer)")
             
             # Auto-Drive Toggle
-            auto_drive = st.checkbox("⚡ 极速模式 (Auto-Drive)", value=False, help="一键全自动：蓝军草案 -> 红军初审 -> 蓝军反思优化(v2.0) -> 红军终审", key=f"auto_drive_{code}")
+            auto_drive = st.checkbox("⚡ 极速模式 (Auto-Drive)", value=True, help="一键全自动：蓝军草案 -> 红军初审 -> 蓝军反思优化(v2.0) -> 红军终审", key=f"auto_drive_{code}")
 
             # Validate Keys (Dynamic)
             # Helper to get key (Registry handles this, but we check here for UI feedback)
@@ -836,7 +836,7 @@ def render_strategy_section(code: str, name: str, price: float, shares_held: int
                                          c_snap = preview_data.get('context_snapshot', {})
                                          
                                          # Use 'raw_context' as well
-                                         c1, r1, _, moe_logs = blue_expert.propose(
+                                         c1, r1, p1, moe_logs = blue_expert.propose(
                                             c_snap, prompts, 
                                             research_context=c_snap.get('known_info', ""),
                                             raw_context=preview_data['user_p']
@@ -850,22 +850,22 @@ def render_strategy_section(code: str, name: str, price: float, shares_held: int
                                          
                                          # Step 2: Red Audit 1
                                          status.write(f"🛡️ Step 2: {red_model} 进行初审 (Audit Round 1)...")
-                                         audit1 = red_expert.audit(c_snap, c1, prompts, is_final=False, raw_context=preview_data['user_p'])
+                                         audit1, p_audit1 = red_expert.audit(c_snap, c1, prompts, is_final=False, raw_context=preview_data['user_p'])
                                          step_logs.append(f"### [Red Team Audit 1]\n{audit1}")
                                          
                                          # Step 3: Blue Refinement (v2)
                                          status.write(f"🔄 Step 3: {blue_model} 进行反思与优化 (Refining)...")
-                                         c2, r2 = blue_expert.refine(preview_data['user_p'], c1, audit1, prompts)
+                                         c2, r2, p_refine = blue_expert.refine(preview_data['user_p'], c1, audit1, prompts)
                                          step_logs.append(f"### [v2.0 Refined Strategy]\n{c2}")
                                          
                                          # Step 4: Red Audit 2 (Final)
                                          status.write(f"⚖️ Step 4: {red_model} 进行终极裁决 (Final Verdict)...")
-                                         audit2 = red_expert.audit(c_snap, c2, prompts, is_final=True, raw_context=preview_data['user_p'])
+                                         audit2, p_audit2 = red_expert.audit(c_snap, c2, prompts, is_final=True, raw_context=preview_data['user_p'])
                                          step_logs.append(f"### [Final Verdict]\n{audit2}")
                                          
                                          # Step 5: Blue Final Decision (The Order)
                                          status.write(f"🏁 Step 5: {blue_model} 签署最终执行令 (Final Execution)...")
-                                         c3, r3 = blue_expert.decide(audit2, prompts)
+                                         c3, r3, p_decide = blue_expert.decide(audit2, prompts)
                                          step_logs.append(f"### [Final Decision]\n{c3}")
 
                                          # Construct Results
@@ -892,7 +892,11 @@ def render_strategy_section(code: str, name: str, price: float, shares_held: int
                                             'prompt': preview_data['user_p'],  
                                             'prompts_history': {
                                                 'draft_sys': preview_data['sys_p'],
-                                                'draft_user': preview_data['user_p']
+                                                'draft_user': preview_data['user_p'],
+                                                'audit1': p_audit1,
+                                                'refine': p_refine,
+                                                'audit2': p_audit2,
+                                                'decide': p_decide
                                             },
                                             'tag': strategy_tag,
                                             'timestamp': datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
@@ -972,7 +976,7 @@ def render_strategy_section(code: str, name: str, price: float, shares_held: int
         # --- Nested History (Inside AI Analysis) ---
         st.markdown("---")
         with st.expander("📜 历史研报记录 (Research History)", expanded=False):
-            logs = load_research_log(code)
+            logs = load_production_log(code)
             if not logs:
                 st.info("暂无历史记录")
             else:
@@ -1104,9 +1108,29 @@ def render_strategy_section(code: str, name: str, price: float, shares_held: int
                     if selected_log.get('prompt'):
                         p_text = selected_log['prompt']
                         
-                        # Detect if this is a "Mega Log" (v2.1+)
-                        if "# 🧠 Round 1: Strategy Draft" in p_text:
-                            with st.expander("📝 全流程详情 (Full Process History)", expanded=True):
+                        # Detect if this is a "Mega Log" (v2.1+) or v2.6+ with details
+                        details_json = selected_log.get('details')
+                        has_details = False
+                        if details_json:
+                            import json
+                            try:
+                                details = json.loads(details_json)
+                                if isinstance(details, dict) and 'prompts_history' in details:
+                                    has_details = True
+                                    ph = details['prompts_history']
+                                    with st.expander("📝 全流程详情 (Full Process History)", expanded=True):
+                                         h_tab1, h_tab2, h_tab3, h_tab4, h_tab5 = st.tabs(["Draft (草案)", "Audit1 (初审)", "Refine (反思)", "Audit2 (终审)", "Final (决策)"])
+                                         with h_tab1: st.code(f"System:\n{ph.get('draft_sys','')}\n\nUser:\n{ph.get('draft_user','')}")
+                                         with h_tab2: st.caption(f"Prompt Used:"); st.code(ph.get('audit1', 'N/A'))
+                                         with h_tab3: st.caption(f"Prompt Used:"); st.code(ph.get('refine', 'N/A'))
+                                         with h_tab4: st.caption(f"Prompt Used:"); st.code(ph.get('audit2', 'N/A'))
+                                         with h_tab5: st.caption(f"Prompt Used:"); st.code(ph.get('decide', 'N/A'))
+                            except:
+                                pass
+                        
+                        if not has_details and "# 🧠 Round 1: Strategy Draft" in p_text:
+                            with st.expander("📝 全流程详情 (Full Process History - Legacy)", expanded=True):
+                                # ... existing logic ...
                                 # Split by Headers
                                 # We can uses Tabs for rounds
                                 h_tab1, h_tab2, h_tab3, h_tab4 = st.tabs(["Draft (草案)", "Audit (初雪)", "Refine (反思)", "Final (终审)"])
@@ -1152,7 +1176,7 @@ def render_strategy_section(code: str, name: str, price: float, shares_held: int
                                 st.code(p_text, language='text')
 
                     if st.button("🗑️ 删除此记录", key=f"del_rsch_{code}_{s_ts}"):
-                        if delete_research_log(code, s_ts):
+                        if delete_production_log(code, s_ts):
                             st.success("已删除")
                             time.sleep(0.5)
                             st.rerun()
