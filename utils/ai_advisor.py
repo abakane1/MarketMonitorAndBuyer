@@ -528,33 +528,41 @@ def build_refinement_prompt(original_context, original_plan, audit_report, promp
     except Exception as e:
         return "", f"Refinement Prompt Error: {e}"
 
-def build_final_decision_prompt(final_verdict, prompt_templates=None, context_data=None):
+def build_final_decision_prompt(aggregated_history: list, prompt_templates=None, context_data=None):
     """
-    Constructs the prompt for Step 5: Final Decision.
+    Constructs the prompt for Step 5: Final Decision using aggregated history.
+    aggregated_history: List of strings or dictionaries containing previous steps info.
     """
     if not prompt_templates: prompt_templates = {}
     
-    # Extract scope info to anchor the model
+    # 1. Extract symbol/name to anchor
     target_info = "当前操作标的"
     if context_data:
         code = context_data.get('code', 'N/A')
         name = context_data.get('name', 'N/A')
         target_info = f"【{code} / {name}】"
 
-    # 1. System Prompt (Reuse Blue Team)
+    # 2. Aggregating History for Contextual Awareness
+    # If the input is just string (legacy fallback), wrap it
+    if isinstance(aggregated_history, str):
+        history_text = f"【最终审计意见】:\n{aggregated_history}"
+    else:
+        history_text = "\n\n".join([f"--- 回合 #{i+1} ---\n{step}" for i, step in enumerate(aggregated_history)])
+
+    # 3. System Prompt (Reuse Blue Team)
     sys_key = "proposer_system"
-    default_sys = "You are a professional trader."
+    default_sys = f"你那位专业的股票交易员，奉行 'LAG + GTO' 交易哲学。当前关注标的: {target_info}。"
     system_prompt = prompt_templates.get(sys_key, default_sys)
     
-    # 2. User Prompt (Decision Instruction)
-    # 2. User Prompt (Decision Instruction)
+    # 4. User Prompt (Decision Instruction)
     default_instr = f"""
 【指令】
-红军最终裁决如下:
-{{final_verdict}}
+以下是针对 {target_info} 进行的 5 个步骤博弈中的前 4 步全量记录（包含初始草案、红军审计、蓝军反思、红军终审）：
 
-请作为蓝军主帅 (Commander)，综合红军意见，签署 {target_info} 的 **最终执行令 (Final Order)**。
-【强制锚定】: 当前签署的是 {target_info} 的执行令，严禁提及或混淆任何历史参考记录中的其他标的。
+{history_text}
+
+请作为蓝军主帅 (Commander)，综合以上【全博弈记录】中的数据、逻辑、分歧点及最终共识，签署该标的的 **最终执行令 (Final Order)**。
+【强制锚定】: 请务必确保签署的是 {target_info} 的执行令，严禁提及或受历史参考记录中其他标的（如荣盛发展等）的误导。
 此指令将直接录入交易系统，请确保格式精确。
 
 【必须严格遵循以下输出格式】:
@@ -564,16 +572,17 @@ def build_final_decision_prompt(final_verdict, prompt_templates=None, context_da
 【数量】: [具体股数]
 【止损】: [具体价格]
 【止盈】: [具体价格]
-【有效期】: [仅限今日/明日]
-【决策依据】: [简述理由]
+【有效期】: [仅限今日/明日/下一交易日]
+【决策依据】: [简述理由，需概括前序博弈的关键冲突解决或共识点]
 """
     user_tpl = prompt_templates.get("proposer_final_decision", default_instr)
     
     try:
-        user_prompt = user_tpl.format(final_verdict=final_verdict)
+        # Note: If user_tpl contains other keys, this might need refinement
+        user_prompt = user_tpl.format(final_verdict="[Aggregated History Mode]") if "{final_verdict}" in user_tpl else user_tpl
         return system_prompt, user_prompt
     except Exception as e:
-        return "", f"Final Decision Prompt Error: {e}"
+        return system_prompt, default_instr # Fallback
 
 def ask_ai_refinement(model_name, api_key, original_context, original_plan, audit_report, prompt_templates=None):
     """
