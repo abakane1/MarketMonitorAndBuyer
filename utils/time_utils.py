@@ -97,23 +97,18 @@ def get_target_date_for_strategy(generated_time: datetime) -> str:
         target = get_next_trading_day(date_obj)
         return target.strftime("%Y-%m-%d")
 
-def get_market_session() -> str:
-    """
-    Returns the current market session status.
-    - "morning_break": 11:30 <= now <= 13:00 (Noon Break)
-    - "closed": now > 15:00 (After Market Close)
-    - "trading": Otherwise (Trading Hours or Pre-market)
+    now_time = datetime.now().time()
     
-    Note: purely time-based check for UI logic.
-    """
-    now = datetime.now().time()
+    # Pre-Market: Before 09:30
+    if now_time < time(9, 30):
+        return "pre_market"
     
     # Noon Break: 11:30 - 13:00
-    if time(11, 30) <= now <= time(13, 0):
+    if time(11, 30) <= now_time <= time(13, 0):
         return "morning_break"
     
     # After Close: > 15:00
-    if now > time(15, 0):
+    if now_time > time(15, 0):
         return "closed"
         
     return "trading"
