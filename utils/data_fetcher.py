@@ -333,11 +333,37 @@ def get_stock_realtime_info(symbol: str) -> Optional[Dict]:
     if data:
         # Map fields to standard format
         price = data.get('最新价', 0)
+        # [v3.0.7] Data Integrity: Use Fund Flow History to Cross-Verify Pre-Close
+        # Real-time 'pre_close' from EM might be buggy during dividends or lags.
+        try:
+             # Fetch history without forcing API hit if not needed, but here accuracy is worth it
+             ff_h = get_stock_fund_flow_history(symbol, force_update=False)
+             if not ff_h.empty:
+                 # Check if today's record exists in ff_h. 
+                 # Usually, the last row is Today, and second to last is Yesterday.
+                 # Actually, df is sorted by date ascending.
+                 if len(ff_h) > 1:
+                     latest_ff_date = ff_h.iloc[-1]['日期']
+                     now_str = datetime.now().strftime("%Y-%m-%d")
+                     
+                     if latest_ff_date == now_str:
+                         # Last row is today, so 'Yesterday' is row -2
+                         real_pre_close = float(ff_h.iloc[-2]['收盘价'])
+                     else:
+                         # Last row is likely 'Yesterday' or the last trading day
+                         real_pre_close = float(ff_h.iloc[-1]['收盘价'])
+                     
+                     if real_pre_close > 0:
+                         pre_close = real_pre_close
+                         # logger.info(f"[{symbol}] Pre-Close cross-verified via Fund Flow History: {pre_close}")
+        except Exception as e_verify:
+             logger.warning(f"Failed to cross-verify pre_close via Fund Flow History: {e_verify}")
+
         return {
             'code': data['代码'],
             'name': data['名称'],
             'price': float(price),
-            'pre_close': float(data.get('昨收', price)),
+            'pre_close': float(pre_close),
             'market_cap': float(data.get('总市值', 0)),
             'open': float(data.get('今开', data.get('开盘价', 0))),
             'high': float(data.get('最高', data.get('最高价', 0))),
