@@ -145,7 +145,12 @@ def build_advisor_prompt(context_data, research_context="", technical_indicators
         capital_flow_str = "\n".join(fund_lines) if fund_lines else "N/A"
         
         # Format RAG Context (History + Execution)
-        final_research_context = research_context if research_context else "无情报"
+        # 1. Start with Intelligence (Most Important for Decision)
+        final_research_context = ""
+        if research_context and len(research_context.strip()) > 0:
+            final_research_context = f"\n[核心情报库 (Market Intelligence & Search Context)]:\n{research_context}"
+        else:
+            final_research_context = "\n[核心情报库]: (暂无外部敏感信号)"
         
         if symbol:
             try:
@@ -210,10 +215,11 @@ def build_advisor_prompt(context_data, research_context="", technical_indicators
                         else:
                              history_context_lines.append(f"【用户实际执行】: (无操作 / No Action)")
 
-                        # SKIP Reasoning to prevent context pollution
-                    
-                    # Add Disclaimer
-                    history_context_lines.append(f"\n[Important]: 以上是历史数据。当前最新价格请以顶部【当前手牌数据】为准 ({context_data.get('price', 'Unknown')})。")
+                    # Add User Action Summary (Holistic View)
+                    pos_now = context_data.get('shares', 0)
+                    cost_now = context_data.get('avg_cost', context_data.get('cost', 0))
+                    history_context_lines.append(f"\n【用户当前状态反馈】: 持仓 {pos_now} 股，成本 {cost_now}。")
+                    history_context_lines.append(f"【⚠️ 指令】: 请思考用户是否执行了你上一次的建议？如果用户没动，分析原因（是执行力问题还是你的止损位设得太远？），并在本次策略中做出针对性改进。")
                     
                     final_research_context += "\n" + "\n".join(history_context_lines)
             except Exception as e:
