@@ -302,18 +302,22 @@ def get_stock_realtime_info(symbol: str) -> Optional[Dict]:
             if not min_df.empty:
                 latest = min_df.iloc[-1]
                 # Construct fake spot data from minute data
-                data = {
+                # [MODIFIED] Do NOT override '昨收' with current close when falling back to minute data.
+                # Use current close as a LAST RESORT only if absolutely null.
+                data_from_min = {
                     '代码': symbol,
-                    '名称': 'Unknown', # Name might be missing if only relying on minute data
+                    '名称': 'Unknown',
                     '最新价': latest.get('收盘', 0),
-                    '昨收': latest.get('收盘', 0), # Approx
-                    '总市值': 0,
                     '今开': latest.get('开盘', 0),
                     '最高': latest.get('最高', 0),
                     '最低': latest.get('最低', 0),
                     '成交量': latest.get('成交量', 0),
                     '成交额': latest.get('成交额', 0)
                 }
+                if data:
+                    data.update(data_from_min)
+                else:
+                    data = data_from_min
                 
                 # Try to get Name from Stock List if possible
                 try:
