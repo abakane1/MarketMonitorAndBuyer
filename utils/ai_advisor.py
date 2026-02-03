@@ -154,23 +154,28 @@ def build_advisor_prompt(context_data, research_context="", technical_indicators
         
         if symbol:
             try:
+                # 1. ALWAYS Load Trades (Even if no AI history exists)
+                all_trades = db_get_history(symbol)
+                valid_types = ['buy', 'sell']
+                real_trades = []
+                for t in all_trades:
+                    t_type = str(t.get('type', '')).strip().lower()
+                    if (t_type in valid_types or 'override' in t_type) and t.get('amount', 0) > 0:
+                        t['type'] = t_type 
+                        real_trades.append(t)
+                
+                # 1b. [NEW] Add a dedicated Recent Execution Registry (Indep. of Analysis Logs)
+                if real_trades:
+                    exec_lines = ["\n[近期实操成交流水 (Recent Real-world Trades)]"]
+                    # Last 5 trades descending
+                    latest_trades = sorted(real_trades, key=lambda x: x['timestamp'], reverse=True)[:5]
+                    for lt in latest_trades:
+                        act = "买入" if 'buy' in lt['type'] else ("卖出" if 'sell' in lt['type'] else "修正")
+                        exec_lines.append(f"- {lt['timestamp']}: {act} {int(lt['amount'])}股 @ {lt['price']}")
+                    final_research_context += "\n" + "\n".join(exec_lines)
+
                 history_logs = load_production_log(symbol)
                 if history_logs:
-                    # 1. Get Trades
-                    # 1. Get Trades
-                    all_trades = db_get_history(symbol)
-                    
-                    # STRICT FILTER: Only include explicit Buy/Sell actions.
-                    # Exclude 'override', 'correction', 'allocation' to prevent DeepSeek double-counting corrections as new trades.
-                    valid_types = ['buy', 'sell']
-                    real_trades = []
-                    for t in all_trades:
-                        t_type = str(t.get('type', '')).strip().lower()
-                        if t_type in valid_types and t.get('amount', 0) > 0:
-                            # Standardize type for downstream logic
-                            t['type'] = t_type 
-                            real_trades.append(t)
-                    
                     history_context_lines = ["\n[历史研判参考 (Previous AI Analysis & User Execution)]"]
                     
                     logs_asc = sorted(history_logs, key=lambda x: x['timestamp'])
