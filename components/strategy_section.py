@@ -657,7 +657,7 @@ def render_strategy_section(code: str, name: str, price: float, shares_held: int
                 st.warning("请在侧边栏设置 DeepSeek API Key")
             else:
                 with st.spinner(f"🧠 正在构建提示词上下文..."):
-                    from utils.ai_advisor import build_advisor_prompt, call_deepseek_api
+                    from utils.ai_advisor import build_advisor_prompt, call_deepseek_api, build_refinement_prompt
                     from utils.intel_manager import get_claims_for_prompt
                     from utils.intelligence_processor import summarize_intelligence
                     from utils.data_fetcher import aggregate_minute_to_daily, get_price_precision, analyze_intraday_pattern, get_stock_fund_flow, get_stock_fund_flow_history, get_stock_news, get_stock_news_raw
