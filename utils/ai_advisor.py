@@ -50,14 +50,18 @@ def build_advisor_prompt(context_data, research_context="", technical_indicators
 
     # 2. Format Base
     # Calculate Price Limits
-    # Calculate Price Limits
     if 'code' in context_data:
-         # Use explicit base price for limit calc if provided (e.g. for forecasting tomorrow's limits based on today's close)
-         # Otherwise default to pre_close (Yesterday's close)
-         limit_base = float(context_data.get('limit_base_price', 0))
+         # [Business Logic] Base Price Selection for Limit Calculation
+         m_status = context_data.get('market_status')
          
-         if limit_base == 0:
+         if m_status == "CLOSED_POST":
+             # Post-market: Forecasting for NEXT Day, use Today's Close as base
+             limit_base = float(context_data.get('price', 0))
+         else:
+             # Pre-market or Noon-market: Working with TODAY's limits, use Yesterday's Close as base
+             # Even if 'limit_base_price' is passed from UI, we override it for correctness in NOON mode
              limit_base = float(context_data.get('pre_close', 0))
+             
          if limit_base == 0: 
              limit_base = float(context_data.get('price', 0))
          
