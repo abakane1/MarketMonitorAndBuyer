@@ -212,20 +212,37 @@ def load_config():
         # return DEFAULT_CONFIG
 
 def save_config(config_data):
-    # Deep copy to avoid modifying memory state
+    """
+    Saves configuration with MERGE logic to preserve existing fields (like API Keys).
+    """
     import copy
-    data_to_save = copy.deepcopy(config_data)
+    new_data = copy.deepcopy(config_data)
     
-    # v2.5.1: Save Prompts to separate file
-    if "prompts" in data_to_save and isinstance(data_to_save["prompts"], dict):
-        encrypted_prompts = encrypt_dict(data_to_save["prompts"])
+    # 1. Load existing file to perform a merge
+    existing_data = {}
+    if os.path.exists(CONFIG_FILE):
+        try:
+            with open(CONFIG_FILE, "r", encoding='utf-8') as f:
+                existing_data = json.load(f)
+        except:
+            pass
+            
+    # 2. Extract and Save Prompts separately (v2.5.1)
+    if "prompts" in new_data and isinstance(new_data["prompts"], dict):
+        encrypted_prompts = encrypt_dict(new_data["prompts"])
         with open(PROMPTS_FILE, "w", encoding='utf-8') as pf:
             json.dump({"prompts": encrypted_prompts, "version": "2.5.1"}, pf, ensure_ascii=False, indent=2)
-        # Remove from main config
-        del data_to_save["prompts"]
+        # Remove from new_data to avoid double storage
+        del new_data["prompts"]
+
+    # 3. Perform Merge: prioritized new_data over existing_data
+    # This ensures API Keys existing in file but missing in memory are preserved.
+    final_data = existing_data.copy()
+    final_data.update(new_data)
         
+    # 4. Atomic Write
     with open(CONFIG_FILE, "w", encoding='utf-8') as f:
-        json.dump(data_to_save, f, ensure_ascii=False, indent=2)
+        json.dump(final_data, f, ensure_ascii=False, indent=2)
 
 # load/save_selected_stocks moved to bottom to use DB
 
