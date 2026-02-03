@@ -219,11 +219,23 @@ def build_advisor_prompt(context_data, research_context="", technical_indicators
             except Exception as e:
                 print(f"Error loading history for RAG: {e}")
 
-        if intraday_summary and context_data.get('market_status') != "OPEN_INTRADAY":
-            final_research_context += f"\n\n[分时盘口特征汇要]\n{intraday_summary}"
-        elif intraday_summary:
-            # For intraday, keep it very brief
-            final_research_context += f"\n\n[盘中分时状态]: {intraday_summary[:100]}..."
+        if intraday_summary:
+            m_status = context_data.get('market_status')
+            if m_status in ["PRE_OPEN", "CLOSED_NOON"]:
+                # Pre-market or Noon: Intraday data is from YESTERDAY
+                header = "[昨日分时盘口回顾 (Historical/Yesterday's Intraday)]"
+            elif m_status == "CLOSED_POST":
+                # Post-market: Intraday data is from TODAY
+                header = "[今日分时特征总结 (Today's Intraday Reflection)]"
+            elif m_status == "OPEN_INTRADAY":
+                header = "[盘中实时分时状态]"
+            else:
+                header = "[分时盘口特征汇要]"
+                
+            if m_status == "OPEN_INTRADAY":
+                final_research_context += f"\n\n{header}: {intraday_summary[:100]}..."
+            else:
+                final_research_context += f"\n\n{header}\n{intraday_summary}"
 
         suffix_data = {
             "daily_stats": technical_indicators.get('daily_stats', 'N/A'),
