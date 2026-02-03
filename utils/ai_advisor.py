@@ -164,9 +164,9 @@ def build_advisor_prompt(context_data, research_context="", technical_indicators
                         t['type'] = t_type 
                         real_trades.append(t)
                 
-                # 1b. [NEW] Add a dedicated Recent Execution Registry (Indep. of Analysis Logs)
+                # 1b. [Digital Twin v4.0] Dedicated Recent Execution Registry
                 if real_trades:
-                    exec_lines = ["\n[近期实操成交流水 (Recent Real-world Trades)]"]
+                    exec_lines = ["\n[🚨 数字化身：近期实操成交流水 (User Real-world Behavior Snapshot)]"]
                     # Last 5 trades descending
                     latest_trades = sorted(real_trades, key=lambda x: x['timestamp'], reverse=True)[:5]
                     for lt in latest_trades:
@@ -223,8 +223,13 @@ def build_advisor_prompt(context_data, research_context="", technical_indicators
                     # Add User Action Summary (Holistic View)
                     pos_now = context_data.get('shares', 0)
                     cost_now = context_data.get('avg_cost', context_data.get('cost', 0))
-                    history_context_lines.append(f"\n【用户当前状态反馈】: 持仓 {pos_now} 股，成本 {cost_now}。")
-                    history_context_lines.append(f"【⚠️ 指令】: 请思考用户是否执行了你上一次的建议？如果用户没动，分析原因（是执行力问题还是你的止损位设得太远？），并在本次策略中做出针对性改进。")
+                    base_locked = context_data.get('base_shares', 0)
+                    
+                    history_context_lines.append(f"\n【用户当前状态看板】: 当前总持仓 {pos_now} 股，成本 {cost_now}。")
+                    if base_locked > 0:
+                        history_context_lines.append(f"【🔒 核心禁忌】: 用户已锁定底仓 {base_locked} 股。除非涉及清仓离场，否则你严禁触动该底仓。")
+                    
+                    history_context_lines.append(f"【⚠️ 数字化身指令】: 深度思考你之前的建议是否被用户采纳？如果是被拒绝了，分析用户当时避开了什么风险，或者在等待什么机会？在本次化身决策中，请继承这一行为惯性并进行优化。")
                     
                     final_research_context += "\n" + "\n".join(history_context_lines)
             except Exception as e:
