@@ -527,12 +527,13 @@ def render_strategy_section(code: str, name: str, price: float, shares_held: int
             ts = ai_strat_log['timestamp'][5:16]
             st.caption(f"📅 最后生成: {ts}")
             
-            # --- Simple Parser (Reuse original logic) ---
+            # --- Simple Parser (Scenario Aware) ---
             ai_signal = "N/A"
             pos_txt = "N/A"
             stop_loss_txt = "N/A"
             entry_txt = "N/A"
             take_profit_txt = "N/A"
+            scenario_key_txt = ""
 
             block_match = re.search(r"【决策摘要】(.*)", content, re.DOTALL)
             if block_match:
@@ -553,42 +554,60 @@ def render_strategy_section(code: str, name: str, price: float, shares_held: int
                 if sl_match: stop_loss_txt = sl_match.group(3).replace("[","").replace("]","").strip()
                     
                 tp_match = re.search(r"(止盈|目标)(价格)?:\s*(\[)?(.*?)(])?\n", block_content)
-                if not tp_match: tp_match = re.search(r"(止盈|目标)(价格)?:\s*(\[)?(.*?)(])?$", block_content, re.MULTILINE)
+                if not tp_match: tp_match = re.search(r"(止盈|目标)(价格)?:\s*(\[)?(.*?)?$", block_content, re.MULTILINE)
                 if tp_match: take_profit_txt = tp_match.group(4).replace("[","").replace("]","").strip()
+                
+                sk_match = re.search(r"场景重点:\s*(\[)?(.*?)(])?\n", block_content)
+                if not sk_match: sk_match = re.search(r"场景重点:\s*(.*)", block_content)
+                if sk_match: scenario_key_txt = sk_match.group(2) if len(sk_match.groups())>1 else sk_match.group(1)
 
             else:
                 signal_match = re.search(r"【(买入|卖出|做空|观望|持有)】", content)
                 ai_signal = signal_match.group(1) if signal_match else "N/A"
                 lines = content.split('\n')
                 for line in lines:
-                    if "止损" in line: stop_loss_txt = line.split(":")[-1].strip().replace("元","")[:10]
-                    if "止盈" in line or "目标" in line: take_profit_txt = line.split(":")[-1].strip().replace("元","")[:10]
-                    if "股数" in line or "仓位" in line: pos_txt = line.split(":")[-1].strip()[:10]
+                    if "止损" in line: stop_loss_txt = line.split(":")[-1].strip().replace("元","")
+                    if "止盈" in line or "目标" in line: take_profit_txt = line.split(":")[-1].strip().replace("元","")
+                    if "股数" in line or "仓位" in line: pos_txt = line.split(":")[-1].strip()
             
             if "N/A" in ai_signal and "观望" in content: ai_signal = "观望"
             
-            ai_col1, ai_col2, ai_col3, ai_col4, ai_col5 = st.columns(5)
+            # --- New UI Layout: Scenario-Tactics Header ---
             s_color = "grey"
             if ai_signal in ["买入", "做多"]: s_color = "green"
-            if ai_signal in ["卖出", "做空"]: s_color = "red"
+            elif ai_signal in ["卖出", "做空"]: s_color = "red"
+            
             pos_val, pos_note = extract_bracket_content(pos_txt if pos_txt != "N/A" else "--")
             sl_val, sl_note = extract_bracket_content(stop_loss_txt if stop_loss_txt != "N/A" else "--")
             tp_val, tp_note = extract_bracket_content(take_profit_txt if take_profit_txt != "N/A" else "--")
             entry_val, entry_note = extract_bracket_content(entry_txt if entry_txt != "N/A" else "--")
 
-            ai_col1.markdown(f"**AI建议**: :{s_color}[{ai_signal}]")
+            # 1. Primary Action Row
+            st.subheader(f"🎯 AI 执行令: :{s_color}[{ai_signal}]")
             
-            ai_col2.metric("建议价格", entry_val)
-            if entry_note: ai_col2.caption(f"({entry_note})")
+            # Use 3 columns for better width distribution
+            act_col1, act_col2, act_col3 = st.columns([1, 1.5, 1.5])
+            with act_col1:
+                st.metric("核心价格区间", entry_val)
+                if entry_note: st.caption(f"💡 {entry_note}")
+            with act_col2:
+                st.metric("止损参考点", sl_val)
+                if sl_note: st.caption(f"🛡️ {sl_note}")
+            with act_col3:
+                st.metric("止盈/目标位", tp_val)
+                if tp_note: st.caption(f"💰 {tp_note}")
             
-            ai_col3.metric("建议股数", pos_val)
-            if pos_note: ai_col3.caption(f"({pos_note})")
+            # 2. Strategy & Scenario Details (Wide)
+            st.markdown(f"🚩 **建议股数/风控注记**: {pos_val} " + (f" *({pos_note})*" if pos_note else ""))
             
-            ai_col4.metric("止损参考", sl_val)
-            if sl_note: ai_col4.caption(f"({sl_note})")
+            # [NEW] Scenario Tactics Highlighting
+            scenario_match = re.search(r"【场景对策】(.*?)【", content, re.DOTALL)
+            if not scenario_match: scenario_match = re.search(r"【场景对策】(.*)", content, re.DOTALL)
             
-            ai_col5.metric("止盈参考", tp_val)
-            if tp_note: ai_col5.caption(f"({tp_note})")
+            if scenario_match or scenario_key_txt:
+                with st.container():
+                    st.info(f"🎭 **今日命门 & 场景推演**\n\n**场景核心**: {scenario_key_txt if scenario_key_txt else '见完整报告'}\n\n" + 
+                            (scenario_match.group(1).strip() if scenario_match else ""))
             
             with st.expander("📄 查看完整策略报告", expanded=False):
                 st.markdown(content)
