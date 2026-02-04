@@ -1156,10 +1156,8 @@ def render_strategy_section(code: str, name: str, price: float, shares_held: int
                         
                         if not has_details and "# 🧠 Round 1: Strategy Draft" in p_text:
                             with st.expander("📝 全流程详情 (Full Process History - Legacy)", expanded=True):
-                                # ... existing logic ...
-                                # Split by Headers
-                                # We can uses Tabs for rounds
-                                h_tab1, h_tab2, h_tab3, h_tab4 = st.tabs(["Draft (草案)", "Audit (初雪)", "Refine (反思)", "Final (终审)"])
+                                # Correct Labels and Sequence
+                                h_tab1, h_tab2, h_tab3, h_tab4 = st.tabs(["1. Draft (草案)", "2. Audit (初审)", "3. Refine (反思)", "4. Final (决策)"])
                                 
                                 def extract_section(full_txt, start_marker, end_marker=None):
                                     try:
@@ -1177,22 +1175,23 @@ def render_strategy_section(code: str, name: str, price: float, shares_held: int
                                         return "N/A"
                                 
                                 with h_tab1:
-                                    st.caption("🔵 Blue Team - Initial Prompt")
-                                    s1 = extract_section(p_text, "# 🧠 Round 1: Strategy Draft", "# 🛡️ Round 1: Red Audit")
+                                    st.caption("🔵 Blue Team - Initial Strategy Proposal")
+                                    s1 = extract_section(p_text, "## System", "---") # Legacy draft starts with ## System
+                                    if s1 == "N/A": s1 = extract_section(p_text, "# 🧠 Round 1: Strategy Draft", "# 🛡️ Round 1: Red Audit")
                                     st.code(s1, language='text')
 
                                 with h_tab2:
-                                    st.caption("🔴 Red Team - Audit Round 1")
+                                    st.caption("🔴 Red Team - Risk & Consistency Audit (Round 1)")
                                     s2 = extract_section(p_text, "# 🛡️ Round 1: Red Audit", "# 🔄 Round 2: Refinement")
                                     st.code(s2, language='text')
 
                                 with h_tab3:
-                                    st.caption("🔵 Blue Team - Refinement (Reaction to Audit)")
+                                    st.caption("🔵 Blue Team - Refined Strategy based on Audit")
                                     s3 = extract_section(p_text, "# 🔄 Round 2: Refinement", "# ⚖️ Final Verdict")
                                     st.code(s3, language='text')
                                     
                                 with h_tab4:
-                                    st.caption("🔴 Red Team - Final Verdict")
+                                    st.caption("⚖️ Blue Commander - Final Signature")
                                     s4 = extract_section(p_text, "# ⚖️ Final Verdict")
                                     st.code(s4, language='text')
 
