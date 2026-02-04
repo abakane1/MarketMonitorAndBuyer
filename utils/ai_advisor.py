@@ -580,12 +580,36 @@ def build_final_decision_prompt(aggregated_history: list, prompt_templates=None,
         name = context_data.get('name', 'N/A')
         target_info = f"【{code} / {name}】"
 
-    # 2. Aggregating History for Contextual Awareness
-    # If the input is just string (legacy fallback), wrap it
+    # 2. Aggregating History with Structural Semantic Labels [v4.3 Enhanced]
+    labels = [
+        "【1. 蓝军初始草案 (Draft v1.0)】",
+        "【2. 红军初审审计 (Audit Round 1)】",
+        "【3. 蓝军反思优化 (Refined Strategy v2.0)】",
+        "【4. 红军终极裁决 (Final Verdict)】"
+    ]
+    
     if isinstance(aggregated_history, str):
-        history_text = f"【最终审计意见】:\n{aggregated_history}"
+        history_text = f"【博弈记录】:\n{aggregated_history}"
     else:
-        history_text = "\n\n".join([f"--- 回合 #{i+1} ---\n{step}" for i, step in enumerate(aggregated_history)])
+        history_items = []
+        for i, step in enumerate(aggregated_history):
+            label = labels[i] if i < len(labels) else f"【回合 #{i+1}】"
+            history_items.append(f"{label}\n{step}")
+        history_text = "\n\n".join(history_items)
+
+    # 2b. [CRITICAL] Re-inject Initial Context (行情背景)
+    # This prevents the "Context Vacuum" during the final signature
+    core_context = ""
+    if context_data:
+        p = context_data.get('price', '--')
+        pc = context_data.get('pre_close', '--')
+        cp = context_data.get('change_pct', 0.0)
+        core_context = f"""
+### [核心行情快照 (Base Context Re-injection)]
+标的: {target_info}
+最新价: {p} | 昨收: {pc} | 涨跌幅: {cp:.2f}%
+当前持仓: {context_data.get('shares', 0)} 股 | 成本: {context_data.get('cost', 0)}
+"""
 
     # 3. System Prompt (Reuse Blue Team)
     sys_key = "proposer_system"
@@ -593,25 +617,32 @@ def build_final_decision_prompt(aggregated_history: list, prompt_templates=None,
     system_prompt = prompt_templates.get(sys_key, default_sys)
     
     # 4. User Prompt (Decision Instruction)
+    # Using triple-quoted string to ensure formatting
     default_instr = f"""
-【指令】
-以下是针对 {target_info} 进行的 5 个步骤博弈中的前 4 步全量记录（包含初始草案、红军审计、蓝军反思、红军终审）：
+{core_context}
+
+【全量博弈决策追踪】
+以下是针对 {target_info} 进行的 5 个步骤全自动博弈模组中的前 4 步全量记录：
 
 {history_text}
 
-请作为蓝军主帅 (Commander)，综合以上【全博弈记录】中的数据、逻辑、分歧点及最终共识，签署该标的的 **最终执行令 (Final Order)**。
-【强制锚定】: 请务必确保签署的是 {target_info} 的执行令，严禁提及或受历史参考记录中其他标的（如荣盛发展等）的误导。
-此指令将直接录入交易系统，请确保格式精确。
+---
+【最终主帅执行令 (v4.3 - Commander Signature)】
+请作为蓝军主帅 (Commander)，在全面复审上述从“草案”到“终审”的逻辑冲突点、风险点及最终共识后，签署该标的的 **最终执行令 (Final Order)**。
 
-【必须严格遵循以下输出格式】:
+【签署禁令】: 
+1. **标的锁定**: 严禁提及或受历史参考记录中其他无关标的（如荣盛发展等）的误导。目前的博弈对象仅为 {target_info}。
+2. **逻辑穿透**: 即使红军在终审中提出了异议，若蓝军认为在该行情背景下风险可控且符合 LAG 进攻逻辑，蓝军主帅有权维持优化后的方案，但需在决策依据中注明。
+
+【执行令格式】:
 【标的】: {target_info}
 【方向】: [买入/卖出/观望/持有/调仓]
-【价格】: [具体价格]
-【数量】: [具体股数]
-【止损】: [具体价格]
-【止盈】: [具体价格]
-【有效期】: [仅限今日/明日/下一交易日]
-【决策依据】: [简述理由，需概括前序博弈的关键冲突解决或共识点]
+【建议价格/区间】: [具体数值]
+【建议股数/偏好】: [具体建议]
+【止损参考】: [具体数值]
+【止盈参考】: [具体数值]
+【今日场景重点】: [对齐 v4.2 场景演变的一句话核心]
+【最终决策依据】: [简述理由，必须涵盖对前序审计分歧点的综合权衡]
 """
     user_tpl = prompt_templates.get("proposer_final_decision", default_instr)
     
