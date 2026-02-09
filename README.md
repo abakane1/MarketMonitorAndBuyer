@@ -1,6 +1,6 @@
 # A股智能盯盘与辅助交易系统 (AShare-Monitor) v2.7.1
 
-这是一个基于 Streamlit 构建的 **AI 驱动型** A 股辅助决策系统。v2.5.0 引入了行业首创的 **"Blue Legion (蓝军军团)"** 混合专家架构 (MoE)，结合 **DeepSeek (红军风控)**，为投资者提供机构级的战术规划与风险审计。
+这是一个基于 Streamlit 构建的 **AI 驱动型** A 股辅助决策系统。v2.7.1 在 **"Blue Legion (蓝军军团)"** 混合专家架构 (MoE) 基础上进一步强化了环境鲁棒性与数据稳定性。
 
 ## 核心功能 (Core Features)
 
@@ -49,5 +49,5 @@ pip install -r requirements.txt
 
 为维护长期可维护性，本项目严格遵循以下更新策略：
 1.  **版本同步**: `VERSION` 变动时，必须同步更新 `CHANGELOG.md` (详细日志) 和 `README.md` (功能摘要)。
-2.  **README 对齐**: `README.md` 必须反映当前版本的核心架构 (如 v2.5.0 的 MoE 机制)，严禁保留误导性的旧版本描述。
+2.  **README 对齐**: `README.md` 必须反映当前版本的核心架构 (如 v2.7.1 的环境自修复与 MoE 机制)，严禁保留误导性的旧版本描述。
 3.  **双模一致**: 无论是 Auto-Drive 还是 Manual 模式，底层必须调用相同的业务逻辑函数 (如 `run_blue_legion`)。
