@@ -227,52 +227,124 @@ def render_stock_dashboard(code: str, name: str, total_capital: float, risk_pct:
         else:
             st.info("暂无本地分时数据")
             
-    # 2. Volume Profile
-    with st.expander("📊 筹码分布 (Volume Profile)", expanded=False):
-        with st.expander("ℹ️ 什么是筹码分布？", expanded=False):
-            st.markdown("""
-            **筹码分布 (Volume by Price)**
-            此图表统计了在统计区间内，每个价格价位上累计成交了多少股票。
-            - **柱子高度**：代表该价格的成交量大小。
-            - **作用**：成交量密集的区域（高柱子）往往构成**支撑位**或**阻力位**。
-            """)
+    # 2. Volume Profile (Enhanced with CYQ)
+    with st.expander("📊 筹码分布 (Volume Profile & CYQ)", expanded=False):
+        vp_tab1, vp_tab2 = st.tabs(["📉 基础筹码 (Simple)", "🧠 智能CYQ (Advanced)"])
         
-        vol_profile, meta = get_volume_profile(code)
-        if not vol_profile.empty:
-            start_str = str(meta.get('start_date'))
-            end_str = str(meta.get('end_date'))
-            st.caption(f"📅 统计区间: {start_str} 至 {end_str}")
+        # --- TAB 1: Simple Volume Profile ---
+        with vp_tab1:
+            with st.expander("ℹ️ 什么是基础筹码分布？", expanded=False):
+                st.markdown("""
+                **基础筹码 (Volume by Price)**
+                基于近期分时成交量统计。
+                - **柱子高度**：代表该价格的成交量大小。
+                - **局限性**：无法识别卖出行为导致的筹码转移。
+                """)
             
-            # Show file modification time to verify freshness
-            from utils.storage import get_file_path
-            f_path = get_file_path(code, 'minute')
-            if os.path.exists(f_path):
-                mtime = os.path.getmtime(f_path)
-                mtime_str = datetime.datetime.fromtimestamp(mtime).strftime('%Y-%m-%d %H:%M:%S')
-                st.caption(f"🕒 本地分时数据最后更新: {mtime_str}")
+            vol_profile, meta = get_volume_profile(code)
+            if not vol_profile.empty:
+                # ... (Existing Logic) ...
+                start_str = str(meta.get('start_date'))
+                end_str = str(meta.get('end_date'))
+                st.caption(f"📅 统计区间: {start_str} 至 {end_str}")
+                
+                is_log = st.checkbox("📐 对数坐标", value=True, key=f"vol_log_{code}")
+                
+                fig_vol = go.Figure()
+                fig_vol.add_trace(go.Bar(
+                    x=vol_profile['price_bin'],
+                    y=vol_profile['成交量'],
+                    name='成交量',
+                    marker_color='rgba(50, 100, 255, 0.6)'
+                ))
+                fig_vol.add_vline(x=price, line_dash="dash", line_color="red", annotation_text="当前价")
+                fig_vol.update_layout(
+                    margin=dict(l=0, r=0, t=10, b=0),
+                    height=300,
+                    yaxis_title="成交量 (对数)" if is_log else "成交量",
+                    yaxis_type="log" if is_log else "linear",
+                    xaxis_title="价格",
+                    hovermode="x unified"
+                )
+                st.plotly_chart(fig_vol, use_container_width=True)
+            else:
+                st.info("无本地历史数据。请点击侧边栏的“下载/更新历史数据”按钮。")
+
+        # --- TAB 2: Advanced CYQ ---
+        with vp_tab2:
+            st.caption("🚀 **智能 CYQ 模型 (Cost Distribution)**: 引入【换手率衰减算法】，模拟真实筹码转移。")
             
-            # [Added] Log Scale toggle to make small bars visible
-            is_log = st.checkbox("📐 对数坐标 (增强小成交量可见性)", value=True, key=f"vol_log_{code}")
-            
-            fig_vol = go.Figure()
-            fig_vol.add_trace(go.Bar(
-                x=vol_profile['price_bin'],
-                y=vol_profile['成交量'],
-                name='成交量',
-                marker_color='rgba(50, 100, 255, 0.6)'
-            ))
-            fig_vol.add_vline(x=price, line_dash="dash", line_color="red", annotation_text="当前价")
-            fig_vol.update_layout(
-                margin=dict(l=0, r=0, t=10, b=0),
-                height=300,
-                yaxis_title="成交量 (对数)" if is_log else "成交量",
-                yaxis_type="log" if is_log else "linear",
-                xaxis_title="价格",
-                hovermode="x unified"
-            )
-            st.plotly_chart(fig_vol, use_container_width=True) # use_container_width=True in Streamlit params usually
-        else:
-            st.info("无本地历史数据。请点击侧边栏的“下载/更新历史数据”按钮。")
+            # Fetch Long History on demand
+            if st.button("🧮 计算 CYQ 筹码分布", key=f"calc_cyq_{code}"):
+                with st.spinner("正在回溯历史交易数据 (365天)..."):
+                    from utils.data_fetcher import get_stock_daily_history
+                    from utils.cyq_algorithm import calculate_cyq
+                    
+                    # Fetch 1 year history
+                    daily_long = get_stock_daily_history(code, days=365)
+                    
+                    if daily_long.empty:
+                        st.error("无法获取足够的历史日线数据进行计算。")
+                    else:
+                        cyq_df, metrics = calculate_cyq(daily_long, current_price=price, price_bins=120)
+                        
+                        if cyq_df.empty:
+                            st.warning("数据不足，无法生成分布图。")
+                        else:
+                            # Visualization
+                            st.divider()
+                            c_m1, c_m2, c_m3 = st.columns(3)
+                            c_m1.metric("平均成本 (Avg Cost)", f"{metrics['avg_cost']:.2f}", delta=f"{(price - metrics['avg_cost']):.2f}")
+                            c_m2.metric("获利盘比例 (Profit %)", f"{metrics['winner_ratio']*100:.1f}%")
+                            c_m3.metric("统计天数", len(daily_long))
+                            
+                            # Histogram Splitting
+                            # Winner Chips: Price < Current Price (Red)
+                            # Loser Chips: Price > Current Price (Green/Blue)
+                            mask_win = cyq_df['price'] < price
+                            mask_lose = cyq_df['price'] >= price
+                            
+                            fig_cyq = go.Figure()
+                            
+                            # Winners
+                            fig_cyq.add_trace(go.Bar(
+                                x=cyq_df[mask_win]['price'],
+                                y=cyq_df[mask_win]['volume'],
+                                name='获利盘 (Profit)',
+                                marker_color='rgba(255, 80, 80, 0.7)', # Red
+                                marker_line_width=0
+                            ))
+                            
+                            # Losers
+                            fig_cyq.add_trace(go.Bar(
+                                x=cyq_df[mask_lose]['price'],
+                                y=cyq_df[mask_lose]['volume'],
+                                name='套牢盘 (Loss)',
+                                marker_color='rgba(60, 180, 75, 0.7)', # Green
+                                marker_line_width=0
+                            ))
+                            
+                            fig_cyq.add_vline(x=price, line_width=2, line_color="black", annotation_text="当前价")
+                            fig_cyq.add_vline(x=metrics['avg_cost'], line_dash="dot", line_color="blue", annotation_text="平均成本")
+                            
+                            fig_cyq.update_layout(
+                                barmode='stack',
+                                margin=dict(l=0, r=0, t=30, b=0),
+                                height=350,
+                                xaxis_title="持仓成本",
+                                yaxis_title="筹码量 (估算)",
+                                hovermode="x unified",
+                                showlegend=True,
+                                legend=dict(orientation="h", yanchor="bottom", y=1.02, xanchor="right", x=1)
+                            )
+                            st.plotly_chart(fig_cyq, use_container_width=True)
+                            
+                            st.info("""
+                            **图解说明**:
+                            - 🟥 **红色区域**: 获利盘 (成本 < 当前价)，这也是潜在的抛压来源。
+                            - 🟩 **绿色区域**: 套牢盘 (成本 > 当前价)，往往构成上行阻力。
+                            - 🔵 **平均成本线**: 市场平均持仓成本位，是重要的多空分界线。
+                            """)
             
     # 3. Fund Flow
     with st.expander("💰 资金流向 (Fund Flow)", expanded=False):

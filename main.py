@@ -10,7 +10,7 @@ from components.dashboard import render_stock_dashboard, render_strategy_section
 
 # Page Configuration
 st.set_page_config(
-    page_title="MarketMonitor v1.3.1",
+    page_title="MarketMonitor v2.7.1",
     page_icon="📈",
     layout="wide",
     initial_sidebar_state="expanded",
@@ -51,7 +51,7 @@ from utils.database import init_db
 init_db()
 
 # --- Main App ---
-st.title("📈 A股复盘与预判辅助系统 v1.3.1")
+st.title("📈 A股复盘与预判辅助系统 v2.7.1")
 
 # Sidebar
 sidebar_data = render_sidebar()

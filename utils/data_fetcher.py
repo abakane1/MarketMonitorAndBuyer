@@ -598,14 +598,14 @@ def _fetch_minute_data_sina(symbol: str) -> pd.DataFrame:
     return df
 
 @retry_with_backoff(retries=3, backoff_in_seconds=2)
-def get_stock_daily_history(symbol: str) -> pd.DataFrame:
+def get_stock_daily_history(symbol: str, days: int = 30) -> pd.DataFrame:
     """
-    Fetch daily history (last 30 days) to get Pre-Close.
+    Fetch daily history (default last 30 days) to get Pre-Close.
     """
     try:
          # Try ETF
         is_etf = symbol.startswith(('51', '588', '15'))
-        start_date = (datetime.now() - pd.Timedelta(days=30)).strftime("%Y%m%d")
+        start_date = (datetime.now() - pd.Timedelta(days=days)).strftime("%Y%m%d")
         end_date = datetime.now().strftime("%Y%m%d")
         
         if is_etf:

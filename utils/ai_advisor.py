@@ -224,8 +224,23 @@ def build_advisor_prompt(context_data, research_context="", technical_indicators
                     pos_now = context_data.get('shares', 0)
                     cost_now = context_data.get('avg_cost', context_data.get('cost', 0))
                     base_locked = context_data.get('base_shares', 0)
+                    price_now = float(context_data.get('price', 0))
                     
-                    history_context_lines.append(f"\n【用户当前状态看板】: 当前总持仓 {pos_now} 股，成本 {cost_now}。")
+                    # [Context Fix] Calculate Position Ratios explicitly
+                    total_cap = float(context_data.get('total_capital', 0))
+                    alloc_cap = float(context_data.get('capital_allocation', 0))
+                    avail_cash = float(context_data.get('available_cash', 0))
+                    
+                    mkt_val = pos_now * price_now
+                    ratio_total = (mkt_val / total_cap * 100) if total_cap > 0 else 0
+                    ratio_alloc = (mkt_val / alloc_cap * 100) if alloc_cap > 0 else 0
+                    
+                    history_context_lines.append(f"\n【用户当前状态看板 (Position Health)】:")
+                    history_context_lines.append(f"- 持仓状态: 总持仓 {pos_now} 股，成本 {cost_now:.4f}，最新市值 {int(mkt_val)}。")
+                    history_context_lines.append(f"- 仓位水位: 占总资金 **{ratio_total:.1f}%** (Total: {int(total_cap)})" + 
+                                               (f"，占单股限额 **{ratio_alloc:.1f}%** (Limit: {int(alloc_cap)})" if alloc_cap > 0 else "") + "。")
+                    history_context_lines.append(f"- 剩余弹药: 可用现金 **{int(avail_cash)}**。")
+                    
                     if base_locked > 0:
                         history_context_lines.append(f"【🔒 核心禁忌】: 用户已锁定底仓 {base_locked} 股。除非涉及清仓离场，否则你严禁触动该底仓。")
                     
@@ -481,6 +496,12 @@ def build_red_team_prompt(context_data, prompt_templates=None, is_final_round=Fa
     
     try:
         user_prompt = user_tpl.format(**context_data)
+        
+        # [PATCH] Inject History if available (for Final Verdict)
+        if context_data.get('history_summary'):
+             # Prepend context so the auditor reads history first, then the current plan
+             user_prompt = f"{context_data['history_summary']}\n\n{user_prompt}"
+
         if is_final_round and "reviewer_final_audit" not in prompt_templates:
             user_prompt += "\n\n(This is the Final Round Audit for v2.0)"
             
@@ -648,7 +669,7 @@ def build_final_decision_prompt(aggregated_history: list, prompt_templates=None,
     
     try:
         # Note: If user_tpl contains other keys, this might need refinement
-        user_prompt = user_tpl.format(final_verdict="[Aggregated History Mode]") if "{final_verdict}" in user_tpl else user_tpl
+        user_prompt = user_tpl.format(final_verdict=history_text) if "{final_verdict}" in user_tpl else user_tpl
         return system_prompt, user_prompt
     except Exception as e:
         return system_prompt, default_instr # Fallback

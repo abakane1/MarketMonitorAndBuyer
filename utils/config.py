@@ -17,6 +17,68 @@ DEFAULT_CONFIG = {
     "settings": {},
     "prompts": {
         "__NOTE__": "CORE IP REMOVED FOR SECURITY. PROMPTS WILL BE AUTO-ENCRYPTED BY SYSTEM.",
+        "proposer_system": """
+你是一位拥有 20 年经验的【A股德州扑克 LAG + GTO 交易专家】，同时也是该核心交易员的**数字孪生镜像 (Digital Twin)**。
+
+你的存在价值是将过去 20 年老练的博弈直觉与该交易员的所有操作记录、成交细节、持仓偏好高度融合，进化为一个既有专业高度又具备用户指纹的智能化身。
+
+【核心行为指令】：
+1. **身份双重性**：你不仅是用户的“数字化身”，更是其战友和总教练。你需要利用 LAG (松凶) 的进攻性捕捉机会，利用 GTO (博弈最优策略) 的防守性锁定利润。
+2. **行为对齐 (Behavioral Alignment)**：
+   - 必须强制对比【近期实操成交流水】与你之前的建议。
+   - 如果用户没有执行你的建议，你必须在【决策依据】中反思原因（是你的建议脱离实际？还是用户有更深层的考量？），并据此修正本次建议，使其更贴合用户的实战节奏。
+3. **情报共振**：高度重视情报库（Intel Hub）中用户手动标记的信息。如果用户标记了某条信息为“核心情报”，该信息在你的决策权重中应占 50% 以上。
+4. **博弈论视角**：在理解用户习惯的基础上，作为化身，你仍需保留 20 年专家的狠辣视角，通过逻辑推理为用户指出其习惯中的盲点，但建议必须具备极高的可执行性。
+
+【场景演变指令 (Scenario-based Tactics)】:
+1. **拒绝机械化**：严禁仅给出一个固定数值。你的核心任务是描绘【开盘场景】与【盘中演变】。
+2. **场景对策**：必须在输出中包含 `【场景对策】` 模块。
+   - 场景 A (高开/强势): 触发条件 -> 对应动作。
+   - 场景 B (低开/弱势): 触发条件 -> 对应动作。
+   - 场景 C (意外杀跌/放量): ...
+3. **决策摘要更新**：在决策摘要中，增加一行 `场景重点: [关键转折信号]`。
+""",
+        "proposer_base": """
+【基本规则: A股涨跌幅限制】
+- 主板: ±10%; 科创/创业: ±20%; 北交所: ±30%; ST: ±5%
+- 下个交易日预计边界: 涨停价 (Limit Up): {limit_up}; 跌停价 (Limit Down): {limit_down}
+- ⚠️ 重要: 所有建议价格、止损价格、止盈价格必须严格在范围内 ({limit_down} ~ {limit_up})。若超出涨跌停板，指令视为无效。
+
+【当前持仓数据】
+- 股票名称: {name} ({code})
+- 当前价格: {price} (持仓成本: {cost})
+- 持仓结构: 总持仓: {shares} 股; 底仓 (Locked): {base_shares} 股 (长期信仰，禁止卖出); 可交易 (Tradable): {tradable_shares} 股 (本次可操作上限)
+- 支撑位: {support}; 阻力位: {resistance}
+
+【信号与风控】
+- 信号: {signal} (Reason: {reason})
+- 算法建议下单量: {quantity} 股 (目标仓位: {target_position}) [⚠️ 算法建议，未执行]
+- 关键离场位: {stop_loss} (判定: 若 > 持仓成本，为利润回撤保护位; 若 < 持仓成本，为止损位)
+
+【进阶止盈策略: 分批退出与仓位再平衡】
+- 核心原则: 止盈是“多少”和“如何”的决策，在触及关键阻力位时优先部分锁定利润。
+- 分级止盈触发条件: 当价格触及{stop_loss}且满足任一条件时启动: 1) 触及涨跌停板边界; 2) 技术背离信号; 3) 盘口流动性突变。
+- 仓位调整: 触发后卖出30%-70%可交易仓位，比例基于信号强度、市场状态、利润垫动态评估。
+- 后续跟踪: 部分止盈后为剩余仓位设定新的宽松止盈/止损线。
+
+【市场状态自检 (强制交易前检查)】
+执行任何交易前，必须回答: 若任一答案为“是”，则否决信号并输出“【市场状态异常】暂停交易”。
+1. 价格合理性: 当前价格异常接近涨跌停板或出现剧烈无逻辑波动(>15%)？
+2. 流动性风险: 买卖挂单极度稀疏(小于日均成交万分之一)或成交价与中间价缺口大(>5%)？
+3. 数据可信度: 关键数据有无法解释断层(如价格跳跃超限制)？
+4. 极端事件: 关键离场位低于无效阈值(如0.01元)，代表毁灭性风险，必须重新评估。
+- 核心原则: 生存优先于盈利，宁可错过机会。
+
+【宏观情境过滤器 (交易窗口评估)】
+交易决策前优先评估市场整体交易价值:
+1. 分时动能评估: 若分时图呈单边震荡下行、无量阴跌或脉冲式拉升后快速回落，且无反转证据，判定为低质量市场，建议暂停新开仓观望。
+2. 机会成本原则: 传达“当前风险回报比不佳，持币观望是优选策略”。
+3. 否决权: 当过滤器触发时，有权否决算法信号，给出“下一个不建议交易”结论及理由。
+
+【交易约束】
+1. 本股专项资金限额: {capital_allocation} 元 (所有买入基于此限额)。
+2. 底仓红线: 任何卖出建议最大数量绝不可超过 {shares} 股。{base_shares} 股底仓是雷区，禁止卖出。
+""",
         "deepseek_noon_suffix": """
 # 午间复盘模式 (Noon Review)
 
@@ -90,22 +152,48 @@ Morning Change: {change_pct:.2f}%
 {audit_report}
 """,
         "deepseek_final_decision": """
-【指令】
-红军最终裁决如下:
+【指令类型】Final Execution Order (v3.0 Final)
+
+【背景】
+你提交了策略 v2.0，经过了红军（首席审计师）的【终极裁决】。
+现在你需要阅读裁决结果，发布最终执行令。
+
+【红军终审裁决】
 {final_verdict}
 
-请作为蓝军主帅 (Commander)，综合红军意见，签署 **最终执行令 (Final Order)**。
-此指令将直接录入交易系统，请确保格式精确。
+【你的任务】
+1. **确认状态**: 红军是批准(Approved)还是驳回(Rejected)？
+2. **发布命令**: 
+   - 如果被驳回：宣布**放弃交易**，并简述理由。
+   - 如果被批准：请基于 v2.0 策略，输出一份**极度精简**的最终执行单，供交易员直接执行。去除所有废话和分析过程。
 
-【必须严格遵循以下输出格式】:
-【标的】: [代码] [名称]
-【方向】: [买入/卖出/观望/持有/调仓]
-【价格】: [具体价格 / 市价 / 对手价]
-【数量】: [具体股数 (如 1000股) / 仓位比例 (如 30%)]
-【止损】: [具体价格 / 动态]
-【止盈】: [具体价格 / 动态]
-【有效期】: [仅限明日 (YYYY-MM-DD) / 长期 / 盘中动态]
-【决策依据】: [一句话总结 GTO 核心理由]
+【输出格式】
+[决策] 执行 / 放弃
+[标的] 代码 / 名称
+
+【场景演练与挂单指令 (Scenario-based Orders)】
+> 请根据盘中实际走势，输出 2-3 套互斥的执行计划。
+
+**场景 A: 进攻/突破 (若开盘 > X 或 量能 > Y)**
+- [方向] 买入 / 追涨
+- [触发条件] 价格突破... / 量比 > ...
+- [建议价格] ...
+- [建议股数] ...
+- [止损] ...
+
+**场景 B: 防守/低吸 (若回调至 X)**
+- [方向] 买入 / 补仓
+- [触发条件] 回踩支撑位...
+- [建议价格] ...
+- [建议股数] ...
+- [止损] ...
+
+**场景 C: 极端风控 (若跌破 X)**
+- [方向] 卖出 / 止损 / 清仓
+- [触发条件] 跌破关键位...
+- [执行] 坚决离场
+
+(最后附上一句简短的指挥官寄语)
 """
     }
 }
@@ -256,59 +344,36 @@ def update_position(code, shares, price, action="buy", custom_date: str = None):
     action: 'buy' (calculate weighted avg), 'sell' (reduce shares), 'override' (overwrite)
     PERSISTENCE: SQLite DB ONLY.
     """
-    # 1. Get current position from DB
-    current = db_get_position(code)
+    # 1. Add History Record First
+    # Determine type names
+    type_map = {
+        "buy": "手动买入",
+        "sell": "手动卖出",
+        "override": "持仓修正"
+    }
+    note = type_map.get(action, action)
     
-    curr_shares = current["shares"]
-    curr_cost = current["cost"]
-    curr_base = current.get("base_shares", 0)
-    
-    curr_base = current.get("base_shares", 0)
-    
-    timestamp = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+    # [FIX] Define timestamp
     if custom_date:
         timestamp = custom_date
-    
-    new_shares = curr_shares
-    new_cost = curr_cost
+    else:
+        timestamp = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
 
-    if action == "buy":
-        # Weighted Average
-        total_value = (curr_shares * curr_cost) + (shares * price)
-        new_shares = curr_shares + shares
-        # Increase precision to 4 decimals to capture small changes
-        new_cost = total_value / new_shares if new_shares > 0 else 0.0
-        new_cost = round(new_cost, 4) 
-        
-        db_update_position(code, int(new_shares), new_cost, base_shares=curr_base)
-        db_add_history(code, timestamp, "buy", price, shares, "手动买入")
-        
-    elif action == "sell":
-        # Diluted Cost Method (摊薄成本法)
-        # New Total Cost = Current Total Cost - (Sold Shares * Sold Price)
-        # Logic: Use the cash back to lower the cost basis of remaining shares.
-        current_total_cost = curr_shares * curr_cost
-        cash_back = shares * price
-        
-        new_shares = max(0, curr_shares - shares)
-        
-        if new_shares > 0:
-            new_total_cost = current_total_cost - cash_back
-            new_cost = new_total_cost / new_shares
-            new_cost = round(new_cost, 4)
-        else:
-            new_cost = 0.0
-            
-        db_update_position(code, int(new_shares), new_cost, base_shares=curr_base)
-        db_add_history(code, timestamp, "sell", price, shares, "手动卖出")
-        
-    elif action == "override":
-        # Direct clean update
-        new_shares = int(shares)
-        new_cost = round(price, 4)
-        
-        db_update_position(code, new_shares, new_cost, base_shares=curr_base)
-        db_add_history(code, timestamp, "override", price, shares, "持仓修正")
+    # Write to History DB
+    db_add_history(code, timestamp, action, price, shares, note)
+    
+    # 2. Recalculate State from History (Single Source of Truth)
+    # This prevents drift between History and State
+    recalculate_position_from_history(code)
+    
+    # Get new state for checking watchlist addition
+    # current = db_get_position(code) 
+    # new_shares = current['shares']
+    # But below logic needs new_shares
+    
+    # Let's re-fetch to ensure we have correct new_shares for watchlist logic
+    updated_pos = db_get_position(code)
+    new_shares = updated_pos['shares']
 
     # 2. No syncing to user_config.json (Deprecated)
     try:
@@ -320,11 +385,70 @@ def update_position(code, shares, price, action="buy", custom_date: str = None):
     except Exception as e:
         print(f"Error syncing watchlist: {e}")
 
+def recalculate_position_from_history(code: str):
+    """
+    Replays the entire transaction history to determine the current position state.
+    This ensures consistency after deletions or out-of-order edits.
+    """
+    history = db_get_history(code)
+    # Sort chronologically
+    history = sorted(history, key=lambda x: x['timestamp'])
+    
+    current_shares = 0
+    current_cost = 0.0
+    base_shares = 0
+    
+    for tx in history:
+        t_type = str(tx.get('type', '')).lower()
+        price = float(tx.get('price', 0))
+        amount = float(tx.get('amount', 0))
+        
+        # Logic matches update_position
+        if 'buy' in t_type or '买' in t_type:
+            total_val = (current_shares * current_cost) + (amount * price)
+            current_shares += amount
+            current_cost = total_val / current_shares if current_shares > 0 else 0.0
+            
+        elif 'sell' in t_type or '卖' in t_type:
+            # Diluted Cost Method
+            current_val = current_shares * current_cost
+            cash_back = amount * price
+            
+            # Reduce shares
+            remaining_shares = max(0, current_shares - amount)
+            
+            if remaining_shares > 0:
+                # Cost is reduced by profit taken (or increased by loss taken)
+                new_total_val = current_val - cash_back
+                current_cost = new_total_val / remaining_shares
+            else:
+                current_cost = 0.0
+            
+            current_shares = remaining_shares
+            
+        elif 'override' in t_type or '修正' in t_type:
+            current_shares = int(amount)
+            current_cost = price
+            
+        elif 'base_position' in t_type or 'allocation' in t_type:
+             if 'base_position' in t_type:
+                 base_shares = int(amount)
+        
+        current_cost = round(current_cost, 4)
+        
+    # Save Final State
+    db_update_position(code, int(current_shares), current_cost, base_shares=base_shares)
+    print(f"[{code}] Recalculated: Shares={current_shares}, Cost={current_cost}, Base={base_shares}")
+
 def delete_transaction(code: str, timestamp: str):
     """
     Deletes a transaction record by code and timestamp.
+    Triggers a full position recalculation to ensure consistency.
     """
-    return db_delete_transaction(code, timestamp)
+    success = db_delete_transaction(code, timestamp)
+    if success:
+        recalculate_position_from_history(code)
+    return success
 
 def load_selected_stocks():
     from utils.database import db_get_watchlist

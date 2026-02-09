@@ -194,6 +194,9 @@ def render_strategy_section(code: str, name: str, price: float, shares_held: int
                                                 st.error(v2_plan)
                                             else:
                                                 # Update Session State
+                                                # [HISTORY] Save Draft v1 before overwrite
+                                                st.session_state[pending_key]['draft_v1'] = st.session_state[pending_key].get('result', '')
+                                                
                                                 st.session_state[pending_key]['result'] = f"{v2_plan}\n\n[Refined v2.0]"
                                                 st.session_state[pending_key]['reasoning'] = f"{ai_strat_log.get('reasoning','')}\n\n--- 🔄 Refinement Logic ---\n{v2_reason}"
                                                 st.session_state[pending_key]['is_refined'] = True
@@ -227,13 +230,35 @@ def render_strategy_section(code: str, name: str, price: float, shares_held: int
                                      with st.spinner("🤖 正在构建终审指令..."):
                                          from utils.ai_advisor import build_red_team_prompt
                                          # Context is V2 Plan
+                                         # Context is V2 Plan
                                          bg_info = ai_strat_log.get('raw_context') or ai_strat_log.get('prompt', '')
+                                         
+                                         # [HISTORY] Construct Full Debate History for Final Verdict
+                                         draft_msg = ai_strat_log.get('draft_v1', '(Data Missing)')
+                                         audit_msg = ai_strat_log.get('audit', '(Data Missing)')
+                                         
+                                         # Extract Refinement Reasoning (Last part of reasoning log)
+                                         full_r = ai_strat_log.get('reasoning', '')
+                                         refine_r = full_r.split("--- 🔄 Refinement Logic ---")[-1] if "--- 🔄 Refinement Logic ---" in full_r else "N/A"
+                                         
+                                         history_txt = f"""
+【历史回溯 (History)】
+1. **Draft v1.0 (蓝军初稿)**:
+{draft_msg[:1000]}... (truncated)
+
+2. **Audit Round 1 (红军初审)**:
+{audit_msg}
+
+3. **Refinement Logic (蓝军反思)**:
+{refine_r}
+"""
                                          audit_ctx = {
                                              "code": code,
                                              "name": name,
                                              "price": price,
                                              "daily_stats": bg_info,  
-                                             "deepseek_plan": ai_strat_log['result'] # This is V2 now
+                                             "deepseek_plan": ai_strat_log['result'], # This is V2 now
+                                             "history_summary": history_txt
                                          }
                                          sys_p, user_p = build_red_team_prompt(audit_ctx, prompts, is_final_round=True)
                                          
@@ -296,7 +321,25 @@ def render_strategy_section(code: str, name: str, price: float, shares_held: int
                                       if st.button("🏁 准备最终执行令 (Prepare Execution)", key=f"btn_prep_exec_{code}"):
                                           with st.spinner("🤖 正在拟定执行令..."):
                                               from utils.ai_advisor import build_final_decision_prompt
-                                              sys_fin, user_fin = build_final_decision_prompt(ai_strat_log['final_audit'], prompts)
+                                              
+                                              # [HISTORY] Assemble Full Timeline for Final Decision
+                                              history_chain = [
+                                                  ai_strat_log.get('draft_v1', '(Missing Draft v1)'),
+                                                  ai_strat_log.get('audit', '(Missing Audit R1)'),
+                                                  ai_strat_log.get('result', '(Missing Refined v2)'), # This is v2
+                                                  ai_strat_log.get('final_audit', '(Missing Final Verdict)')
+                                              ]
+                                              
+                                              # Re-construct context for re-injection
+                                              # Use draft raw_context if available
+                                              fin_ctx = {
+                                                  'code': code, 'name': name, 'price': price,
+                                                  'shares': shares_held, 'cost': avg_cost, 
+                                                  'pre_close': pre_close, 
+                                                  'change_pct': (price - pre_close)/pre_close*100 if pre_close else 0
+                                              }
+                                              
+                                              sys_fin, user_fin = build_final_decision_prompt(history_chain, prompts, context_data=fin_ctx)
                                               
                                               st.session_state[final_exec_key] = {
                                                   'sys_p': sys_fin,
@@ -585,17 +628,14 @@ def render_strategy_section(code: str, name: str, price: float, shares_held: int
             # 1. Primary Action Row
             st.subheader(f"🎯 AI 执行令: :{s_color}[{ai_signal}]")
             
-            # Use 3 columns for better width distribution
-            act_col1, act_col2, act_col3 = st.columns([1, 1.5, 1.5])
-            with act_col1:
-                st.metric("核心价格区间", entry_val)
-                if entry_note: st.caption(f"💡 {entry_note}")
-            with act_col2:
-                st.metric("止损参考点", sl_val)
-                if sl_note: st.caption(f"🛡️ {sl_note}")
-            with act_col3:
-                st.metric("止盈/目标位", tp_val)
-                if tp_note: st.caption(f"💰 {tp_note}")
+            # [MOVED/SIMPLIFIED] Logic for notes display
+            notes_html = ""
+            if entry_val != "--": notes_html += f"📍 **建议区间**: {entry_val} " + (f"({entry_note})" if entry_note else "") + " | "
+            if sl_val != "--": notes_html += f"🛡️ **止损**: {sl_val} " + (f"({sl_note})" if sl_note else "") + " | "
+            if tp_val != "--": notes_html += f"💰 **止盈**: {tp_val} " + (f"({tp_note})" if tp_note else "")
+
+            if notes_html:
+                st.markdown(notes_html.rstrip(" | "))
             
             # 2. Strategy & Scenario Details (Wide)
             st.markdown(f"🚩 **建议股数/风控注记**: {pos_val} " + (f" *({pos_note})*" if pos_note else ""))
@@ -664,8 +704,15 @@ def render_strategy_section(code: str, name: str, price: float, shares_held: int
                     target_suffix_key = "proposer_premarket_suffix"
                     start_pre = True
             else:
-                # Trading Hours: Disable instant planning to avoid emotional noise
-                st.button("🔍 盘中焦点监控 (Live Focus Only)", key=f"btn_live_disabled_{code}", disabled=True, use_container_width=True, help="系统专注于关键复盘节点。盘中建议通过【监控看板】观察，待休盘后再行决策。")
+                # Trading Hours: Now Enabled [v4.5]
+                if st.button("🔥 生成盘中焦点 (Intraday Analysis)", key=f"btn_live_{code}", type="primary", use_container_width=True):
+                     # Check if specific intraday prompt exists, else fallback to premarket (with injected context)
+                     if "proposer_intraday_suffix" in prompts:
+                         target_suffix_key = "proposer_intraday_suffix"
+                     else:
+                         target_suffix_key = "proposer_premarket_suffix"
+                     
+                     start_pre = True
 
         if start_pre:
             warning_msg = None

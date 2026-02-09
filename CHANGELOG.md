@@ -5,6 +5,17 @@ All notable changes to the **MarketMonitorAndBuyer** project will be documented 
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [2.7.1] - 2026-02-09 (System Maintenance & Environment Hardening)
+### Added (新增)
+- **环境自修复支持**: 针对 macOS 环境优化了 `start_mac.sh` 的鲁棒性，支持 Python 3.12+ 的虚拟环境自动重建与依赖安装。
+- **数据源稳定性维护**: 对 `utils/data_fetcher.py` 进行了维护，确保持仓监控与行情抓取的稳定性（适配 efinance 等数据源）。
+
+### Fixed (修复)
+- **Version Parity**: 统一了 UI (`main.py`)、`VERSION` 文件与文档之间的版本号显示，修复了长期存在的硬编码版本滞后问题。
+- **Cleanup**: 移除了冗余的调试脚本与历史模拟日志。
+
+---
+
 ## [2.7.0] - 2026-02-02 (Structural Integrity & Intelligence Boost)
 ### Added (新增)
 - **结构化策略持久化 (Structural Persistence)**:

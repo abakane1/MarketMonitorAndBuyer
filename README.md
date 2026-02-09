@@ -1,4 +1,4 @@
-# A股智能盯盘与辅助交易系统 (AShare-Monitor) v2.5.0
+# A股智能盯盘与辅助交易系统 (AShare-Monitor) v2.7.1
 
 这是一个基于 Streamlit 构建的 **AI 驱动型** A 股辅助决策系统。v2.5.0 引入了行业首创的 **"Blue Legion (蓝军军团)"** 混合专家架构 (MoE)，结合 **DeepSeek (红军风控)**，为投资者提供机构级的战术规划与风险审计。
 
