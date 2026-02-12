@@ -27,7 +27,7 @@ def run_blue_legion(code, name, price, api_key_qwen, context_data, prompt_templa
     # 1.1 Quant Agent
     # 1.1 Quant Agent
     quant_model = "qwen-max" # Strongest Reasoning
-    quant_sys = prompts.get("quant_agent_system", QUANT_SYS)
+    quant_sys = prompts.get("blue_quant_sys", QUANT_SYS)
     
     # Construct Quant User Prompt from Context
     # Incorporate Technicals, Flow, Intraday
@@ -54,7 +54,7 @@ def run_blue_legion(code, name, price, api_key_qwen, context_data, prompt_templa
     # 1.2 Intel Agent
     # 1.2 Intel Agent
     intel_model = "qwen-max"
-    intel_sys = prompts.get("intel_agent_system", INTEL_SYS)
+    intel_sys = prompts.get("blue_intel_sys", INTEL_SYS)
     
     # Construct Intel User Prompt
     intel_data = f"""

@@ -269,3 +269,128 @@ def extract_bracket_content(text: str) -> tuple[str, str]:
         return match.group(1).strip(), match.group(2).strip()
     
     return text.strip(), ""
+
+def extract_yaml_block(text: str) -> dict:
+    """
+    Extracts and parses the FIRST YAML block found in the text.
+    Blocks are expected to be enclosed in ```yaml ... ```
+    """
+    if not text:
+        return {}
+    
+    # Try to find yaml block
+    match = re.search(r"```yaml\s*(.*?)\s*```", text, re.DOTALL)
+    if not match:
+        # Fallback: maybe it's just a raw yaml-like block if the model is being simple
+        # but let's be strict first for accuracy
+        return {}
+    
+    yaml_str = match.group(1).strip()
+    
+    import yaml # Standard in many environments, or we might need to handle if missing
+    try:
+        # Using SafeLoader to prevent arbitrary code execution
+        return yaml.load(yaml_str, Loader=yaml.SafeLoader)
+    except Exception as e:
+        print(f"YAML Parse Error: {e}")
+        return {}
+
+def parse_strategy_with_fallback(text: str) -> dict:
+    """
+    Tries to parse strategy using YAML first, then falls back to robust regex patterns.
+    Now supports '[xxx]' format and Chinese punctuation.
+    """
+    structured_data = extract_yaml_block(text)
+    
+    # Minimal fields we expect
+    result = {
+        "direction": "观望",
+        "price": None,
+        "shares": 0,
+        "stop_loss": None,
+        "take_profit": None,
+        "raw_text": text,
+        "structured": bool(structured_data)
+    }
+    
+    if structured_data:
+        # Map YAML fields to standard app fields
+        summary = structured_data.get('summary', {})
+        
+        # Handle direction mapping
+        d = summary.get('direction', result['direction'])
+        if "买" in d: d = "买入"
+        elif "卖" in d: d = "卖出"
+        elif "观" in d: d = "观望"
+        elif "持" in d: d = "持有"
+        
+        result.update({
+            "direction": d,
+            "price": summary.get('price_range', summary.get('price', None)),
+            "shares": summary.get('shares', 0),
+            "stop_loss": summary.get('stop_loss'),
+            "take_profit": summary.get('take_profit'),
+            "data": structured_data # Keep original
+        })
+    else:
+        # --- Robust Regex Fallback ---
+        
+        # 1. Direction (方向)
+        # Matches: 方向: [买入], 方向：买入, 方向: 买入
+        dir_match = re.search(r"方向[:：]\s*(\[)?\s*(买入|卖出|观望|持有|做多|做空)", text)
+        if dir_match: 
+            d = dir_match.group(2)
+            if d == "做多": d = "买入"
+            if d == "做空": d = "卖出"
+            result["direction"] = d
+        else:
+            # Fallback: Search for 【买入】 style headers
+            header_match = re.search(r"【(买入|卖出|观望|持有|做多|做空)】", text)
+            if header_match:
+                d = header_match.group(1)
+                if d == "做多": d = "买入"
+                if d == "做空": d = "卖出"
+                result["direction"] = d
+
+        # Helper to extract value from patterns like "Key: [Value]" or "Key: Value"
+        def extract_val(patterns):
+            for pat in patterns:
+                m = re.search(pat, text, re.IGNORECASE | re.MULTILINE)
+                if m:
+                    # Group 2 is usually the content inside [] or just the value
+                    val = m.group(2) if len(m.groups()) >= 2 else m.group(1)
+                    return val.replace("[", "").replace("]", "").strip()
+            return None
+
+        # 2. Price (建议价格)
+        # patterns: 建议价格: [10.5], 建议价格: 10.5-10.6
+        result["price"] = extract_val([
+            r"建议价格[:：]\s*(\[)?(.*?)(])?(?:\n|$)",
+            r"建议区间[:：]\s*(\[)?(.*?)(])?(?:\n|$)"
+        ])
+
+        # 3. Shares (建议股数/仓位)
+        result["shares"] = extract_val([
+            r"(?:建议)?(?:股数|仓位)[:：]\s*(\[)?(.*?)(])?(?:\n|$)"
+        ])
+        # Try to convert shares to int if possible
+        if result["shares"]:
+            try:
+                # Extract first number found
+                num_match = re.search(r"(\d+)", str(result["shares"]))
+                if num_match:
+                    result["shares"] = int(num_match.group(1))
+            except:
+                pass
+
+        # 4. Stop Loss (止损)
+        result["stop_loss"] = extract_val([
+            r"止损(?:价格)?[:：]\s*(\[)?(.*?)(])?(?:\n|$)"
+        ])
+
+        # 5. Take Profit (止盈)
+        result["take_profit"] = extract_val([
+            r"(?:止盈|目标)(?:价格)?[:：]\s*(\[)?(.*?)(])?(?:\n|$)"
+        ])
+        
+    return result

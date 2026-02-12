@@ -11,6 +11,19 @@
 当前时间: {generated_time} (⚠️ 盘中交易时段)
 市场正在进行中，需要快速决策。
 
+{load_principle: principles/market_microstructure.md}
+
+### 盘口微观结构评估 (强制检查)
+**流动性健康度检查**：
+1. **挂单厚度**：买一/卖一挂单量是否 > 日均成交额的 0.1%？
+2. **成交连续性**：近 5 分钟成交笔数骤降 >50% 或骤增 >200%？
+3. **买卖失衡**：买一量 / 卖一量 比值。
+
+**极端场景快速响应**：
+- 若检测到 **流动性枯竭** → 参考 {load_principle: proposer_extreme_scenarios.md#场景-1}
+- 若检测到 **闪崩迹象** → 立即检查止损
+- 若检测到 **涨停封单** → 参考 {load_principle: proposer_extreme_scenarios.md#场景-2}
+
 ### 1. 盘口状态速判
 当前分时走势是攻击态、防守态还是混沌态？量能是否配合？
 
@@ -41,4 +54,22 @@
 
 【决策依据】
 (简要分析)
+
+## 结构化输出格式 (供程序解析)
+请在自由文本分析后，追加以下结构化数据：
+
+```yaml
+# 决策核心 (盘中)
+summary:
+  direction: "观望"
+  price: {price}
+  action_trigger: "跌破 4.15 则减仓"
+  risk_level: "高"
+
+# 盘口微观评估
+microstructure:
+  liquidity: "🟢"
+  imbalance: "买盘占优"
+  volatility: "正常"
+```
 ```

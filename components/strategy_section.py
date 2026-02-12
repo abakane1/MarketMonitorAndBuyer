@@ -620,49 +620,27 @@ def render_strategy_section(code: str, name: str, price: float, shares_held: int
             st.caption(f"📅 最后生成: {ts}")
             
             # --- Simple Parser (Scenario Aware) ---
-            ai_signal = "N/A"
-            pos_txt = "N/A"
-            stop_loss_txt = "N/A"
-            entry_txt = "N/A"
-            take_profit_txt = "N/A"
+            # Use the robust parser from utils.ai_parser
+            from utils.ai_parser import parse_strategy_with_fallback
+            parsed_res = parse_strategy_with_fallback(content)
+            
+            ai_signal = parsed_res.get("direction", "N/A")
+            entry_txt = str(parsed_res.get("price")) if parsed_res.get("price") else "N/A"
+            pos_txt = str(parsed_res.get("shares")) if parsed_res.get("shares") else "N/A"
+            stop_loss_txt = str(parsed_res.get("stop_loss")) if parsed_res.get("stop_loss") else "N/A"
+            take_profit_txt = str(parsed_res.get("take_profit")) if parsed_res.get("take_profit") else "N/A"
+            
+            # Scenario Key Extraction (Still useful to keep bespoke if needed, or move to parser later)
             scenario_key_txt = ""
-
             block_match = re.search(r"【决策摘要】(.*)", content, re.DOTALL)
             if block_match:
                 block_content = block_match.group(1)
-                s_match = re.search(r"方向:\s*(\[)?(.*?)(])?\n", block_content)
-                if not s_match: s_match = re.search(r"方向:\s*(\[)?(.*?)(])?$", block_content, re.MULTILINE)
-                if s_match: ai_signal = s_match.group(2).replace("[","").replace("]","").strip()
-                
-                e_match = re.search(r"建议价格:\s*(\[)?(.*?)(])?\n", block_content)
-                if not e_match: e_match = re.search(r"建议价格:\s*(\[)?(.*?)(])?$", block_content, re.MULTILINE)
-                if e_match: entry_txt = e_match.group(2).replace("[","").replace("]","").strip()
-                    
-                p_match = re.search(r"(?:建议|目标)?(?:股数|仓位):\s*(\[)?(.*?)(])?(?:\n|$)", block_content)
-                if p_match: pos_txt = p_match.group(2).replace("[","").replace("]","").strip()
-                    
-                sl_match = re.search(r"止损(价格)?:\s*(\[)?(.*?)(])?\n", block_content)
-                if not sl_match: sl_match = re.search(r"止损(价格)?:\s*(\[)?(.*?)(])?$", block_content, re.MULTILINE)
-                if sl_match: stop_loss_txt = sl_match.group(3).replace("[","").replace("]","").strip()
-                    
-                tp_match = re.search(r"(止盈|目标)(价格)?:\s*(\[)?(.*?)(])?\n", block_content)
-                if not tp_match: tp_match = re.search(r"(止盈|目标)(价格)?:\s*(\[)?(.*?)?$", block_content, re.MULTILINE)
-                if tp_match: take_profit_txt = tp_match.group(4).replace("[","").replace("]","").strip()
-                
                 sk_match = re.search(r"场景重点:\s*(\[)?(.*?)(])?\n", block_content)
                 if not sk_match: sk_match = re.search(r"场景重点:\s*(.*)", block_content)
                 if sk_match: scenario_key_txt = sk_match.group(2) if len(sk_match.groups())>1 else sk_match.group(1)
-
-            else:
-                signal_match = re.search(r"【(买入|卖出|做空|观望|持有)】", content)
-                ai_signal = signal_match.group(1) if signal_match else "N/A"
-                lines = content.split('\n')
-                for line in lines:
-                    if "止损" in line: stop_loss_txt = line.split(":")[-1].strip().replace("元","")
-                    if "止盈" in line or "目标" in line: take_profit_txt = line.split(":")[-1].strip().replace("元","")
-                    if "股数" in line or "仓位" in line: pos_txt = line.split(":")[-1].strip()
             
             if "N/A" in ai_signal and "观望" in content: ai_signal = "观望"
+
             
             # --- New UI Layout: Scenario-Tactics Header ---
             s_color = "grey"
@@ -799,6 +777,26 @@ def render_strategy_section(code: str, name: str, price: float, shares_held: int
                         current_market_value = shares_held * price
                         available_cash = max(0.0, eff_capital - current_market_value)
                         
+                        # [User Actions Context] Fetch recent history for AI context
+                        try:
+                            user_history = db_get_history(code)
+                            # Get last 3 actions
+                            recent_actions = user_history[-3:] if user_history else []
+                            if recent_actions:
+                                action_strs = []
+                                for act in recent_actions:
+                                    ts = act.get('timestamp', '')[:10] # Date only
+                                    typ = act.get('type', 'N/A')
+                                    amt = act.get('amount', 0)
+                                    prc = act.get('price', 0)
+                                    action_strs.append(f"{ts} {typ} {amt}股@{prc}")
+                                user_actions_summary = "; ".join(action_strs)
+                            else:
+                                user_actions_summary = "无近期操作记录"
+                        except Exception as e:
+                            print(f"Error fetching user history: {e}")
+                            user_actions_summary = "获取记录失败"
+
                         context = {
                             "base_shares": base_shares,
                             "tradable_shares": tradable_shares,
@@ -821,7 +819,8 @@ def render_strategy_section(code: str, name: str, price: float, shares_held: int
                             "stop_loss": strat_res.get('stop_loss'), 
                             "capital_allocation": current_alloc,
                             "total_capital": total_capital, 
-                            "known_info": get_claims_for_prompt(code)
+                            "known_info": get_claims_for_prompt(code),
+                            "user_actions_summary": user_actions_summary # FIXED: Injected missing key
                         }
                         
                         

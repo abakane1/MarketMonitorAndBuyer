@@ -44,4 +44,40 @@
 
 【决策依据】
 (详细分析过程)
+
+## 结构化输出格式 (供程序解析)
+请在自由文本分析后，追加以下结构化数据：
+
+```yaml
+# 决策核心
+summary:
+  direction: "买入"          # 买入/卖出/观望
+  price_range: [4.18, 4.23]  # 建议价格区间/目标
+  shares: 2500               # 建议股数
+  stop_loss: 4.15            # 止损价
+  take_profit: 4.35          # 止盈价
+  scenario_focus: "突破前高 4.25"  # 关键转折信号
+
+# 场景对策
+scenarios:
+  A:
+    name: "高开强势"
+    condition: "开盘 > 4.20，且前15分钟放量"
+    action: "追涨30%仓位，目标4.30"
+  B:
+    name: "低开弱势" 
+    condition: "开盘 < 4.10，且前15分钟缩量"
+    action: "观望至10:30，若收复4.15则轻仓试多"
+
+# 数据质量标记
+data_quality:
+  price: "🟢"      # 🟢可用 🟡部分可用 🔴不可用
+  flow: "🟢"
+  indicators: "🟢"
+
+# 行为对齐标记
+alignment:
+  user_follow_rate: "75%"
+  adjustment: "更贴近现实"
+```
 ```

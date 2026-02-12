@@ -44,3 +44,13 @@
 
 【操作指令】
 ...
+
+## 结构化输出格式 (供程序解析)
+```yaml
+# 午间决策
+noon_summary:
+  sentiment: "中性偏多"
+  afternoon_target: 4.30
+  key_level: 4.18
+  action: "持股待涨"
+```

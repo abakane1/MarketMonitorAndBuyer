@@ -30,9 +30,7 @@ PROMPT_MAPPINGS = {
     'proposer_system': ('system', 'proposer_system.md'),
     'reviewer_system': ('system', 'reviewer_system.md'),
     'blue_quant_sys': ('agents', 'blue_quant_sys.md'),
-    'quant_agent_system': ('agents', 'blue_quant_sys.md'),  # alias
     'blue_intel_sys': ('agents', 'blue_intel_sys.md'),
-    'intel_agent_system': ('agents', 'blue_intel_sys.md'),  # alias
     'red_quant_auditor_system': ('agents', 'red_quant_sys.md'),
     'red_intel_auditor_system': ('agents', 'red_intel_sys.md'),
     
@@ -42,20 +40,16 @@ PROMPT_MAPPINGS = {
     'proposer_intraday_suffix': ('user', 'proposer_intraday_suffix.md'),
     'proposer_noon_suffix': ('user', 'proposer_noon_suffix.md'),
     'proposer_simple_suffix': ('user', 'proposer_simple_suffix.md'),
+    'proposer_extreme_scenarios': ('user', 'proposer_extreme_scenarios.md'),
     
     # Audit prompts
     'reviewer_audit': ('audit', 'reviewer_audit.md'),
+    'reviewer_noon_audit': ('audit', 'reviewer_noon_audit.md'),
     'reviewer_final_audit': ('audit', 'reviewer_final_audit.md'),
     'refinement_instruction': ('audit', 'refinement_instruction.md'),
     
     # Final decision
     'proposer_final_decision': ('final', 'proposer_final_decision.md'),
-    
-    # Legacy mappings for backward compatibility
-    'deepseek_research_suffix': ('user', 'proposer_premarket_suffix.md'),
-    'qwen_system': ('system', 'reviewer_system.md'),
-    'qwen_audit': ('audit', 'reviewer_audit.md'),
-    'deepseek_final_decision': ('final', 'proposer_final_decision.md'),
 }
 
 
@@ -75,6 +69,16 @@ def load_prompt_file(filepath: Path) -> str:
         parts = content.split('---', 2)
         if len(parts) >= 3:
             content = parts[2].strip()
+            
+    # [NEW] Recursive partial loading support: {load_principle: principles/xxx.md}
+    def replace_principle(match):
+        principle_rel_path = match.group(1).strip()
+        principle_path = PROMPTS_DIR / principle_rel_path
+        if principle_path.exists():
+            return load_prompt_file(principle_path)
+        return f"[Error: Principle file {principle_rel_path} not found]"
+        
+    content = re.sub(r'\{load_principle:\s*(.*?)\}', replace_principle, content)
     
     return content
 
@@ -94,20 +98,38 @@ def load_prompt(subdir: str, filename: str) -> str:
     return load_prompt_file(filepath)
 
 
-def load_all_prompts() -> Dict[str, str]:
+def load_all_prompts(model: Optional[str] = None) -> Dict[str, str]:
     """
     Load all prompts and return as a config dictionary.
     
+    Args:
+        model: Optional model name (e.g., 'deepseek_r1') to load specific overrides.
+        
     Returns:
         Dict mapping config keys to prompt content
     """
     prompts = {}
     
+    # Load model override if specified
+    override_content = ""
+    if model:
+        override_file = PROMPTS_DIR / "model_overrides" / f"{model}.md"
+        if override_file.exists():
+            try:
+                override_content = f"\n\n{load_prompt_file(override_file)}"
+            except Exception as e:
+                print(f"Warning: Failed to load model override for '{model}': {e}")
+
     for key, (subdir, filename) in PROMPT_MAPPINGS.items():
         try:
             filepath = PROMPTS_DIR / subdir / filename
             if filepath.exists():
-                prompts[key] = load_prompt_file(filepath)
+                content = load_prompt_file(filepath)
+                # Apply model override ONLY to system prompts by default, 
+                # or we can apply to all. Designers usually want to augment the base logic.
+                if subdir == 'system' and override_content:
+                    content += override_content
+                prompts[key] = content
         except Exception as e:
             print(f"Warning: Failed to load prompt '{key}' from {subdir}/{filename}: {e}")
     

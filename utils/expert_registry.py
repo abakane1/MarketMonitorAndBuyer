@@ -81,7 +81,7 @@ class DeepSeekExpert(BaseExpert):
             fund_flow_history=kwargs.get('fund_flow_history'),
             intraday_summary=kwargs.get('intraday_summary'),
             prompt_templates=prompt_templates,
-            suffix_key=kwargs.get('suffix_key', "deepseek_research_suffix"),
+            suffix_key=kwargs.get('suffix_key', "proposer_premarket_suffix"),
             symbol=context_data.get('code')
         )
         return content, reasoning, user_prompt, None
@@ -250,11 +250,11 @@ class KimiExpert(BaseExpert):
 
         # Use Kimi 2.5 (MoE Architecture)
         final_res, full_log = run_red_legion(
-            audit_ctx, 
-            plan_content, 
-            self.api_key, 
-            prompt_templates, 
-            model_type="kimi", 
+            audit_ctx,
+            plan_content,
+            prompt_templates,
+            self.api_key,
+            model_type="kimi",
             model_name=self.model_name,
             is_final=is_final,
             kimi_base_url=self.base_url

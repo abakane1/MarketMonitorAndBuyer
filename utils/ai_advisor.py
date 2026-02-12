@@ -9,7 +9,7 @@ from utils.data_fetcher import calculate_price_limits
 from utils.database import db_get_history
 from utils.time_utils import get_beijing_time, get_market_session, get_next_trading_day, is_trading_day
 
-def build_advisor_prompt(context_data, research_context="", technical_indicators=None, fund_flow_data=None, fund_flow_history=None, intraday_summary=None, prompt_templates=None, suffix_key="proposer_premarket_suffix", symbol=None):
+def build_advisor_prompt(context_data, research_context="", technical_indicators=None, fund_flow_data=None, fund_flow_history=None, intraday_summary=None, prompt_templates=None, suffix_key="proposer_premarket_suffix", symbol=None, analysis_depth="标准"):
     """
     Constructs the System Prompt and User Prompt for the AI Advisor.
     Returns: (system_prompt, user_prompt)
@@ -17,6 +17,11 @@ def build_advisor_prompt(context_data, research_context="", technical_indicators
     if not prompt_templates: prompt_templates = {}
     
     base_tpl = prompt_templates.get("proposer_base", "")
+    
+    # [NEW] Analysis Depth Logic: Override Suffix if Depth is 'Simple'
+    if analysis_depth == "简洁":
+        suffix_key = "proposer_simple_suffix"
+        
     suffix_tpl = prompt_templates.get(suffix_key, "")
     simple_suffix_tpl = prompt_templates.get("proposer_simple_suffix", "")
     
@@ -82,10 +87,10 @@ def build_advisor_prompt(context_data, research_context="", technical_indicators
         
         # Format Fund Flow
         capital_flow_str = "N/A"
-        if fund_flow_data and not fund_flow_data.get("error"):
+        if isinstance(fund_flow_data, dict) and not fund_flow_data.get("error"):
             flow_lines = [f"{k}: {v}" for k, v in fund_flow_data.items()]
             fund_lines = [" | ".join(flow_lines)]
-        elif fund_flow_data and fund_flow_data.get("error"):
+        elif isinstance(fund_flow_data, dict) and fund_flow_data.get("error"):
             fund_lines = [f"当日数据获取失败: {fund_flow_data.get('error')}"]
         else:
             fund_lines = []
@@ -236,10 +241,15 @@ def build_advisor_prompt(context_data, research_context="", technical_indicators
                                                (f"，占单股限额 **{ratio_alloc:.1f}%** (Limit: {int(alloc_cap)})" if alloc_cap > 0 else "") + "。")
                     history_context_lines.append(f"- 剩余弹药: 可用现金 **{int(avail_cash)}**。")
                     
-                    if base_locked > 0:
-                        history_context_lines.append(f"【🔒 核心禁忌】: 用户已锁定底仓 {base_locked} 股。除非涉及清仓离场，否则你严禁触动该底仓。")
+                    history_context_lines.append(f"【🔒 核心禁忌】: 用户已锁定底仓 {base_locked} 股。除非涉及清仓离场，否则你严禁触动该底仓。")
                     
                     history_context_lines.append(f"【⚠️ 数字化身指令】: 深度思考你之前的建议是否被用户采纳？如果是被拒绝了，分析用户当时避开了什么风险，或者在等待什么机会？在本次化身决策中，请继承这一行为惯性并进行优化。")
+                    
+                    # [NEW] Enhanced Behavioral Alignment Variables
+                    user_actions_summary = "\n".join(matched_tx) if matched_tx else "无显著操作"
+                    previous_advice_summary = "见下文历史研判参考"
+                    context_data['user_actions_summary'] = user_actions_summary
+                    context_data['previous_advice_summary'] = previous_advice_summary
                     
                     final_research_context += "\n" + "\n".join(history_context_lines)
             except Exception as e:
@@ -385,14 +395,18 @@ def call_deepseek_api(api_key, system_prompt, user_prompt):
     except Exception as e:
         return f"Request Failed: {e}", ""
 
-def ask_deepseek_advisor(api_key, context_data, research_context="", technical_indicators=None, fund_flow_data=None, fund_flow_history=None, intraday_summary=None, prompt_templates=None, suffix_key="deepseek_research_suffix", symbol=None):
+def ask_deepseek_advisor(api_key, context_data, research_context="", technical_indicators=None, fund_flow_data=None, fund_flow_history=None, intraday_summary=None,    prompt_templates=None, 
+    suffix_key="proposer_premarket_suffix", 
+    symbol=None, 
+    analysis_depth="标准"
+):
     """
     Wrapper for backward compatibility.
     """
     sys_p, user_p = build_advisor_prompt(
         context_data, research_context, technical_indicators, 
         fund_flow_data, fund_flow_history, intraday_summary, 
-        prompt_templates, suffix_key, symbol
+        prompt_templates, suffix_key, symbol, analysis_depth=analysis_depth
     )
     
     if "Error" in user_p and sys_p == "":
