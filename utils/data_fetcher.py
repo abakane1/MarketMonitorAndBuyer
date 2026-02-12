@@ -445,20 +445,8 @@ def get_stock_realtime_info(symbol: str) -> Optional[Dict]:
                         break
                 except:
                     continue
-    
-    # 2. Fallback to v1.x individual files (stock_spot.parquet / etf_spot.parquet)
-    if not data:
-        from utils.data_fetcher import STOCK_SPOT_PATH, ETF_SPOT_PATH
-        for path in [STOCK_SPOT_PATH, ETF_SPOT_PATH]:
-            if os.path.exists(path):
-                try:
-                    df_v1 = pd.read_parquet(path)
-                    row_v1 = df_v1[df_v1['代码'] == symbol]
-                    if not row_v1.empty:
-                        data = row_v1.iloc[0].to_dict()
-                        break
-                except:
-                    continue
+
+
 
     # 3. Check Minute Data (Freshness Override)
     # If Global Spot failed (stale), we might have fresh Minute Data which contains Local Spot info.
