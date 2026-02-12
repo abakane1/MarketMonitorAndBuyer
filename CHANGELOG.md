@@ -5,6 +5,26 @@ All notable changes to the **MarketMonitorAndBuyer** project will be documented 
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [3.1.0] - 2026-02-12 (Stock Selector Refactor & Global Refresh)
+### Added (新增)
+- **全局一键刷新 (Global Refresh)**:
+  - 侧边栏新增“🔄 一键刷新实时数据”按钮，支持一次性同步全市场快照并循环更新所有关注股票的分钟线。
+- **New Stock Selector (新版股票选择器)**:
+  - 重构侧边栏，移除全市场下拉框，改为 **代码输入 + 自动验证** 模式。
+  - 支持 **Sina/Tencent API** 自动获取股票/ETF 名称。
+  - 移除了 5 只关注上限，支持无限添加自选股。
+  - 关注列表新增 **❌ 移除按钮**。
+
+### Fixed (修复)
+- **ETF Compatibility**: 修复了 5 开头 (如 563, 510) 的 ETF 无法被 Sina API 正确识别名称的问题。
+- **Scope Error**: 修复了 `data_fetcher.py` 中 `STOCK_SPOT_PATH` 变量作用域报错 (`UnboundLocalError`)。
+
+### Changed (变更)
+- **UI Streamlining**: 移除了仪表盘中每个股票单独的刷新按钮，保持界面整洁。
+- **Project Structure**: 清理了临时测试脚本，规范了 Prompt 文件结构。
+
+---
+
 ## [2.8.0] - 2026-02-10 (Prompt Refactor & Data Source Resilience)
 ### Added (新增)
 - **提示词 Markdown 化 (Prompt Refactoring)**:

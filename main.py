@@ -10,7 +10,7 @@ from components.dashboard import render_stock_dashboard, render_strategy_section
 
 # Page Configuration
 st.set_page_config(
-    page_title="MarketMonitor v3.0.0",
+    page_title="MarketMonitor v3.1.0",
     page_icon="📈",
     layout="wide",
     initial_sidebar_state="expanded",
