@@ -39,9 +39,10 @@ def init_db():
         note TEXT
     )''')
     
-    # [NEW] Watchlist table
+    # [NEW] Watchlist table (v2: 增加 name 字段缓存股票名称)
     c.execute('''CREATE TABLE IF NOT EXISTS watchlist (
         symbol TEXT PRIMARY KEY,
+        name TEXT DEFAULT '',
         added_at TEXT
     )''')
     
@@ -107,6 +108,14 @@ def init_db():
     except sqlite3.OperationalError:
         print("Migrating DB: Adding details column to review_logs table...")
         c.execute("ALTER TABLE review_logs ADD COLUMN details TEXT")
+        conn.commit()
+
+    # --- Schema Migration: watchlist 增加 name 字段 ---
+    try:
+        c.execute("SELECT name FROM watchlist LIMIT 1")
+    except sqlite3.OperationalError:
+        print("Migrating DB: Adding name column to watchlist table...")
+        c.execute("ALTER TABLE watchlist ADD COLUMN name TEXT DEFAULT ''")
         conn.commit()
 
     conn.commit()
@@ -177,24 +186,44 @@ def db_set_allocation(symbol: str, amount: float):
 
 # --- Watchlist ---
 
-@st.cache_data(ttl=10)
 def db_get_watchlist() -> list:
+    """获取关注列表（仅代码），向后兼容。"""
     conn = get_db_connection()
     c = conn.cursor()
-    c.execute("SELECT symbol FROM watchlist")
+    c.execute("SELECT symbol FROM watchlist ORDER BY added_at ASC")
     rows = c.fetchall()
     conn.close()
     return [row["symbol"] for row in rows]
 
+def db_get_watchlist_with_names() -> list:
+    """获取关注列表（含名称），返回 [(symbol, name), ...]。"""
+    conn = get_db_connection()
+    c = conn.cursor()
+    c.execute("SELECT symbol, name FROM watchlist ORDER BY added_at ASC")
+    rows = c.fetchall()
+    conn.close()
+    return [(row["symbol"], row["name"] or row["symbol"]) for row in rows]
+
 def db_add_watchlist(symbol: str):
+    """添加关注（不含名称，向后兼容）。"""
     conn = get_db_connection()
     c = conn.cursor()
     timestamp = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
-    c.execute("INSERT OR IGNORE INTO watchlist (symbol, added_at) VALUES (?, ?)", (symbol, timestamp))
+    c.execute("INSERT OR IGNORE INTO watchlist (symbol, name, added_at) VALUES (?, '', ?)", (symbol, timestamp))
+    conn.commit()
+    conn.close()
+
+def db_add_watchlist_with_name(symbol: str, name: str):
+    """添加关注（含名称）。"""
+    conn = get_db_connection()
+    c = conn.cursor()
+    timestamp = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+    c.execute("INSERT OR IGNORE INTO watchlist (symbol, name, added_at) VALUES (?, ?, ?)", (symbol, name, timestamp))
     conn.commit()
     conn.close()
 
 def db_remove_watchlist(symbol: str):
+    """从关注列表移除。"""
     conn = get_db_connection()
     c = conn.cursor()
     c.execute("DELETE FROM watchlist WHERE symbol = ?", (symbol,))

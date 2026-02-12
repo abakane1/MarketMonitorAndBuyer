@@ -1,16 +1,18 @@
 # -*- coding: utf-8 -*-
 """
 侧边栏组件模块
-包含股票选择、交易参数配置、API Key 设置等功能
+包含股票关注列表管理、交易参数配置、API Key 设置等功能
 """
 import streamlit as st
 import time
 
-from utils.data_fetcher import get_all_stocks_list, get_stock_fund_flow_history
+from utils.data_fetcher import get_stock_fund_flow_history, validate_stock_code
 from utils.storage import save_minute_data
-from utils.config import (
-    load_selected_stocks, save_selected_stocks,
-    get_settings, save_settings
+from utils.config import get_settings, save_settings
+from utils.database import (
+    db_get_watchlist_with_names,
+    db_add_watchlist_with_name,
+    db_remove_watchlist
 )
 
 
@@ -26,41 +28,73 @@ def render_sidebar() -> dict:
     app_mode = st.sidebar.radio("选择页面", ["复盘与预判", "操盘记录", "提示词中心", "策略实验室"], index=0)
     
     st.sidebar.markdown("---")
-    st.sidebar.header("设置")
+    st.sidebar.header("📌 关注列表管理")
     
-    # 1. 加载股票列表
     with st.sidebar:
-        with st.spinner("正在初始化配置..."):
-             stock_df = get_all_stocks_list()
+        # --- 添加股票区域 ---
+        col_input, col_btn = st.columns([3, 1])
+        with col_input:
+            new_code = st.text_input(
+                "输入股票代码",
+                placeholder="例: 600076",
+                label_visibility="collapsed",
+                key="input_new_stock_code"
+            )
+        with col_btn:
+            add_clicked = st.button("添加", type="primary", key="btn_add_stock")
         
-        if stock_df.empty:
-            st.error("加载股票列表失败，请手动刷新。")
+        if add_clicked and new_code:
+            new_code = new_code.strip()
+            if not new_code:
+                st.warning("请输入股票代码")
+            else:
+                with st.spinner(f"正在验证 {new_code}..."):
+                    result = validate_stock_code(new_code)
+                    if result['valid']:
+                        # 检查是否已在关注列表中
+                        existing = [s for s, _ in db_get_watchlist_with_names()]
+                        if new_code in existing:
+                            st.warning(f"⚠️ {new_code} 已在关注列表中")
+                        else:
+                            db_add_watchlist_with_name(result['code'], result['name'])
+                            st.success(f"✅ 已添加: {result['code']} {result['name']}")
+                            time.sleep(0.5)
+                            st.rerun()
+                    else:
+                        st.error(f"❌ 无效代码: {new_code}（需要6位数字）")
+        
+        # --- 当前关注列表 ---
+        watchlist = db_get_watchlist_with_names()
+        
+        if watchlist:
+            st.caption(f"当前关注 ({len(watchlist)} 只)")
+            for symbol, name in watchlist:
+                col_info, col_del = st.columns([4, 1])
+                with col_info:
+                    display_name = name if name != symbol else symbol
+                    st.markdown(f"**{symbol}** {display_name}")
+                with col_del:
+                    if st.button("❌", key=f"remove_{symbol}", help=f"移除 {symbol}"):
+                        db_remove_watchlist(symbol)
+                        st.rerun()
         else:
-            stock_df['label'] = stock_df['代码'] + " | " + stock_df['名称']
+            st.info("关注列表为空，请添加股票代码开始监控。")
         
-        # 2. 加载已保存的配置
-        saved_codes = load_selected_stocks()
-        default_selections = []
-        if not stock_df.empty:
-            default_selections = stock_df[stock_df['代码'].isin(saved_codes)]['label'].tolist()
+        # 构建 selected_labels（向后兼容 main.py 的消费格式）
+        selected_labels = [f"{symbol} | {name}" for symbol, name in watchlist]
         
-        # 3. 股票选择器
-        selected_labels = st.multiselect(
-            "选择股票 (最多5只)",
-            options=stock_df['label'] if not stock_df.empty else [],
-            default=default_selections,
-            max_selections=5,
-            help="您最多只能选择5只股票进行监控。"
-        )
-        
-        # 保存选择
-        current_codes = [label.split(" | ")[0] for label in selected_labels]
-        if set(current_codes) != set(saved_codes):
-            save_selected_stocks(current_codes)
-        
-        # 4. 设置参数
+        # --- 设置参数 ---
         settings = get_settings()
         
+        st.markdown("---")
+        st.header("AI 分析深度")
+        analysis_depth = st.select_slider(
+            "选择分析深度",
+            options=["简洁", "标准", "深度"],
+            value=settings.get("analysis_depth", "标准"),
+            help="简洁：极速决策及结论；标准：完整场景推演；深度：包含多时间框架与反事实思考。"
+        )
+
         st.markdown("---")
         st.header("交易策略参数")
         
@@ -125,7 +159,6 @@ def render_sidebar() -> dict:
             help="阿里云 DashScope API Key，用于红队审查",
             key="input_qwen"
         )
-        # gemini_api_key = "" # Removed
         
         # Metaso 设置
         st.markdown("---")
@@ -155,7 +188,7 @@ def render_sidebar() -> dict:
         if "input_kimi_url" not in st.session_state:
             st.session_state.input_kimi_url = settings.get("kimi_base_url", "https://api.moonshot.cn/v1")
         
-        # Metaso 高级设置
+        # 高级设置
         with st.expander("高级设置 (Endpoint)", expanded=False):
             if "input_metaso_url" not in st.session_state:
                 st.session_state.input_metaso_url = settings.get("metaso_base_url", "https://metaso.cn/api/v1")
@@ -183,7 +216,8 @@ def render_sidebar() -> dict:
             "kimi_base_url": kimi_base_url,
             "metaso_api_key": metaso_api_key,
             "metaso_base_url": metaso_base_url,
-            "proximity_threshold": proximity_pct
+            "proximity_threshold": proximity_pct,
+            "analysis_depth": analysis_depth
         }
         
         # 检测变化
@@ -194,6 +228,7 @@ def render_sidebar() -> dict:
             new_settings["kimi_base_url"] != settings.get("kimi_base_url", "https://api.moonshot.cn/v1") or
             new_settings["metaso_api_key"] != settings.get("metaso_api_key", "") or
             new_settings["metaso_base_url"] != settings.get("metaso_base_url", "") or
+            new_settings["analysis_depth"] != settings.get("analysis_depth", "标准") or
             abs(new_settings["proximity_threshold"] - settings.get("proximity_threshold", 0.012)) > 0.0001):
             save_settings(new_settings)
         
@@ -205,25 +240,11 @@ def render_sidebar() -> dict:
         st.markdown("---")
         st.header("数据管理")
         
-        col_update, col_sync = st.sidebar.columns(2)
-        col_u = col_update.button("🔄 更新股票列表")
-        if col_u:
-            with st.spinner("Updating Stock List..."):
-                get_all_stocks_list(force_update=True)
-                st.success("Stock list updated!")
-                time.sleep(1)
-                st.rerun()
-        
-        if col_sync.button("📉 下载/更新历史数据"):
+        if st.sidebar.button("📉 下载/更新历史数据"):
             if not selected_labels:
-                st.warning("请先选择股票")
+                st.warning("请先添加关注股票")
             else:
                 with st.spinner("Downloading historical data & Snapshot..."):
-                    # 1. Update Market Snapshot
-                    from utils.data_fetcher import fetch_and_cache_market_snapshot
-                    fetch_and_cache_market_snapshot()
-                    
-                    # 2. Update History
                     for label in selected_labels:
                         code_to_sync = label.split(" | ")[0]
                         save_minute_data(code_to_sync)
@@ -244,6 +265,7 @@ def render_sidebar() -> dict:
         "kimi_api_key": kimi_api_key,
         "metaso_api_key": metaso_api_key,
         "metaso_base_url": metaso_base_url,
+        "analysis_depth": analysis_depth,
         "auto_refresh": auto_refresh,
         "refresh_rate": refresh_rate
     }
