@@ -7,3 +7,6 @@ __pycache__/
 stock_data/
 user_config.json
 data/intelligence.json
+*.db
+*.parquet
+*.log

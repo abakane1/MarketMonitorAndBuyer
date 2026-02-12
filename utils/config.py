@@ -7,14 +7,25 @@ from utils.database import (
     db_get_history, db_add_history, db_delete_transaction
 )
 
+# Try to import the new prompt loader
+try:
+    from utils.prompt_loader import load_all_prompts as _load_prompts_from_files
+    _USE_FILE_PROMPTS = True
+except ImportError:
+    _USE_FILE_PROMPTS = False
+    _load_prompts_from_files = None
+
 CONFIG_FILE = "user_config.json"
-PROMPTS_FILE = "prompts_encrypted.json"  # v2.5.1: 分离 Prompts 存储
+PROMPTS_FILE = "prompts_encrypted.json"  # v2.5.1: 分离 Prompts 存储 (Legacy)
 
 DEFAULT_CONFIG = {
     # "selected_stocks": [], # DEPRECATED: Moved to DB
     # "positions": {},       # DEPRECATED: Moved to DB
     # "allocations": {},     # DEPRECATED: Moved to DB
-    "settings": {},
+    "settings": {
+        "kimi_api_key": "",
+        "kimi_base_url": "https://api.moonshot.cn/v1"
+    },
     "prompts": {
         "__NOTE__": "CORE IP REMOVED FOR SECURITY. PROMPTS WILL BE AUTO-ENCRYPTED BY SYSTEM.",
         "proposer_system": """
@@ -79,32 +90,185 @@ DEFAULT_CONFIG = {
 1. 本股专项资金限额: {capital_allocation} 元 (所有买入基于此限额)。
 2. 底仓红线: 任何卖出建议最大数量绝不可超过 {shares} 股。{base_shares} 股底仓是雷区，禁止卖出。
 """,
-        "deepseek_noon_suffix": """
+        "proposer_premarket_suffix": """
+# 深度研判附录 (盘前/盘后全场景规划)
+
+## 市场情报与历史上下文
+{research_context}
+
+## 技术面快照 (Technical Indicators)
+- 日线统计: {daily_stats}
+- MACD: {macd}
+- KDJ: {kdj}
+- RSI(14): {rsi}
+- 均线系统 (MA): {ma}
+- 布林带 (Bollinger): {bollinger}
+- 综合信号: {tech_summary}
+
+## 资金流向 (Capital Flow)
+{capital_flow}
+
+## 任务指令
+当前时间: {generated_time}
+请根据以上完整上下文，结合【基本规则】中的持仓数据，执行以下分析:
+
+1. **短期形态判断**: 结合 MACD/KDJ/RSI 与资金流向，判断当前处于哪个阶段（蓄势/突破/见顶/回调/筑底）。
+2. **关键价位锚定**: 基于均线系统和布林带，确定下一个交易日的支撑/阻力位。
+3. **情报共振分析**: 将技术面信号与市场情报交叉验证，识别预期差。
+4. **场景推演与挂单计划**: 输出 2-3 套互斥的场景对策（突破/震荡/杀跌），含具体触发条件和操作指令。
+5. **风险量化**: 给出明确的止损位和仓位建议，计算盈亏比 (Risk/Reward)。
+
+## 输出格式
+【决策摘要】
+方向: [买入/卖出/观望]
+建议价格: [具体价格或区间]
+建议股数: [具体数量]
+止损: [价格]
+止盈: [价格]
+场景重点: [关键转折信号]
+
+【场景对策】
+场景 A (高开/强势): ...
+场景 B (低开/弱势): ...
+场景 C (极端风控): ...
+
+【决策依据】
+(详细分析过程)
+""",
+        "proposer_intraday_suffix": """
+# 盘中实时研判附录 (Intraday Analysis)
+
+## 市场情报与历史上下文
+{research_context}
+
+## 技术面快照 (Technical Indicators)
+- 日线统计: {daily_stats}
+- MACD: {macd}
+- KDJ: {kdj}
+- RSI(14): {rsi}
+- 均线系统 (MA): {ma}
+- 布林带 (Bollinger): {bollinger}
+- 综合信号: {tech_summary}
+
+## 资金流向 (Capital Flow)
+{capital_flow}
+
+## 任务指令 (盘中模式)
+当前时间: {generated_time} (⚠️ 盘中交易时段)
+市场正在进行中，需要快速决策。
+
+1. **盘口状态速判**: 当前分时走势是攻击态、防守态还是混沌态？量能是否配合？
+2. **即时风险评估**: 当前价位相对支撑/阻力的距离，跌破/突破概率。
+3. **极速决策**: 给出明确的即时操作建议（立即买入/卖出/继续持有观望），强调时效性。
+4. **紧急止损**: 如果开仓，给出盘中紧急止损位（通常更窄）。
+
+> ⚠️ 盘中策略有效期较短，请特别注意时效性。不要给过于远期的目标价。
+
+## 输出格式
+【决策摘要】
+方向: [买入/卖出/观望]
+建议价格: [当前可执行价格]
+建议股数: [具体数量]
+止损: [盘中紧急止损价]
+止盈: [短期目标价]
+场景重点: [盘中关键观察点]
+
+【即时对策】
+(简洁的盘中行动计划)
+
+【决策依据】
+(简要分析)
+""",
+        "proposer_simple_suffix": """
+# 简化分析模式 (Simple Analysis Fallback)
+
+当前时间: {generated_time}
+
+> 注意: 本次分析未获取到完整的技术指标数据。请基于已有信息进行基本判断。
+
+请基于【基本规则】中的持仓数据和市场状态，给出简要的操作建议。
+
+## 输出格式
+【决策摘要】
+方向: [买入/卖出/观望]
+建议价格: [如有]
+建议股数: [如有]
+止损: [如有]
+场景重点: [关键关注点]
+
+【简要分析】
+(基于可用信息的判断)
+""",
+        "proposer_noon_suffix": """
 # 午间复盘模式 (Noon Review)
 
 ## Context
 当前时间: {generated_time} (午间休盘时段).
-市场完成了上午的交易。
+市场完成了上午的交易 (09:30 - 11:30)。
 
-[Morning Session Data]
-Current Price (11:30 Close): {price}
-Yesterday Final Close: {pre_close}
-Morning Change: {change_pct:.2f}%
+[Morning Session Snapshot]
+- Morning Open: {morning_open}
+- Morning High: {morning_high}
+- Morning Low: {morning_low}
+- Morning Close (11:30): {morning_close}
+- Morning Volume: {morning_vol}
+- Compared to Yesterday Close ({pre_close}): Top Change {change_pct:.2f}%
 
 {capital_flow}
 
 {research_context}
 
-## Task
-1. 结合【最新市场情报】与【历史研判】，回顾上午走势特征 (量能/承接).
-2. 分析当前持仓 {current_shares} 股的风险.
-3. 预判下午开盘后的走势 (下午是延续上涨/下跌，还是反转?).
-4. 给下午的操作建议 (Buy/Sell/Hold).
+## Task (Mid-Day Strategy)
+1. **上午盘面回顾 (Morning Review)**:
+   - 结合 Open/High/Low/Close 分析上午是单边攻击、震荡洗盘还是诱多/诱空？
+   - 量能结构：上午成交量 {morning_vol} 是否有效放大？(对比历史均量)
+   
+2. **下午趋势研判 (Afternoon Prediction)**:
+   - 下午开盘后 (13:00) 预计会发生什么？(延续上午趋势 vs 反转补跌/补涨)
+   - 关注 14:00/14:30 关键时间窗口的变盘可能性。
+
+3. **操作计划 (Action Plan)**:
+   - 当前持仓: {shares} 股 (成本 {cost})。
+   - 给下午的操作建议: Buy / Sell / Hold / T+0 滚动。
+   - 设定下午的【关键观察位】(Key Level to Watch).
 
 ## Output Format
-【午间复盘摘要】: ...
-【下午预判】: ...
-【操作建议】: ...
+【午间复盘摘要】
+方向: [买入/卖出/观望/持有]
+下午关注: [关键价位]
+场景预演: [如果不破X则... / 如果突破Y则...]
+
+【上午盘面诊断】
+...
+
+【下午剧本推演】
+...
+
+【操作指令】
+...
+""",
+        "reviewer_noon_audit": """
+【审计上下文 (午间版)】
+交易日期: {date} (午间休盘 11:30)
+标的: {code} ({name})
+上午收盘价: {price}
+
+【蓝军午间策略方案】
+{deepseek_plan}
+
+【红军审计任务 (Noon Risk Control)】
+你是风控官。现在是午间休息，你需要审计蓝军对“下午盘”的规划是否过于乐观或忽视了风险。
+
+1. **上午数据核实**: 蓝军对上午走势的定性（如“强势突破”或“弱势整理”）是否符合客观数据？
+2. **下午风险预警**: A股常有“下午跳水”或“尾盘偷袭”的习惯。蓝军是否考虑了这些风险？
+3. **下午 T+0 可行性**: 如果蓝军建议 T+0，空间是否足够？（考虑手续费和滑点）
+
+【输出格式】
+1. **风险评分**: X/10
+2. **午间核心隐患**:
+   - [ ] 上午定性偏差...
+   - [ ] 下午盲点...
+3. **CRO 下午建议**: (同意执行 / 建议观望 / 警惕跳水)
 """,
         "qwen_system": """
 你是一家顶尖对冲基金的首席风控官 (CRO)。
@@ -259,37 +423,25 @@ def load_config():
                 config = DEFAULT_CONFIG.copy()
                 config.update(data)
                 
-                # v2.5.1: Load Prompts from separate file if exists
-                if os.path.exists(PROMPTS_FILE):
+                # v3.0: NEW - Load prompts from Markdown files (preferred)
+                if _USE_FILE_PROMPTS and _load_prompts_from_files:
                     try:
-                        with open(PROMPTS_FILE, "r", encoding='utf-8') as pf:
-                            prompts_data = json.load(pf)
-                            encrypted_prompts = prompts_data.get("prompts")
-                            if encrypted_prompts and is_encrypted(encrypted_prompts):
-                                config["prompts"] = decrypt_dict(encrypted_prompts)
+                        file_prompts = _load_prompts_from_files()
+                        if file_prompts:
+                            config["prompts"] = file_prompts
+                            print(f"[Prompt Loader] Loaded {len(file_prompts)} prompts from markdown files")
+                        else:
+                            # Fallback to legacy loading
+                            _load_legacy_prompts(config)
                     except Exception as e:
-                        print(f"Prompts file load error: {e}")
-                        config["prompts"] = DEFAULT_CONFIG["prompts"]
+                        print(f"[Prompt Loader] Error loading from files: {e}, falling back to legacy")
+                        _load_legacy_prompts(config)
                 else:
-                    # Fallback: Decrypt Prompts from main config (legacy)
-                    prompts = config.get("prompts")
-                    if prompts and is_encrypted(prompts):
-                        try:
-                            decrypted = decrypt_dict(prompts)
-                            # [PATCH] Merge missing defaults (e.g. new Noon Suffix)
-                            defaults = DEFAULT_CONFIG.get("prompts", {})
-                            if isinstance(defaults, dict):
-                                for k, v in defaults.items():
-                                    if k not in decrypted:
-                                        decrypted[k] = v
-                            config["prompts"] = decrypted
-                        except Exception as e:
-                            print(f"Decryption failed: {e}")
-                            config["prompts"] = DEFAULT_CONFIG["prompts"]
+                    # Legacy loading
+                    _load_legacy_prompts(config)
                 
                 return config
             
-            return DEFAULT_CONFIG
             return DEFAULT_CONFIG
     except Exception as e:
         print(f"Config Load Error: {e}")
@@ -297,7 +449,44 @@ def load_config():
         # This prevents silent overwriting of valid data with defaults (e.g. wiping API keys).
         # Better to crash/error out than to lose data.
         raise e
-        # return DEFAULT_CONFIG
+
+
+def _load_legacy_prompts(config):
+    """Load prompts from legacy encrypted JSON files (fallback)"""
+    # v2.5.1: Load Prompts from separate file if exists
+    if os.path.exists(PROMPTS_FILE):
+        try:
+            with open(PROMPTS_FILE, "r", encoding='utf-8') as pf:
+                prompts_data = json.load(pf)
+                encrypted_prompts = prompts_data.get("prompts")
+                if encrypted_prompts and is_encrypted(encrypted_prompts):
+                    decrypted = decrypt_dict(encrypted_prompts)
+                    # [PATCH] 将 DEFAULT_CONFIG 中新增但加密文件中缺失的模板 merge 进来
+                    defaults = DEFAULT_CONFIG.get("prompts", {})
+                    if isinstance(defaults, dict):
+                        for k, v in defaults.items():
+                            if k not in decrypted and not k.startswith("__"):
+                                decrypted[k] = v
+                    config["prompts"] = decrypted
+        except Exception as e:
+            print(f"Prompts file load error: {e}")
+            config["prompts"] = DEFAULT_CONFIG["prompts"]
+    else:
+        # Fallback: Decrypt Prompts from main config (legacy)
+        prompts = config.get("prompts")
+        if prompts and is_encrypted(prompts):
+            try:
+                decrypted = decrypt_dict(prompts)
+                # [PATCH] Merge missing defaults (e.g. new Noon Suffix)
+                defaults = DEFAULT_CONFIG.get("prompts", {})
+                if isinstance(defaults, dict):
+                    for k, v in defaults.items():
+                        if k not in decrypted:
+                            decrypted[k] = v
+                config["prompts"] = decrypted
+            except Exception as e:
+                print(f"Decryption failed: {e}")
+                config["prompts"] = DEFAULT_CONFIG["prompts"]
 
 def save_config(config_data):
     """

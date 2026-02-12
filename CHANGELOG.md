@@ -5,6 +5,28 @@ All notable changes to the **MarketMonitorAndBuyer** project will be documented 
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [2.8.0] - 2026-02-10 (Prompt Refactor & Data Source Resilience)
+### Added (新增)
+- **提示词 Markdown 化 (Prompt Refactoring)**:
+  - 创建 `prompts/` 目录结构，将分散在代码中的提示词迁移为 11 个 Markdown 文件
+  - 新增 `utils/prompt_loader.py` 模块，支持从文件加载提示词
+  - 保留向后兼容，支持键名别名映射
+- **备用数据源 (Fallback Data Sources)**:
+  - 新增 `utils/data_fallback.py`，集成新浪财经和腾讯财经 API
+  - 修改 `utils/data_fetcher.py`，当东方财富(akshare)被封时自动切换备用源
+  - 数据获取优先级：本地缓存 → 新浪财经 → 腾讯财经 → 历史数据
+
+### Changed (变更)
+- **配置加载优化**: `utils/config.py` 现在优先从 Markdown 文件加载提示词，失败时回退到加密 JSON
+- **资金流向数据增强**: `get_stock_fund_flow()` 现在使用新浪财经实时数据更新价格和涨跌幅，避免显示过期缓存数据
+
+### Fixed (修复)
+- **东方财富封锁应对**: 解决 akshare 因东方财富反爬虫策略导致的数据获取失败问题
+- **资金流向数据不一致**: 修复资金流向显示的涨跌幅与实时行情不符的问题（因使用缓存的历史数据）
+- **本地缓存过期**: 新增备用数据源后，当本地缓存过期时自动从新浪财经/腾讯财经获取最新数据
+
+---
+
 ## [2.7.1] - 2026-02-09 (System Maintenance & Environment Hardening)
 ### Added (新增)
 - **环境自修复支持**: 针对 macOS 环境优化了 `start_mac.sh` 的鲁棒性，支持 Python 3.12+ 的虚拟环境自动重建与依赖安装。

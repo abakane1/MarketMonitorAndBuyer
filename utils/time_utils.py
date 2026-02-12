@@ -1,11 +1,17 @@
-from datetime import datetime, time, timedelta
+from datetime import datetime, time, timedelta, timezone
+
+def get_beijing_time() -> datetime:
+    """
+    获取精准的北京时间 (UTC+8)。
+    """
+    return datetime.now(timezone(timedelta(hours=8))).replace(tzinfo=None)
 
 def is_trading_time() -> bool:
     """
     检查当前时间是否在 A 股交易时间内（包括集合竞价）。
     范围：09:15 - 11:30, 13:00 - 15:05 (仅限工作日)
     """
-    now = datetime.now()
+    now = get_beijing_time()
     
     # 1. 检查是否为周末 (周六=5, 周日=6)
     if now.weekday() > 4:
@@ -65,7 +71,7 @@ def get_next_trading_day(start_date=None) -> datetime.date:
     If today is Fri, next is Mon.
     """
     if not start_date:
-        start_date = datetime.now().date()
+        start_date = get_beijing_time().date()
         
     next_day = start_date + timedelta(days=1)
     while not is_trading_day(next_day):
@@ -105,7 +111,7 @@ def get_market_session() -> str:
     - "closed": now > 15:00 (After Market Close)
     - "trading": Otherwise (Trading Hours)
     """
-    now_time = datetime.now().time()
+    now_time = get_beijing_time().time()
     
     # Pre-Market: Before 09:30
     if now_time < time(9, 30):

@@ -7,6 +7,14 @@ from typing import List, Dict, Optional
 from utils.time_utils import is_trading_time
 from datetime import datetime, time
 
+# Import fallback data sources (Sina/Tencent)
+try:
+    from utils.data_fallback import get_stock_spot_sina, get_stock_spot_tencent
+    _FALLBACK_AVAILABLE = True
+except ImportError:
+    _FALLBACK_AVAILABLE = False
+    logging.warning("data_fallback module not available, using akshare only")
+
 # --- 日志配置 ---
 logger = logging.getLogger(__name__)
 if not logger.handlers:
@@ -245,17 +253,80 @@ def fetch_and_cache_market_snapshot():
 
 def get_stock_realtime_info(symbol: str) -> Optional[Dict]:
     """
-    [Offline-First Version]
-    Reads real-time snapshot from DISK for a single stock or ETF.
-    Does NOT trigger network calls.
+    [Enhanced Version with Fallback - v2.8.1]
+    Tries real-time APIs first, then falls back to disk cache if APIs fail.
+    Also checks cache freshness before using cached data.
     """
     from utils.storage import load_realtime_quote, SPOT_DATA_PATH
     
-    # 1. Try Load from Disk (Combined v2.0 file)
-    data = load_realtime_quote(symbol)
+    # [FIX v2.8.1] Check cache freshness first
+    data = None
     spot_mtime = 0
-    if data and os.path.exists(SPOT_DATA_PATH):
+    cache_is_fresh = False
+    
+    if os.path.exists(SPOT_DATA_PATH):
         spot_mtime = os.path.getmtime(SPOT_DATA_PATH)
+        cache_age_hours = (time.time() - spot_mtime) / 3600
+        # Consider cache fresh if less than 1 hour old
+        cache_is_fresh = cache_age_hours < 1
+        
+        if cache_is_fresh:
+            data = load_realtime_quote(symbol)
+    
+    # If no fresh cache, try real-time APIs immediately
+    if not data or not cache_is_fresh:
+        if _FALLBACK_AVAILABLE:
+            try:
+                # Try Sina first for real-time data
+                sina_data = get_stock_spot_sina(symbol)
+                if sina_data:
+                    logger.info(f"Using Sina real-time data for {symbol}")
+                    return {
+                        'code': sina_data['代码'],
+                        'name': sina_data['名称'],
+                        'price': float(sina_data['最新价']),
+                        'pre_close': float(sina_data['昨收']),
+                        'market_cap': 0,
+                        'open': float(sina_data['今开']),
+                        'high': float(sina_data['最高']),
+                        'low': float(sina_data['最低']),
+                        'volume': float(sina_data['成交量']),
+                        'amount': float(sina_data['成交额']),
+                        '来源': 'sina'
+                    }
+                
+                # Try Tencent if Sina fails
+                tencent_data = get_stock_spot_tencent(symbol)
+                if tencent_data:
+                    logger.info(f"Using Tencent real-time data for {symbol}")
+                    return {
+                        'code': tencent_data['代码'],
+                        'name': tencent_data['名称'],
+                        'price': float(tencent_data['最新价']),
+                        'pre_close': float(tencent_data['昨收']),
+                        'market_cap': 0,
+                        'open': float(tencent_data['今开']),
+                        'high': float(tencent_data['最高']),
+                        'low': float(tencent_data['最低']),
+                        'volume': float(tencent_data['成交量']),
+                        'amount': float(tencent_data['成交额']),
+                        '来源': 'tencent'
+                    }
+            except Exception as e:
+                logger.warning(f"Real-time API failed for {symbol}: {e}")
+    
+    # 2. Fallback to v1.x individual files (stock_spot.parquet / etf_spot.parquet)
+    if not data:
+        for path in [STOCK_SPOT_PATH, ETF_SPOT_PATH]:
+            if os.path.exists(path):
+                try:
+                    df_v1 = pd.read_parquet(path)
+                    row_v1 = df_v1[df_v1['代码'] == symbol]
+                    if not row_v1.empty:
+                        data = row_v1.iloc[0].to_dict()
+                        break
+                except:
+                    continue
     
     # 2. Fallback to v1.x individual files (stock_spot.parquet / etf_spot.parquet)
     if not data:
@@ -333,6 +404,9 @@ def get_stock_realtime_info(symbol: str) -> Optional[Dict]:
     if data:
         # Map fields to standard format
         price = data.get('最新价', 0)
+        # Initialize pre_close with default from data
+        pre_close = float(data.get('昨收', data.get('pre_close', price)))
+        
         # [v3.0.7] Data Integrity: Use Fund Flow History to Cross-Verify Pre-Close
         # Real-time 'pre_close' from EM might be buggy during dividends or lags.
         try:
@@ -372,7 +446,46 @@ def get_stock_realtime_info(symbol: str) -> Optional[Dict]:
             'amount': float(data.get('成交额', 0))
         }
         
-    return None # Return None if not found on disk (Dashboard handles this)
+    # 4. Try Fallback APIs (Sina/Tencent) if disk data not available
+    if _FALLBACK_AVAILABLE:
+        try:
+            # Try Sina first
+            sina_data = get_stock_spot_sina(symbol)
+            if sina_data:
+                logger.info(f"Using Sina API for {symbol}")
+                return {
+                    'code': sina_data['代码'],
+                    'name': sina_data['名称'],
+                    'price': float(sina_data['最新价']),
+                    'pre_close': float(sina_data['昨收']),
+                    'market_cap': 0,  # Not available from Sina
+                    'open': float(sina_data['今开']),
+                    'high': float(sina_data['最高']),
+                    'low': float(sina_data['最低']),
+                    'volume': float(sina_data['成交量']),
+                    'amount': float(sina_data['成交额'])
+                }
+            
+            # Try Tencent if Sina fails
+            tencent_data = get_stock_spot_tencent(symbol)
+            if tencent_data:
+                logger.info(f"Using Tencent API for {symbol}")
+                return {
+                    'code': tencent_data['代码'],
+                    'name': tencent_data['名称'],
+                    'price': float(tencent_data['最新价']),
+                    'pre_close': float(tencent_data['昨收']),
+                    'market_cap': 0,  # Not available from Tencent
+                    'open': float(tencent_data['今开']),
+                    'high': float(tencent_data['最高']),
+                    'low': float(tencent_data['最低']),
+                    'volume': float(tencent_data['成交量']),
+                    'amount': float(tencent_data['成交额'])
+                }
+        except Exception as e:
+            logger.warning(f"Fallback APIs failed for {symbol}: {e}")
+    
+    return None # Return None if all sources failed (Dashboard handles this)
 
 # --- Legacy/Fetcher below (used by manual sync) ---
     try:
@@ -861,15 +974,16 @@ def get_stock_fund_flow(symbol: str) -> dict:
     """
     获取个股资金流向数据 (Fund Flow) - Latest Snapshot.
     Wraps get_stock_fund_flow_history for backward compatibility.
+    [FIXED v2.8.0] Now uses real-time data from fallback sources for price/change.
     """
     try:
-        # 获取完整历史
+        # 获取完整历史 (资金流向数据本身)
         df = get_stock_fund_flow_history(symbol)
         
         if df.empty:
             return {"error": "无数据 (History Empty)"}
         
-        # Take latest row
+        # Take latest row for fund flow data
         latest = df.iloc[-1]
         
         def safe_format(val, divisor=10000):
@@ -882,11 +996,7 @@ def get_stock_fund_flow(symbol: str) -> dict:
                 return "N/A"
         
         def safe_pct(val):
-            """安全格式化百分比 (Already percent in history data?)
-               Note: API returns '主力净流入-净占比' as e.g. 5.12 (meaning 5.12%) or 0.0512?
-               Let's check sample output:
-               Sample: '中单净流入-净占比': 8.83 -> likely 8.83%
-            """
+            """安全格式化百分比"""
             try:
                 if pd.isna(val):
                     return "N/A"
@@ -894,19 +1004,49 @@ def get_stock_fund_flow(symbol: str) -> dict:
             except:
                 return "N/A"
         
-        # Map columns from History API to Expected Keys
-        # History Cols: 日期, 收盘价, 涨跌幅, 主力净流入-净额, 主力净流入-净占比, ...
+        # [FIX v2.8.0] Get real-time price from fallback sources instead of cached history
+        real_time_info = None
+        if _FALLBACK_AVAILABLE:
+            try:
+                # Try Sina first for real-time data
+                real_time_info = get_stock_spot_sina(symbol)
+                if not real_time_info:
+                    real_time_info = get_stock_spot_tencent(symbol)
+            except Exception as e:
+                logger.warning(f"Fallback real-time fetch failed for fund flow: {e}")
         
-        price_val = latest.get("收盘价", "N/A")
+        # Use real-time data if available, otherwise fall back to history
+        if real_time_info:
+            price_val = real_time_info.get('最新价', latest.get("收盘价", "N/A"))
+            pre_close = real_time_info.get('昨收', latest.get("收盘价", price_val))
+            # Calculate real-time change
+            try:
+                change_pct = (float(price_val) - float(pre_close)) / float(pre_close) * 100
+            except:
+                change_pct = latest.get("涨跌幅", 0)
+        else:
+            price_val = latest.get("收盘价", "N/A")
+            change_pct = latest.get("涨跌幅", 0)
+        
+        # Get name from stock list if possible
+        name = symbol
+        try:
+            name_df = get_all_stocks_list()
+            row_n = name_df[name_df['代码'] == symbol]
+            if not row_n.empty:
+                name = row_n.iloc[0]['名称']
+        except:
+            pass
         
         result = {
-            "名称": symbol, # History API doesn't return Name, use symbol
+            "名称": name,
             "最新价": str(price_val),
-            "涨跌幅": safe_pct(latest.get("涨跌幅", 0)),
+            "涨跌幅": safe_pct(change_pct),
             "主力净流入": safe_format(latest.get("主力净流入-净额", 0)),
             "主力净占比": safe_pct(latest.get("主力净流入-净占比", 0)),
             "超大单净流入": safe_format(latest.get("超大单净流入-净额", 0)),
             "大单净流入": safe_format(latest.get("大单净流入-净额", 0)),
+            "数据来源": "实时+历史缓存" if real_time_info else "历史缓存"
         }
         
         return result
@@ -1045,6 +1185,7 @@ def calculate_price_limits(code: str, name: str, pre_close: float) -> tuple:
 
 
 
+@st.cache_data(ttl=300)
 def get_stock_news_raw(symbol: str, n: int = 5) -> list:
     """
     Fetch latest professional news from EastMoney via AkShare.
@@ -1054,13 +1195,17 @@ def get_stock_news_raw(symbol: str, n: int = 5) -> list:
         df = ak.stock_news_em(symbol=symbol)
         if df.empty:
             return []
+        
+        # 按发布时间降序排列，确保最新新闻在前
+        df['发布时间'] = pd.to_datetime(df['发布时间'], errors='coerce')
+        df = df.sort_values('发布时间', ascending=False).reset_index(drop=True)
             
         latest = df.head(n)
         news_list = []
         for _, row in latest.iterrows():
             news_list.append({
                 "title": str(row['新闻标题']).strip(),
-                "content": str(row['新闻内容']).strip(), # content might be empty or just title repeated
+                "content": str(row['新闻内容']).strip(),
                 "date": str(row['发布时间']).strip(),
                 "source": str(row['文章来源']).strip(),
                 "url": str(row['新闻链接']).strip()

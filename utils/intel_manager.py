@@ -1,10 +1,31 @@
 import json
 import os
+import re
 import uuid
 from datetime import datetime
 from typing import List, Dict, Optional
 
 from utils.database import db_load_intelligence, db_save_intelligence
+
+def _parse_sort_key(ts: str) -> str:
+    """
+    从 timestamp 中提取可排序的日期字符串。
+    兼容格式:
+      - "2026-02-11 22:06"  -> "2026-02-11 22:06"
+      - "近期(2026-01-20) 22:28" -> "2026-01-20 22:28"
+      - 其他异常格式 -> "0000-00-00 00:00" (排到末尾)
+    """
+    if not ts:
+        return "0000-00-00 00:00"
+    
+    # 尝试提取括号中的日期: "近期(YYYY-MM-DD) HH:MM"
+    m = re.search(r'(\d{4}-\d{2}-\d{2})\)?\s*(\d{2}:\d{2})?', ts)
+    if m:
+        date_part = m.group(1)
+        time_part = m.group(2) or "00:00"
+        return f"{date_part} {time_part}"
+    
+    return "0000-00-00 00:00"
 
 def get_claims(code: str) -> List[Dict]:
     """
@@ -16,8 +37,8 @@ def get_claims(code: str) -> List[Dict]:
     else:
         claims = []
         
-    # 按时间戳从新到旧排序
-    claims.sort(key=lambda x: x.get("timestamp", ""), reverse=True)
+    # 按时间戳从新到旧排序（兼容异常格式）
+    claims.sort(key=lambda x: _parse_sort_key(x.get("timestamp", "")), reverse=True)
     return claims
 
 def save_claims_to_db(code: str, claims: List[Dict]):

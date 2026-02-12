@@ -10,6 +10,35 @@ def parse_metaso_report(api_key: str, report_text: str, existing_claims: list, p
     2. Compare with existing claims.
     3. Identify contradictions.
     """
+    
+    DEFAULT_METASO_PARSER_TEMPLATE = """
+    You are an expert financial intelligence analyst.
+    
+    Task: Extract KEY investment information (claims) from the provided "Report Text".
+    
+    Context (Existing Knowledge):
+    {existing_text}
+    
+    Report Text (New Search Result):
+    {report_text}
+    
+    Requirements:
+    1. Extract new facts, data, rumors, or significant events.
+    2. Ignore general market noise or information already present in "Existing Knowledge".
+    3. If a new claim contradicts existing knowledge, flag it.
+    4. Output MUST be valid JSON.
+    
+    Output Format:
+    {{
+        "new_claims": [
+            {{ "content": "Specific fact or event...", "date": "YYYY-MM-DD" }}
+        ],
+        "contradictions": [
+             {{ "id": "ID of existing claim", "reason": "Explanation of contradiction" }}
+        ]
+    }}
+    """
+
     if not report_text or not api_key:
         return {"new_claims": [], "contradictions": []}
 
@@ -19,7 +48,8 @@ def parse_metaso_report(api_key: str, report_text: str, existing_claims: list, p
     existing_text = "\n".join([f"ID:{c['id']} Content:{c['content']}" for c in existing_claims])
     
     if not prompt_template:
-        return {"new_claims": [], "contradictions": [], "error": "Prompt template missing"}
+        prompt_template = DEFAULT_METASO_PARSER_TEMPLATE
+        # return {"new_claims": [], "contradictions": [], "error": "Prompt template missing"}
         
     try:
         prompt = prompt_template.format(existing_text=existing_text if existing_text else "None", report_text=report_text)

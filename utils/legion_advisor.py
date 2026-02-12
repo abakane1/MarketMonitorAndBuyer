@@ -3,36 +3,13 @@ import json
 from utils.ai_advisor import call_ai_model
 
 # --- DEFAULT SUB-AGENT PROMPTS ---
+# Minimal fallbacks, actual prompts loaded from config
 
 # 1. QUANT AGENT (数学官) - Focus: Numbers, Volume, Flow, Limits
-QUANT_SYS = """
-你是一台高精度的【金融量化分析引擎】。
-你的任务是处理所有输入的数值型数据（资金流向、分时统计、筹码结构、技术指标），并输出一份纯理性的量化评估报告。
-【原则】：
-1. 只看数字，不带情绪。
-2. 重点关注【异常值】（如主力大幅流出但股价不跌、缩量涨停等）。
-3. 必须计算盈亏比 (Risk/Reward Ratio) 和胜率估算。
-
-请输出：
-【量化评分】(0-100)
-【关键支撑/压力位】(基于筹码分布)
-【资金博弈结论】(主力是在吸筹、洗盘还是出货？)
-"""
+QUANT_SYS = "You are a quantitative analysis engine. Analyze the numerical data and provide objective assessments."
 
 # 2. INTEL AGENT (情报官) - Focus: News, Sentiment, Narrative
-INTEL_SYS = """
-你是华尔街顶级的【市场情报分析师】。
-你的任务是阅读所有输入的新闻、公告、研报摘要以及历史交易记录。
-【原则】：
-1. 识别【叙事逻辑】 (Narrative)：市场现在在炒作什么故事？
-2. 判断【预期差】 (Expectation Gap)：消息是利好兑现（Sell the news）还是新升势的起点？
-3. 结合历史操作：如果之前多次在该位置失败，必须发出警告。
-
-请输出：
-【情绪评分】(-5悲观 ~ +5乐观)
-【核心叙事】(一句话概括市场逻辑)
-【潜在雷区/催化剂】
-"""
+INTEL_SYS = "You are a market intelligence analyst. Analyze news and sentiment data to identify market narratives."
 
 def run_blue_legion(code, name, price, api_key_qwen, context_data, prompt_templates=None):
     """
@@ -48,8 +25,9 @@ def run_blue_legion(code, name, price, api_key_qwen, context_data, prompt_templa
     # In reality sequential here, but conceptually parallel inputs to Commander
     
     # 1.1 Quant Agent
-    quant_model = "qwen-plus" # Balanced/Fast
-    quant_sys = prompts.get("blue_quant_sys", QUANT_SYS)
+    # 1.1 Quant Agent
+    quant_model = "qwen-max" # Strongest Reasoning
+    quant_sys = prompts.get("quant_agent_system", QUANT_SYS)
     
     # Construct Quant User Prompt from Context
     # Incorporate Technicals, Flow, Intraday
@@ -74,8 +52,9 @@ def run_blue_legion(code, name, price, api_key_qwen, context_data, prompt_templa
     logs.append(f"### [Quant Agent Report ({quant_model})]\n{q_res}")
     
     # 1.2 Intel Agent
-    intel_model = "qwen-plus"
-    intel_sys = prompts.get("blue_intel_sys", INTEL_SYS)
+    # 1.2 Intel Agent
+    intel_model = "qwen-max"
+    intel_sys = prompts.get("intel_agent_system", INTEL_SYS)
     
     # Construct Intel User Prompt
     intel_data = f"""
@@ -158,4 +137,107 @@ def run_blue_legion(code, name, price, api_key_qwen, context_data, prompt_templa
     legion_reasoning = "\n\n".join(logs)
     
     return final_res, legion_reasoning, cmd_user_prompt, logs
+
+
+# --- RED LEGION (AUDITOR MOE) ---
+# Minimal fallbacks, actual prompts loaded from config
+
+# 3. RED QUANT AUDITOR (数据审计官) - Focus: Validation, Risk, Discrepancies
+RED_QUANT_SYS = "You are a risk auditor. Review trading plans and verify numerical accuracy and risk management."
+
+# 4. RED INTEL AUDITOR (情报审计官) - Focus: Fact Check, Narrative consistency
+RED_INTEL_SYS = "You are a compliance officer. Verify the logic and narrative consistency of trading strategies."
+
+def run_red_legion(context_data, draft_content, prompt_templates, api_key, model_type="qwen", model_name="qwen-max", is_final=False, kimi_base_url=None):
+    """
+    Executes the Red Legion (MoE) Strategy Audit.
+    Returns: (final_audit_report, full_audit_string)
+    """
+    code = context_data.get('code')
+    name = context_data.get('name')
+    price = context_data.get('price')
+    
+    logs = []
+    prompts = prompt_templates or {}
+    
+    # --- DATA COMPATIBILITY PATCH ---
+    # Ensure redundant keys (from ai_advisor) are mapped to keys expected by MoE
+    capital_flow = context_data.get('capital_flow_str') or context_data.get('capital_flow', 'N/A')
+    daily_stats = context_data.get('daily_stats') or context_data.get('raw_context', 'N/A')
+    research_ctx = context_data.get('research_context') or context_data.get('known_info', 'N/A')
+    intraday = context_data.get('intraday_summary') or "N/A"
+
+    # --- PHASE 1: SUB-AGENTS ---
+    
+    # 1.1 Red Quant
+    quant_sys = prompts.get("red_quant_auditor_system", RED_QUANT_SYS)
+    
+    quant_data = f"""
+    [Strategy to Audit]
+    {draft_content}
+    
+    [Market Facts]
+    Code: {code} ({name})
+    Price: {price}
+    Fund Flow: {capital_flow}
+    Intraday: {intraday}
+    Daily Stats: {daily_stats}
+    """
+    
+    q_res, _ = call_ai_model(model_type, api_key, quant_sys, quant_data, specific_model=model_name, base_url=kimi_base_url)
+    logs.append(f"### [Red Quant Auditor ({model_name})]\n{q_res}")
+    
+    # 1.2 Red Intel
+    intel_sys = prompts.get("red_intel_auditor_system", RED_INTEL_SYS)
+    
+    intel_data = f"""
+    [Strategy to Audit]
+    {draft_content}
+    
+    [Intelligence Context]
+    {research_ctx}
+    """
+    
+    i_res, _ = call_ai_model(model_type, api_key, intel_sys, intel_data, specific_model=model_name, base_url=kimi_base_url)
+    logs.append(f"### [Red Intel Auditor ({model_name})]\n{i_res}")
+    
+    # --- PHASE 2: RED COMMANDER (Verdict) ---
+    
+    # Default Red Commander System Prompt
+    cmd_sys = """
+    你是红军最高指挥官 (Red Team Commander)。
+    基于【数据审计官】和【情报审计官】的报告，对蓝军策略进行终极裁决。
+    
+    【裁决标准】：
+    1. 如果任一审计官给出 REJECT，则整体倾向于否决。
+    2. 如果仅是 WARN，需要提出具体的修改建议。
+    3. 如果 PASS，则批准执行。
+    
+    请输出一份格式化的【审计报告】，包含：
+    - 风险评级 (High/Medium/Low)
+    - 关键隐患
+    - 最终结论 (Approved / Rejected / Needs Revision)
+    """
+    
+    cmd_user_context = f"""
+    [Blue Team Strategy]
+    {draft_content}
+    
+    *** AUDIT REPORTS ***
+    
+    {logs[0]}
+    
+    {logs[1]}
+    
+    *** END REPORTS ***
+    
+    请根据以上审计报告，下达最终裁决。
+    """
+    
+    final_res, _ = call_ai_model(model_type, api_key, cmd_sys, cmd_user_context, specific_model=model_name, base_url=kimi_base_url)
+    
+    # Combine logs for reasoning display
+    full_audit_string = f"{final_res}\n\n" + "\n\n".join(logs)
+    
+    return final_res, full_audit_string
 

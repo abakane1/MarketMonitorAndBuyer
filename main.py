@@ -10,7 +10,7 @@ from components.dashboard import render_stock_dashboard, render_strategy_section
 
 # Page Configuration
 st.set_page_config(
-    page_title="MarketMonitor v2.7.1",
+    page_title="MarketMonitor v3.0.0",
     page_icon="📈",
     layout="wide",
     initial_sidebar_state="expanded",
@@ -51,7 +51,7 @@ from utils.database import init_db
 init_db()
 
 # --- Main App ---
-st.title("📈 A股复盘与预判辅助系统 v2.7.1")
+st.title("📈 A股复盘与预判辅助系统 v3.0.0")
 
 # Sidebar
 sidebar_data = render_sidebar()
@@ -67,6 +67,10 @@ refresh_rate = sidebar_data["refresh_rate"]
 if app_mode == "策略实验室":
     from components.lab import render_strategy_lab
     render_strategy_lab()
+
+elif app_mode == "操盘记录":
+    from components.portfolio import render_portfolio_dashboard
+    render_portfolio_dashboard()
 
 elif app_mode == "提示词中心":
     st.header("🧠 智能体提示词中心 (Agent Prompt Center)")
@@ -94,6 +98,9 @@ elif app_mode == "提示词中心":
         "reviewer_system": "🛡️ 风控官系统设定 (Reviewer System)",
         "reviewer_audit": "🛡️ 初审模版 (Audit Template)",
         "reviewer_final_audit": "⚖️ 终审模版 (Final Verdict)",
+        
+        "red_quant_auditor_system": "🛡️ 红军-数学审计官 (Kimi/Qwen Red Quant)",
+        "red_intel_auditor_system": "🛡️ 红军-情报审计官 (Kimi/Qwen Red Intel)",
     }
 
     p_desc = {
@@ -112,6 +119,9 @@ elif app_mode == "提示词中心":
         "reviewer_system": "💡 说明: 风控官角色设定，负责一致性审查。",
         "reviewer_audit": "💡 说明: (初审) 审核报告的生成模版。",
         "reviewer_final_audit": "💡 说明: (终审) 对优化后策略的最终裁决模版。",
+        
+        "red_quant_auditor_system": "💡 说明: 红军数学审计官。专注于数据真实性、仓位风险和计算逻辑审计。",
+        "red_intel_auditor_system": "💡 说明: 红军情报审计官。专注于新闻真实性、叙事偏见和盲点识别。",
         
         "metaso_query": "💡 说明: 指导 AI 将股票代码转化为有效的搜索 query 组合。",
         "metaso_parser": "💡 说明: 用于从杂乱的搜索结果中提取结构化的利好/利空情报。",
@@ -166,8 +176,8 @@ elif app_mode == "提示词中心":
 
     with tab2:
         st.subheader("🛡️ Risk Agent (风控智能体)")
-        st.info("独立风控审计系统。负责一致性审查 (Audit) 与 最终裁决 (Verdict)。")
-        c = render_prompts(["reviewer_"])
+        st.info("独立风控审计系统。负责一致性审查 (Audit) 与 最终裁决 (Verdict)。支持 Kimi-2.5-MoE 驱动的红军军团。")
+        c = render_prompts(["reviewer_", "red_"])
         if c == 0: st.info("暂无 Risk Agent 提示词")
 
     with tab3:

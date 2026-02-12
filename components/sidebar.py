@@ -23,7 +23,7 @@ def render_sidebar() -> dict:
     """
     # 导航
     st.sidebar.title("🎮 功能导航")
-    app_mode = st.sidebar.radio("选择页面", ["复盘与预判", "提示词中心", "策略实验室"], index=0)
+    app_mode = st.sidebar.radio("选择页面", ["复盘与预判", "操盘记录", "提示词中心", "策略实验室"], index=0)
     
     st.sidebar.markdown("---")
     st.sidebar.header("设置")
@@ -140,6 +140,20 @@ def render_sidebar() -> dict:
             help="用于深度研报分析",
             key="input_metaso_key"
         )
+
+        # Kimi (Moonshot)
+        if "input_kimi" not in st.session_state:
+            st.session_state.input_kimi = settings.get("kimi_api_key", "")
+            
+        kimi_api_key = st.text_input(
+            "Kimi API Key (Moonshot)",
+            type="password",
+            help="Moonshot AI API Key，用于红队审查",
+            key="input_kimi"
+        )
+        
+        if "input_kimi_url" not in st.session_state:
+            st.session_state.input_kimi_url = settings.get("kimi_base_url", "https://api.moonshot.cn/v1")
         
         # Metaso 高级设置
         with st.expander("高级设置 (Endpoint)", expanded=False):
@@ -147,10 +161,17 @@ def render_sidebar() -> dict:
                 st.session_state.input_metaso_url = settings.get("metaso_base_url", "https://metaso.cn/api/v1")
             
             metaso_base_url = st.text_input(
-                "API Base URL",
+                "Metaso API Base URL",
                 value=st.session_state.input_metaso_url,
                 help="默认: https://metaso.cn/api/v1",
                 key="input_metaso_url"
+            )
+            
+            kimi_base_url = st.text_input(
+                "Kimi API Base URL",
+                value=st.session_state.input_kimi_url,
+                help="默认: https://api.moonshot.cn/v1",
+                key="input_kimi_url"
             )
         
         # 保存设置
@@ -158,6 +179,8 @@ def render_sidebar() -> dict:
             "total_capital": total_capital,
             "deepseek_api_key": deepseek_api_key,
             "qwen_api_key": qwen_api_key,
+            "kimi_api_key": kimi_api_key,
+            "kimi_base_url": kimi_base_url,
             "metaso_api_key": metaso_api_key,
             "metaso_base_url": metaso_base_url,
             "proximity_threshold": proximity_pct
@@ -167,6 +190,8 @@ def render_sidebar() -> dict:
         if (new_settings["total_capital"] != default_capital or
             new_settings["deepseek_api_key"] != settings.get("deepseek_api_key", "") or
             new_settings["qwen_api_key"] != settings.get("qwen_api_key", "") or
+            new_settings["kimi_api_key"] != settings.get("kimi_api_key", "") or
+            new_settings["kimi_base_url"] != settings.get("kimi_base_url", "https://api.moonshot.cn/v1") or
             new_settings["metaso_api_key"] != settings.get("metaso_api_key", "") or
             new_settings["metaso_base_url"] != settings.get("metaso_base_url", "") or
             abs(new_settings["proximity_threshold"] - settings.get("proximity_threshold", 0.012)) > 0.0001):
@@ -213,10 +238,10 @@ def render_sidebar() -> dict:
         "selected_labels": selected_labels,
         "total_capital": total_capital,
         "risk_pct": risk_pct,
-        "risk_pct": risk_pct,
         "proximity_pct": proximity_pct,
         "deepseek_api_key": deepseek_api_key,
         "qwen_api_key": qwen_api_key,
+        "kimi_api_key": kimi_api_key,
         "metaso_api_key": metaso_api_key,
         "metaso_base_url": metaso_base_url,
         "auto_refresh": auto_refresh,

@@ -149,11 +149,11 @@ def get_latest_strategy_log(symbol: str):
 
 # --- Production Logs (Review & Prediction) ---
 
-def save_production_log(symbol: str, prompt: str, result: str, reasoning: str, model: str = "DeepSeek"):
+def save_production_log(symbol: str, prompt: str, result: str, reasoning: str, model: str = "DeepSeek", details: str = None):
     """
     Saves a finalized strategy to review_logs (Production).
     """
-    db_save_review_log(symbol, prompt, result, reasoning, model)
+    db_save_review_log(symbol, prompt, result, reasoning, model, details=details)
 
 def load_production_log(symbol: str) -> list:
     """

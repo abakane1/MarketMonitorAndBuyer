@@ -13,14 +13,29 @@ import pandas as pd
 
 import re
 import datetime
+from utils.prompt_loader import load_all_prompts
+from utils.time_utils import get_target_date_for_strategy, get_beijing_time, is_trading_time, get_market_session
 
 def render_strategy_section(code: str, name: str, price: float, shares_held: int, avg_cost: float, total_capital: float, risk_pct: float, proximity_pct: float, pre_close: float = 0.0):
     """
     渲染策略分析区域 (算法 + AI)
     """
+    # 0. Global API Config (Moved to top to prevent UnboundLocalError)
+    config = load_config()
+    settings = config.get("settings", {})
     
+    # Load MD prompts and merge
+    prompts = load_all_prompts()
+    if config.get("prompts"):
+        prompts.update(config.get("prompts"))
+    api_keys = {
+        "deepseek_api_key": st.session_state.get("input_apikey") or settings.get("deepseek_api_key"),
+        "qwen_api_key": st.session_state.get("input_qwen") or settings.get("qwen_api_key") or settings.get("dashscope_api_key"),
+        "kimi_api_key": st.session_state.get("input_kimi") or settings.get("kimi_api_key"),
+        "kimi_base_url": st.session_state.get("input_kimi_url") or settings.get("kimi_base_url")
+    }
+
     # 1. Capital Allocation UI
-    prompts = load_config().get("prompts", {}) # Load Prompts Early for Refinement Logic
     current_alloc = get_allocation(code)
     eff_capital = total_capital # Default
     
@@ -174,11 +189,12 @@ def render_strategy_section(code: str, name: str, price: float, shares_held: int
                             rc1, rc2 = st.columns([1, 1])
                             with rc1:
                                 if st.button("🚀 确认执行优化 (Run Refinement)", key=f"btn_run_refine_{code}", type="primary"):
-                                    # Get Key
-                                    b_key = st.session_state.get("input_apikey", "")
+                                    # Get Key from registry-ready api_keys dict
+                                    b_key = api_keys.get("deepseek_api_key", "")
                                     if r_data['model'] == "Qwen":
-                                        b_key = st.session_state.get("input_qwen", "")
-                                        if not b_key: b_key = load_config().get("settings", {}).get("qwen_api_key", "")
+                                        b_key = api_keys.get("qwen_api_key", "")
+                                    elif r_data['model'] == "Kimi":
+                                        b_key = api_keys.get("kimi_api_key", "")
                                     
                                     if not b_key:
                                         st.error(f"Missing Key for {r_data['model']}")
@@ -276,12 +292,13 @@ def render_strategy_section(code: str, name: str, price: float, shares_held: int
                                  fc1, fc2 = st.columns(2)
                                  with fc1:
                                      if st.button("🚀 执行终审 (Run Final Verdict)", key=f"btn_run_final_{code}", type="primary"):
-                                         # Key Check
-                                         r_key = load_config().get("settings", {}).get("qwen_api_key", "")
-                                         if fa_data['model'] == "DeepSeek": r_key = st.session_state.get("input_apikey", "")
-                                         elif fa_data['model'] == "Qwen": r_key = st.session_state.get("input_qwen", "") or r_key
+                                         # Key Check using centralized api_keys
+                                         r_key = api_keys.get("qwen_api_key", "") # Default or initial assignment
+                                         if fa_data['model'] == "DeepSeek": r_key = api_keys.get("deepseek_api_key", "")
+                                         elif fa_data['model'] == "Qwen": r_key = api_keys.get("qwen_api_key", "")
+                                         elif fa_data['model'] == "Kimi": r_key = api_keys.get("kimi_api_key", "")
 
-                                         if not r_key: st.error("Missing Key"); st.stop()
+                                         if not r_key: st.error(f"Missing Key for {fa_data['model']}"); st.stop()
                                          
                                          with st.spinner(f"⚖️ {fa_data['model']} 正在宣判..."):
                                              from utils.ai_advisor import call_ai_model
@@ -358,11 +375,13 @@ def render_strategy_section(code: str, name: str, price: float, shares_held: int
                                       with ec1:
                                           if st.button("🚀 签署执行令 (Sign Order)", key=f"btn_sign_exec_{code}", type="primary"):
                                                # Key Check
-                                               b_key = st.session_state.get("input_apikey", "")
+                                               b_key = api_keys.get("deepseek_api_key", "")
                                                if fe_data['model'] == "Qwen": 
-                                                   b_key = st.session_state.get("input_qwen", "") or load_config().get("settings", {}).get("qwen_api_key", "")
+                                                   b_key = api_keys.get("qwen_api_key", "")
+                                               elif fe_data['model'] == "Kimi":
+                                                   b_key = api_keys.get("kimi_api_key", "")
                                                
-                                               if not b_key: st.error("Missing Key"); st.stop()
+                                               if not b_key: st.error(f"Missing Key for {fe_data['model']}"); st.stop()
                                                
                                                with st.spinner(f"🏁 {fe_data['model']} 正在签署..."):
                                                    from utils.ai_advisor import call_ai_model
@@ -418,11 +437,39 @@ def render_strategy_section(code: str, name: str, price: float, shares_held: int
                             # Use original raw prompt (contains News, Indicators, Fund Flow) as background
                             bg_info = ai_strat_log.get('raw_context') or ai_strat_log.get('prompt', 'No Data Available')
                             
+                            c_snap = ai_strat_log.get('context_snapshot', {}) or {}
+                            
+                            # Use get() for safety as snapshot might be partial
+                            
+                            # Prepare Date
+                            # datetime module already imported at top level
+                            
+                            prompts = load_all_prompts()
+                            # Merge overrides from config if any
+                            if config.get("prompts"):
+                                prompts.update(config.get("prompts"))
+
+                            gen_time_str = ai_strat_log.get('time')
+                            if gen_time_str:
+                                try:
+                                    gen_time = datetime.datetime.strptime(gen_time_str, "%Y-%m-%d %H:%M:%S")
+                                except:
+                                    gen_time = get_beijing_time()
+                            else:
+                                gen_time = get_beijing_time()
+                            
+                            date_val = get_target_date_for_strategy(gen_time)
+
                             audit_ctx = {
                                 "code": code,
                                 "name": name,
                                 "price": price,
-                                "daily_stats": bg_info,  # Inject FULL Context here
+                                "date": date_val,
+                                "total_capital": total_capital,
+                                "daily_stats": bg_info, # Fallback to full context text
+                                "capital_flow": c_snap.get('capital_flow_str', 'Check Daily Stats'),
+                                "research_context": ai_strat_log.get('raw_context') or ai_strat_log.get('prompt', 'N/A'),
+                                "intraday_summary": c_snap.get('intraday_summary', 'Check Daily Stats'),
                                 "deepseek_plan": ai_strat_log['result']
                             }
                             
@@ -447,12 +494,13 @@ def render_strategy_section(code: str, name: str, price: float, shares_held: int
                     with ac1:
                          if st.button(f"🚀 确认执行审查 (Run Audit)", key=f"btn_run_audit_{code}", type="primary"):
                              # Get Key
-                             r_key = st.session_state.get("input_apikey", "") # Default to DS key check
+                             r_key = api_keys.get("deepseek_api_key", "")
                              if a_data['model'] == "Qwen":
-                                 r_key = st.session_state.get("input_qwen", "")
-                                 if not r_key: r_key = load_config().get("settings", {}).get("qwen_api_key", "")
+                                 r_key = api_keys.get("qwen_api_key", "")
+                             elif a_data['model'] == "Kimi":
+                                 r_key = api_keys.get("kimi_api_key", "")
                              elif a_data['model'] == "DeepSeek":
-                                 r_key = st.session_state.get("input_apikey", "")
+                                 r_key = api_keys.get("deepseek_api_key", "")
                              
                              if not r_key:
                                  st.error(f"Missing Key for {a_data['model']}")
@@ -538,7 +586,8 @@ def render_strategy_section(code: str, name: str, price: float, shares_held: int
                         full_prompt_log, 
                         full_result, 
                         ai_strat_log['reasoning'],
-                        model=ai_strat_log.get('model', 'DeepSeek')
+                        model=ai_strat_log.get('model', 'DeepSeek'),
+                        details=json.dumps({'prompts_history': ph}, ensure_ascii=False) if ph else None
                     )
                     # Clear draft
                     del st.session_state[pending_key]
@@ -663,7 +712,7 @@ def render_strategy_section(code: str, name: str, price: float, shares_held: int
         # Control Buttons
         st.markdown("---")
         # Control Buttons
-        from utils.time_utils import is_trading_time, get_target_date_for_strategy, get_market_session
+        # from utils.time_utils import is_trading_time, get_target_date_for_strategy, get_market_session
         market_open = is_trading_time()
         session_status = get_market_session()
         
@@ -677,10 +726,11 @@ def render_strategy_section(code: str, name: str, price: float, shares_held: int
         
         # Fund Flow History Display Moved to Dashboard
     with st.container():
-        # Load Config/Prompts globally for this section
-        prompts = load_config().get("prompts", {})
+        # Use prompts loaded at the top of function (line 24)
+        # prompts = load_config().get("prompts", {})  # REMOVED: Redundant call
         
         col1, col2 = st.columns([3, 1])
+
         
         start_pre = False
         start_intra = False
@@ -799,7 +849,51 @@ def render_strategy_section(code: str, name: str, price: float, shares_held: int
                     
                     intraday_pattern = analyze_intraday_pattern(minute_df)
                     
-                    
+                    # [Noon Review Enhanced] Calculate Morning Stats (Fixed for Datetime Index)
+                    morning_stats = {}
+                    if not minute_df.empty and '时间' in minute_df.columns:
+                        try:
+                            # 1. ensure datetime
+                            if not pd.api.types.is_datetime64_any_dtype(minute_df['时间']):
+                                minute_df['时间'] = pd.to_datetime(minute_df['时间'])
+                            
+                            # 2. Filter for Latest Date (Today)
+                            latest_date = minute_df['时间'].dt.date.iloc[-1]
+                            today_df = minute_df[minute_df['时间'].dt.date == latest_date]
+                            
+                            # 3. Filter for Morning Session (09:30 - 11:30)
+                            # Using 11:31 to be safe inclusive of 11:30:00
+                            import datetime as dt_module
+                            m_start = dt_module.time(9, 30)
+                            m_end = dt_module.time(11, 31) 
+                            
+                            m_df = today_df[
+                                (today_df['时间'].dt.time >= m_start) & 
+                                (today_df['时间'].dt.time < m_end)
+                            ]
+                            
+                            if not m_df.empty:
+                                m_open = m_df.iloc[0]['收盘']
+                                if '开盘' in m_df.columns: 
+                                    # Use the first minute's open if available, or just first record
+                                    m_open = m_df.iloc[0]['开盘'] if m_df.iloc[0]['开盘'] > 0 else m_df.iloc[0]['收盘']
+                                
+                                m_close = m_df.iloc[-1]['收盘']
+                                m_high = m_df['最高'].max() if '最高' in m_df.columns else m_df['收盘'].max()
+                                m_low = m_df['最低'].min() if '最低' in m_df.columns else m_df['收盘'].min()
+                                m_vol = m_df['成交量'].sum()
+                                
+                                morning_stats = {
+                                    "morning_open": m_open,
+                                    "morning_high": m_high,
+                                    "morning_low": m_low,
+                                    "morning_close": m_close,
+                                    "morning_vol": m_vol
+                                }
+                                context.update(morning_stats)
+                        except Exception as e:
+                            print(f"Morning Stats Calc Error: {e}")
+
                     # Force update history for Prompt Context (Ensure freshness before AI reads it)
                     # We pass the same dataframe structure, but force check API
                     ff_history_prompt = get_stock_fund_flow_history(code, force_update=True)
@@ -820,7 +914,13 @@ def render_strategy_section(code: str, name: str, price: float, shares_held: int
                         "user_p": user_p,
                         "target_suffix_key": target_suffix_key,
                         "warning_msg": warning_msg,
-                        "context_snapshot": context # Saved for Blue Legion (MoE)
+                        "context_snapshot": context, # Saved for Blue Legion (MoE)
+                        # Additional data for DeepSeekExpert.propose()
+                        "intraday_summary": intraday_pattern,
+                        "technical_indicators": tech_indicators,
+                        "fund_flow_data": get_stock_fund_flow(code),
+                        "fund_flow_history": ff_history_prompt,
+                        "research_context": final_research_context
                     }
                     st.rerun()
 
@@ -848,21 +948,13 @@ def render_strategy_section(code: str, name: str, price: float, shares_held: int
             st.caption("🤖 模型战队配置 (AI Team Config)")
             ms_c1, ms_c2 = st.columns(2)
             with ms_c1:
-                blue_model = st.selectbox("🔵 蓝军 (进攻/策略)", ["DeepSeek"], index=0, key=f"blue_sel_{code}", help="负责生成交易计划 (Proposer)")
+                blue_model = st.selectbox("🔵 蓝军 (进攻/策略)", ["DeepSeek", "Qwen"], index=0, key=f"blue_sel_{code}", help="负责生成交易计划 (Proposer)")
             with ms_c2:
-                red_model = st.selectbox("🔴 红军 (防守/审查)", ["DeepSeek", "None"], index=0, key=f"red_sel_{code}", help="负责风险审计 (Reviewer)")
+                red_model = st.selectbox("🔴 红军 (防守/审查)", ["Kimi", "DeepSeek", "None"], index=0, key=f"red_sel_{code}", help="负责风险审计 (Reviewer)")
             
             # Auto-Drive Toggle
             auto_drive = st.checkbox("⚡ 极速模式 (Auto-Drive)", value=True, help="一键全自动：蓝军草案 -> 红军初审 -> 蓝军反思优化(v2.0) -> 红军终审", key=f"auto_drive_{code}")
 
-            # Validate Keys (Dynamic)
-            # Helper to get key (Registry handles this, but we check here for UI feedback)
-            settings = load_config().get("settings", {})
-            api_keys = {
-                "deepseek_api_key": st.session_state.get("input_apikey") or settings.get("deepseek_api_key"),
-                "qwen_api_key": st.session_state.get("input_qwen") or settings.get("qwen_api_key") or settings.get("dashscope_api_key")
-            }
-            
             # Legacy Key check for UI feedback
             ds_key_chk = api_keys["deepseek_api_key"]
             qwen_key_chk = api_keys["qwen_api_key"]
@@ -871,6 +963,7 @@ def render_strategy_section(code: str, name: str, price: float, shares_held: int
             def get_key_for_model(m_name):
                 if m_name == "DeepSeek": return ds_key_chk
                 if m_name == "Qwen": return qwen_key_chk
+                if m_name == "Kimi": return api_keys["kimi_api_key"]
                 return ""
 
             p_col1, p_col2 = st.columns(2)
@@ -901,14 +994,25 @@ def render_strategy_section(code: str, name: str, price: float, shares_held: int
                                          # Step 1: Blue v1
                                          status.write(f"🧠 Step 1: {blue_model} 生成初始草案 (v1.0)...")
                                          
-                                         c_snap = preview_data.get('context_snapshot', {})
+                                         # [Robustness Fix] Ensure context_snapshot is a dict
+                                         c_snap_raw = preview_data.get('context_snapshot', {})
+                                         if isinstance(c_snap_raw, str):
+                                             st.warning("⚠️ 检测到上下文快照格式异常 (String)，已自动重置为空。")
+                                             c_snap = {}
+                                         else:
+                                             c_snap = c_snap_raw
+                                             
                                          round_history = []
                                          
                                          # Use 'raw_context' as well
                                          c1, r1, p1, moe_logs = blue_expert.propose(
                                             c_snap, prompts, 
-                                            research_context=c_snap.get('known_info', ""),
-                                            raw_context=preview_data['user_p']
+                                            research_context=preview_data.get('research_context', c_snap.get('known_info', "")),
+                                            raw_context=preview_data['user_p'],
+                                            intraday_summary=preview_data.get('intraday_summary'),
+                                            technical_indicators=preview_data.get('technical_indicators'),
+                                            fund_flow_data=preview_data.get('fund_flow_data'),
+                                            fund_flow_history=preview_data.get('fund_flow_history')
                                          )
                                          
                                          if "Error" in c1:
@@ -1203,7 +1307,7 @@ def render_strategy_section(code: str, name: str, price: float, shares_held: int
                         
                         if not has_details and "# 🧠 Round 1: Strategy Draft" in p_text:
                             with st.expander("📝 全流程详情 (Full Process History - Legacy)", expanded=True):
-                                # Correct Labels and Sequence
+                                # 使用完整的 section marker 进行切割，避免被内容中的 --- 截断
                                 h_tab1, h_tab2, h_tab3, h_tab4 = st.tabs(["1. Draft (草案)", "2. Audit (初审)", "3. Refine (反思)", "4. Final (决策)"])
                                 
                                 def extract_section(full_txt, start_marker, end_marker=None):
@@ -1223,8 +1327,8 @@ def render_strategy_section(code: str, name: str, price: float, shares_held: int
                                 
                                 with h_tab1:
                                     st.caption("🔵 Blue Team - Initial Strategy Proposal")
-                                    s1 = extract_section(p_text, "## System", "---") # Legacy draft starts with ## System
-                                    if s1 == "N/A": s1 = extract_section(p_text, "# 🧠 Round 1: Strategy Draft", "# 🛡️ Round 1: Red Audit")
+                                    # 使用 section marker 而非 --- 作为边界
+                                    s1 = extract_section(p_text, "# 🧠 Round 1: Strategy Draft", "# 🛡️ Round 1: Red Audit")
                                     st.code(s1, language='text')
 
                                 with h_tab2:

@@ -338,29 +338,33 @@ def db_get_latest_strategy_log(symbol: str) -> dict:
 
 # --- Review Logs (For Strategy Section) ---
 
-def db_save_review_log(symbol: str, prompt: str, result: str, reasoning: str, model: str = "DeepSeek", custom_timestamp: str = None):
+def db_save_review_log(symbol: str, prompt: str, result: str, reasoning: str, model: str = "DeepSeek", custom_timestamp: str = None, details: str = None):
     conn = get_db_connection()
     c = conn.cursor()
     ts = custom_timestamp if custom_timestamp else datetime.now().strftime("%Y-%m-%d %H:%M:%S")
     
-    # Try extract Tag
+    # 提取标签
     import re
     tag_match = re.search(r"【(.*?)】", result)
     tag = tag_match.group(0) if tag_match else ""
     
-    # Migration logic: Check if 'model' column exists in 'review_logs' table
-    # This is a simple check; a more robust migration system would be preferred for complex changes.
+    # 自动迁移: 确保 model 和 details 列存在
     try:
         c.execute("SELECT model FROM review_logs LIMIT 1")
     except sqlite3.OperationalError:
-        # If 'model' column does not exist, add it
         c.execute("ALTER TABLE review_logs ADD COLUMN model TEXT DEFAULT 'DeepSeek'")
         conn.commit()
     
+    try:
+        c.execute("SELECT details FROM review_logs LIMIT 1")
+    except sqlite3.OperationalError:
+        c.execute("ALTER TABLE review_logs ADD COLUMN details TEXT DEFAULT ''")
+        conn.commit()
+    
     c.execute("""
-        INSERT INTO review_logs (symbol, timestamp, result, reasoning, prompt, tag, model)
-        VALUES (?, ?, ?, ?, ?, ?, ?)
-    """, (symbol, ts, result, reasoning, prompt, tag, model))
+        INSERT INTO review_logs (symbol, timestamp, result, reasoning, prompt, tag, model, details)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+    """, (symbol, ts, result, reasoning, prompt, tag, model, details or ""))
     conn.commit()
     conn.close()
 
@@ -377,8 +381,13 @@ def db_get_review_logs(symbol: str, limit: int = 20) -> list:
     conn.close()
     
     res = []
+    col_names = []
+    if rows:
+        col_names = rows[0].keys()
+    
     for r in rows:
-        mdl = r["model"] if "model" in r.keys() and r["model"] else "DeepSeek"
+        mdl = r["model"] if "model" in col_names and r["model"] else "DeepSeek"
+        details_val = r["details"] if "details" in col_names else ""
         res.append({
             "id": r["id"],
             "timestamp": r["timestamp"],
@@ -386,7 +395,8 @@ def db_get_review_logs(symbol: str, limit: int = 20) -> list:
             "reasoning": r["reasoning"],
             "prompt": r["prompt"],
             "tag": r["tag"],
-            "model": mdl
+            "model": mdl,
+            "details": details_val or ""
         })
     return res
 
@@ -432,7 +442,7 @@ def db_add_history(symbol: str, timestamp: str, action_type: str, price: float, 
     conn.commit()
     conn.close()
 
-@st.cache_data(ttl=5)
+# @st.cache_data(ttl=5) # REMOVED to fix read-after-write consistency
 def db_get_history(symbol: str) -> list:
     conn = get_db_connection()
     c = conn.cursor()
@@ -504,4 +514,145 @@ def db_get_position_at_date(symbol: str, target_date_str: str) -> dict:
     return {
         "shares": int(shares),
         "avg_cost": total_cost / shares if shares > 0 else 0.0
+    }
+
+# --- Portfolio (盈亏面板) ---
+
+def db_get_all_positions() -> list:
+    """获取所有持仓（仅返回 shares > 0 的记录）。"""
+    conn = get_db_connection()
+    c = conn.cursor()
+    c.execute("SELECT symbol, shares, cost, base_shares FROM positions WHERE shares > 0")
+    rows = c.fetchall()
+    conn.close()
+    
+    result = []
+    for row in rows:
+        result.append({
+            "symbol": row["symbol"],
+            "shares": row["shares"],
+            "cost": row["cost"],
+            "base_shares": row["base_shares"] if row["base_shares"] is not None else 0
+        })
+    return result
+
+def db_get_all_history() -> list:
+    """获取所有股票的交易记录，按时间倒序排列。"""
+    conn = get_db_connection()
+    c = conn.cursor()
+    c.execute("SELECT * FROM history ORDER BY timestamp DESC")
+    rows = c.fetchall()
+    conn.close()
+    
+    result = []
+    for row in rows:
+        result.append({
+            "symbol": row["symbol"],
+            "timestamp": row["timestamp"],
+            "type": row["type"],
+            "price": row["price"],
+            "amount": row["amount"],
+            "note": row["note"]
+        })
+    return result
+
+def db_compute_realized_pnl(symbol: str) -> dict:
+    """
+    根据交易流水，用移动平均成本法计算已实现盈亏。
+    
+    返回:
+        {
+            "realized_pnl": float,   # 累计已实现盈亏
+            "total_buy_amount": float,  # 累计买入金额
+            "total_sell_amount": float, # 累计卖出金额
+            "trade_count": int,      # 交易次数
+            "daily_pnl": list        # 每日盈亏变化 [{date, pnl, cumulative_pnl}]
+        }
+    """
+    conn = get_db_connection()
+    c = conn.cursor()
+    c.execute("""
+        SELECT type, amount, price, timestamp FROM history 
+        WHERE symbol = ?
+        ORDER BY timestamp ASC
+    """, (symbol,))
+    rows = c.fetchall()
+    conn.close()
+    
+    # 移动平均成本法计算
+    shares = 0
+    total_cost = 0.0
+    realized_pnl = 0.0
+    total_buy_amount = 0.0
+    total_sell_amount = 0.0
+    trade_count = 0
+    
+    # 按日聚合盈亏
+    daily_pnl_map = {}  # {date_str: realized_pnl_on_that_day}
+    cumulative_pnl = 0.0
+    
+    for r in rows:
+        t = str(r["type"]).strip().lower()
+        qty = int(r["amount"]) if r["amount"] else 0
+        p = float(r["price"]) if r["price"] else 0
+        ts = r["timestamp"]
+        date_str = ts[:10] if ts else "unknown"
+        
+        if qty <= 0 or p <= 0:
+            continue
+        
+        trade_count += 1
+        
+        # 处理持仓修正 (Override)
+        if "override" in t or "修正" in t or "reset" in t:
+            shares = qty
+            total_cost = qty * p
+            continue
+        
+        if any(w in t for w in ["买", "入", "buy"]):
+            # 买入：增加持仓，累加成本
+            shares += qty
+            total_cost += qty * p
+            total_buy_amount += qty * p
+            
+        elif any(w in t for w in ["卖", "出", "sell"]):
+            # 卖出：计算已实现盈亏
+            if shares > 0:
+                avg_cost = total_cost / shares
+                # 本次卖出的已实现盈亏
+                pnl = (p - avg_cost) * qty
+                realized_pnl += pnl
+                cumulative_pnl += pnl
+                total_sell_amount += qty * p
+                
+                # 记录日盈亏
+                if date_str not in daily_pnl_map:
+                    daily_pnl_map[date_str] = 0.0
+                daily_pnl_map[date_str] += pnl
+                
+                # 减少持仓
+                shares -= qty
+                if shares <= 0:
+                    shares = 0
+                    total_cost = 0.0
+                else:
+                    total_cost = shares * avg_cost
+    
+    # 将日盈亏转为有序列表
+    daily_pnl = []
+    cum = 0.0
+    for date_str in sorted(daily_pnl_map.keys()):
+        cum += daily_pnl_map[date_str]
+        daily_pnl.append({
+            "date": date_str,
+            "pnl": round(daily_pnl_map[date_str], 2),
+            "cumulative_pnl": round(cum, 2)
+        })
+    
+    return {
+        "realized_pnl": round(realized_pnl, 2),
+        "total_buy_amount": round(total_buy_amount, 2),
+        "total_sell_amount": round(total_sell_amount, 2),
+        "trade_count": trade_count,
+        "daily_pnl": daily_pnl
     }

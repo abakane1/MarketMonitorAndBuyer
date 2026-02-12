@@ -8,6 +8,7 @@ from utils.researcher import ask_metaso_research_loop
 from utils.config import load_config
 from utils.data_fetcher import get_stock_news_raw
 from utils.intelligence_processor import summarize_intelligence
+from utils.qwen_agent import search_with_qwen
 
 def render_intel_hub(code: str, name: str, price: float, avg_cost: float, shares_held: int, strat_res: dict, total_capital: float, current_alloc: float):
     """
@@ -20,7 +21,8 @@ def render_intel_hub(code: str, name: str, price: float, avg_cost: float, shares
     
     with st.expander("🗃️ 股票情报数据库 (Intelligence Hub)", expanded=False):
         # --- Top Action Buttons ---
-        col_top1, col_top2 = st.columns([0.5, 0.5])
+        col_top1, col_top2, col_top3 = st.columns([0.33, 0.33, 0.33])
+
         
         # 1. Metaso Search Button
         if col_top1.button("🔍 秘塔深度搜索", key=f"btn_metaso_{code}", use_container_width=True):
@@ -58,12 +60,33 @@ def render_intel_hub(code: str, name: str, price: float, avg_cost: float, shares
                     time.sleep(1)
                     st.rerun()
 
-        # 2. Dedupe Button
+        # 2. Qwen Search Button [NEW]
+        if col_top2.button("🐶 Qwen 全网检索", key=f"btn_qwen_{code}", use_container_width=True):
+            if not deepseek_api_key and not settings.get("qwen_api_key"): 
+                st.warning("请设置 Qwen API Key (DashScope)")
+            else:
+                 # Try to get DashScope key specifically if separate, or use same one
+                dashscope_key = settings.get("dashscope_api_key") or settings.get("qwen_api_key") or deepseek_api_key
+                
+                with st.spinner(f"🐶 Qwen 正在全网检索 {name} ..."):
+                     # Construct query
+                    query = f"A股 {name} ({code}) 最新重大利好与利空消息 业绩 研报"
+                    
+                    new_claims = search_with_qwen(dashscope_key, query)
+                    if new_claims:
+                        add_claims(code, new_claims, source="Qwen Search")
+                        st.success(f"Qwen 搜寻到 {len(new_claims)} 条新情报！")
+                    else:
+                        st.warning("Qwen 未搜寻到有效情报或接口异常。")
+                    time.sleep(1)
+                    st.rerun()
+
+        # 3. Dedupe Button
         if f"dedupe_results_{code}" not in st.session_state:
             st.session_state[f"dedupe_results_{code}"] = None
         
         current_claims = get_claims(code)
-        if col_top2.button("🧹 扫描重复并清理", key=f"btn_dedupe_{code}", use_container_width=True):
+        if col_top3.button("🧹 扫描重复并清理", key=f"btn_dedupe_{code}", use_container_width=True):
             if not current_claims:
                 st.info("暂无情报可供清理")
             else:
@@ -142,6 +165,9 @@ def render_intel_hub(code: str, name: str, price: float, avg_cost: float, shares
             n_col1, n_col2 = st.columns([0.3, 0.7])
             with n_col1:
                 if st.button("🔄 刷新资讯", key=f"btn_refresh_news_{code}"):
+                    get_stock_news_raw.clear()
+                    st.toast("已清除资讯缓存，正在重新抓取...")
+                    time.sleep(0.5)
                     st.rerun()
             with n_col2:
                 if st.button("⚡ AI 提炼入库 (Summarize & Save)", key=f"btn_sum_news_{code}", help="调用 DeepSeek 阅读最新20条新闻，生成摘要并存入情报库"):
@@ -182,29 +208,84 @@ def render_intel_hub(code: str, name: str, price: float, avg_cost: float, shares
                 st.error(f"资讯获取失败: {e}")
 
         st.markdown("---")
+        st.markdown("---")
         current_claims = get_claims(code)
         if not current_claims:
             st.info("暂无收回的情报。请点击上方按钮进行抓取。")
         else:
-            for idx, item in enumerate(current_claims):
-                col_c1, col_c2, col_c3 = st.columns([0.7, 0.15, 0.15])
-                with col_c1:
-                    # Color code status
-                    status_map = {
-                        "verified": "🟢",
-                        "disputed": "🟠",
-                        "false_info": "❌"
-                    }
-                    status_icon = status_map.get(item['status'], "⚪")
-                    
-                    if item.get('source') == 'UserManual':
-                        status_icon = "🚨 (用户)"
-                    
-                    # Strikethrough if false
-                    content_display = item['content']
-                    if item['status'] == 'false_info':
-                        content_display = f"~~{content_display}~~ (用户人工证伪)"
-                        
-                    st.markdown(f"**{status_icon} [识别日期: {item['timestamp']}]** {content_display}")
-                    if item.get('note'):
-                        st.caption(f"备注: {item['note']}")
+            # Group claims by source
+            manual_claims = []
+            ai_claims = []
+            search_claims = []
+            
+            for item in current_claims:
+                source = item.get('source', '')
+                if source == 'UserManual':
+                    manual_claims.append(item)
+                elif source == 'EastMoney AI摘要':
+                    ai_claims.append(item)
+                else:
+                    search_claims.append(item)
+            
+            # Create Tabs
+            tab_u, tab_a, tab_s = st.tabs([
+                f"🚨 核心情报 ({len(manual_claims)})", 
+                f"🤖 AI 研报 ({len(ai_claims)})", 
+                f"🔍 深度搜索 ({len(search_claims)})"
+            ])
+            
+            def render_claim_item(item):
+                status_map = {
+                    "verified": "🟢",
+                    "disputed": "🟠",
+                    "false_info": "❌",
+                    "pending": "⚪"
+                }
+                status_icon = status_map.get(item.get('status', 'pending'), "⚪")
+                
+                # Special icon for manual
+                src = item.get('source', '')
+                if src == 'UserManual':
+                    status_icon = "🚨"
+                elif src == 'Qwen Search':
+                     status_icon = "🐶"
+                elif src == 'Metaso':
+                     status_icon = "Ⓜ️"
+
+                content_display = item['content']
+                if item.get('status') == 'false_info':
+                    content_display = f"~~{content_display}~~ (已证伪)"
+                
+                with st.container(border=True):
+                    col_main, col_del = st.columns([0.9, 0.1])
+                    with col_main:
+                        st.markdown(f"**{status_icon} [{item['timestamp']}]**")
+                        st.caption(f"来源: {src}")
+                        st.code(content_display, language=None, wrap_lines=True)
+                        if item.get('note'):
+                            st.info(f"备注: {item['note']}")
+                    with col_del:
+                        if st.button("🗑️", key=f"del_{item['id']}", help="删除此条情报"):
+                            delete_claim(code, item['id'])
+                            st.rerun()
+
+            with tab_u:
+                if manual_claims:
+                    for item in manual_claims:
+                        render_claim_item(item)
+                else:
+                    st.info("暂无用户录入的核心情报")
+
+            with tab_a:
+                if ai_claims:
+                    for item in ai_claims:
+                        render_claim_item(item)
+                else:
+                    st.info("暂无 AI 生成的研报摘要")
+
+            with tab_s:
+                if search_claims:
+                    for item in search_claims:
+                        render_claim_item(item)
+                else:
+                    st.info("暂无深度搜索情报")

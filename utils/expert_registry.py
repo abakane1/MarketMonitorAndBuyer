@@ -13,7 +13,7 @@ from utils.ai_advisor import (
     build_final_decision_prompt,
     call_qwen_api
 )
-from utils.legion_advisor import run_blue_legion
+from utils.legion_advisor import run_blue_legion, run_red_legion
 
 class BaseExpert(ABC):
     """
@@ -176,29 +176,24 @@ class QwenExpert(BaseExpert):
         )
         return final_res, legion_reasoning, cmd_prompt, logs
 
-    def audit(self, context_data: Dict[str, Any], plan_content: str, prompt_templates: Dict[str, str], is_final: bool = False, **kwargs) -> str:
+    def audit(self, context_data: Dict[str, Any], plan_content: str, prompt_templates: Dict[str, str], is_final: bool = False, **kwargs) -> Tuple[str, str]:
         """
-        Conducts Audit using Qwen.
+        Conducts Audit using Qwen Red Legion (MoE).
         """
+        # Inject raw context for Red Legion if needed
         audit_ctx = context_data.copy()
-        audit_ctx['deepseek_plan'] = plan_content
         if 'daily_stats' not in audit_ctx and 'raw_context' in kwargs:
              audit_ctx['daily_stats'] = kwargs['raw_context']
+        if 'research_context' not in audit_ctx and 'research_context' in kwargs:
+             audit_ctx['research_context'] = kwargs['research_context']
              
-        sys_p, user_p = build_red_team_prompt(
-            audit_ctx, 
-            prompt_templates, 
-            is_final_round=is_final
-        )
-        
-        full_prompt = f"System: {sys_p}\n\nUser: {user_p}"
-        
         if not self.api_key:
-             return "Error: Missing Qwen API Key", full_prompt
-             
-        # Use simple call_qwen_api wrapper
-        content = call_qwen_api(self.api_key, sys_p, user_p)
-        return content, full_prompt
+             return "Error: Missing Qwen API Key", "No Prompt (Legion Mode)"
+
+        # Run Red Legion
+        final_res, full_log = run_red_legion(audit_ctx, plan_content, self.api_key, prompt_templates)
+        
+        return final_res, full_log
 
     def refine(self, original_context: str, original_plan: str, audit_report: str, prompt_templates: Dict[str, str], **kwargs) -> Tuple[str, str, str]:
         sys_p, user_p = build_refinement_prompt(
@@ -226,6 +221,54 @@ class QwenExpert(BaseExpert):
         return content, "", full_prompt
 
 
+
+class KimiExpert(BaseExpert):
+    """
+    Expert wrapper for Kimi (Moonshot AI).
+    Responsible for Red Legion Audit.
+    """
+    def __init__(self, api_key: str, base_url: str = None, model_name: str = "kimi-k2.5"):
+        super().__init__("Kimi", api_key)
+        self.base_url = base_url
+        self.model_name = model_name
+
+    def propose(self, context_data: Dict[str, Any], prompt_templates: Dict[str, str], **kwargs) -> Tuple[str, str, Any, Any]:
+        return "Kimi Proposer Not Implemented", "", "", []
+
+    def audit(self, context_data: Dict[str, Any], plan_content: str, prompt_templates: Dict[str, str], is_final: bool = False, **kwargs) -> Tuple[str, str]:
+        """
+        Conducts Audit using Kimi Red Legion (MoE).
+        """
+        audit_ctx = context_data.copy()
+        if 'daily_stats' not in audit_ctx and 'raw_context' in kwargs:
+             audit_ctx['daily_stats'] = kwargs['raw_context']
+        if 'research_context' not in audit_ctx and 'research_context' in kwargs:
+             audit_ctx['research_context'] = kwargs['research_context']
+             
+        if not self.api_key:
+             return "Error: Missing Kimi API Key", "No Prompt"
+
+        # Use Kimi 2.5 (MoE Architecture)
+        final_res, full_log = run_red_legion(
+            audit_ctx, 
+            plan_content, 
+            self.api_key, 
+            prompt_templates, 
+            model_type="kimi", 
+            model_name=self.model_name,
+            is_final=is_final,
+            kimi_base_url=self.base_url
+        )
+        
+        return final_res, full_log
+
+    def refine(self, original_context: str, original_plan: str, audit_report: str, prompt_templates: Dict[str, str], **kwargs) -> Tuple[str, str, str]:
+        return "Kimi Refine Not Implemented", "", ""
+
+    def decide(self, aggregated_history: list, prompt_templates: Dict[str, str], context_data: Dict[str, Any] = None, **kwargs) -> Tuple[str, str, str]:
+        return "Kimi Decide Not Implemented", "", ""
+
+
 class ExpertRegistry:
     """
     Factory to get experts.
@@ -235,9 +278,15 @@ class ExpertRegistry:
         """
         Returns an instance of the requested expert.
         """
-        if name.lower() == "deepseek":
+        name_lower = name.lower()
+        if name_lower == "deepseek":
             return DeepSeekExpert(api_keys.get("deepseek_api_key", ""))
-        elif name.lower() == "qwen":
+        elif name_lower == "qwen":
             return QwenExpert(api_keys.get("qwen_api_key", ""))
+        elif name_lower == "kimi":
+            # Extract base_url if present in api_keys or fallback to None
+            k_base = api_keys.get("kimi_base_url")
+            # Explicitly pass the compatible model name
+            return KimiExpert(api_key=api_keys.get("kimi_api_key", ""), base_url=k_base or "", model_name="kimi-k2.5")
         else:
             return None

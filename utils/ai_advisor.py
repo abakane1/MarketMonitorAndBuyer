@@ -7,6 +7,7 @@ from google import genai
 from utils.storage import load_production_log
 from utils.data_fetcher import calculate_price_limits
 from utils.database import db_get_history
+from utils.time_utils import get_beijing_time, get_market_session, get_next_trading_day, is_trading_day
 
 def build_advisor_prompt(context_data, research_context="", technical_indicators=None, fund_flow_data=None, fund_flow_history=None, intraday_summary=None, prompt_templates=None, suffix_key="proposer_premarket_suffix", symbol=None):
     """
@@ -22,31 +23,25 @@ def build_advisor_prompt(context_data, research_context="", technical_indicators
     if not base_tpl:
         return "", "Error: Prompt templates missing."
 
-    # [Logic] Phase Determination based on Time
-    now = datetime.now()
-    hour, minute = now.hour, now.minute
+    # [Logic] Phase Determination based on Time (Centralized in time_utils)
+    now = get_beijing_time()
+    session = get_market_session()
     
-    # Define Tunnels
-    is_pre_market = (hour < 9) or (hour == 9 and minute < 30)
-    is_noon_break = (hour == 11 and minute >= 30) or (hour == 12) or (hour == 13 and minute < 0)
-    is_post_market = (hour >= 15) or (hour == 14 and minute >= 55)
-    
-    if is_post_market:
-        shift = 1
-        if now.weekday() == 4: shift = 3
-        elif now.weekday() == 5: shift = 2
-        target_date = now + pd.Timedelta(days=shift)
-        context_data['date'] = f"{target_date.strftime('%Y-%m-%d')} (Next Trading Day)"
+    if session == "closed":
+        # Post-market logic: Determine if we should show Next Trading Day
+        # If it's a trading day and after 15:00, or a weekend
+        target_date = get_next_trading_day(now.date())
+        context_data['date'] = f"{target_date.strftime('%Y-%m-%d')} (下个交易日)"
         context_data['market_status'] = "CLOSED_POST"
-    elif is_noon_break:
+    elif session == "morning_break":
         context_data['market_status'] = "CLOSED_NOON"
-    elif is_pre_market:
+    elif session == "pre_market":
         context_data['market_status'] = "PRE_OPEN"
     else:
-        # Intraday - Focused on monitoring, not re-planning unless it's a critical node
+        # trading (Intraday)
         context_data['market_status'] = "OPEN_INTRADAY"
-        # Optional: Add a note that this is NOT a formal review node
-        research_context += "\n【⚠️ 提示】: 当前处于盘中交易时段，建议以观察为主，待午间或盘后再进行正式策略修定。"
+        if is_trading_day(now.date()):
+             research_context += "\n【⚠️ 提示】: 当前处于北京时间盘中交易时段，建议以观察为主，待午间或盘后再进行正式策略修定。"
 
     # 2. Format Base
     # Calculate Price Limits
@@ -82,7 +77,7 @@ def build_advisor_prompt(context_data, research_context="", technical_indicators
         base_prompt = f"Prompt Error: Missing key {e}"
 
     # 3. Append Suffix
-    if technical_indicators and suffix_tpl:
+    if isinstance(technical_indicators, dict) and suffix_tpl:
         # Prepare data for suffix
         
         # Format Fund Flow
@@ -280,6 +275,26 @@ def build_advisor_prompt(context_data, research_context="", technical_indicators
             "capital_flow": capital_flow_str,
             "generated_time": datetime.now().strftime("%Y-%m-%d %H:%M:%S")
         }
+        
+        
+        # [Noon Review Enhanced] Inject Morning Stats (Defaults First)
+        suffix_data.update({
+            "morning_open": "N/A",
+            "morning_high": "N/A",
+            "morning_low": "N/A",
+            "morning_close": "N/A",
+            "morning_vol": "N/A"
+        })
+        
+        if "morning_close" in context_data:
+            suffix_data.update({
+                "morning_open": context_data.get("morning_open", "N/A"),
+                "morning_high": context_data.get("morning_high", "N/A"),
+                "morning_low": context_data.get("morning_low", "N/A"),
+                "morning_close": context_data.get("morning_close", "N/A"),
+                "morning_vol": context_data.get("morning_vol", "N/A")
+            })
+
         # Merge context_data to provide access to 'price', 'code', 'name' etc. in suffix
         if context_data:
             suffix_data.update(context_data)
@@ -325,16 +340,10 @@ def build_advisor_prompt(context_data, research_context="", technical_indicators
 """
         base_prompt += critical_block
 
-    # System Prompt
-    # System Prompt (From Config)
     # System Prompt (From Config)
     # Unified Strategy (LAG + GTO for All)
     sys_key = "proposer_system"
-    default_sys = (
-        "你那位专业的股票交易员，奉行 'LAG + GTO' 交易哲学。\n"
-        "【核心心法】：别人恐惧我贪婪，别人贪婪我恐惧。\n"
-        "请基于提供的数据（包含资金流向、分时特征、技术指标、市场情报以及历史研判记录）给出明确的操作建议。"
-    )
+    default_sys = "You are a professional trader. Analyze the provided data and give actionable trading advice."
     
     system_prompt = prompt_templates.get(sys_key, default_sys)
     
@@ -363,7 +372,7 @@ def call_deepseek_api(api_key, system_prompt, user_prompt):
     }
     
     try:
-        response = requests.post(url, headers=headers, json=payload, timeout=90)
+        response = requests.post(url, headers=headers, json=payload, timeout=240)
         if response.status_code == 200:
             res_json = response.json()
             message = res_json['choices'][0]['message']
@@ -490,7 +499,11 @@ def build_red_team_prompt(context_data, prompt_templates=None, is_final_round=Fa
             user_tpl = prompt_templates.get("reviewer_audit", DEFAULT_RED_USER)
             user_tpl += "\n【最终裁决要求】这是蓝军修正后的 v2.0 版本。请检查之前的隐患是否消除。如有核心问题未解决，仍可驳回；否则请批准执行。"
     else:
-        user_tpl = prompt_templates.get("reviewer_audit", DEFAULT_RED_USER)
+        # [Noon Audit Logic]
+        if context_data.get('market_status') == "CLOSED_NOON" and "reviewer_noon_audit" in prompt_templates:
+            user_tpl = prompt_templates["reviewer_noon_audit"]
+        else:
+            user_tpl = prompt_templates.get("reviewer_audit", DEFAULT_RED_USER)
         
     sys_tpl = prompt_templates.get("reviewer_system", DEFAULT_RED_SYS)
     
@@ -510,22 +523,73 @@ def build_red_team_prompt(context_data, prompt_templates=None, is_final_round=Fa
     except Exception as e:
         return "", f"Prompt Format Error: {e}"
 
-def call_ai_model(model_name, api_key, system_prompt, user_prompt, specific_model=None):
+def call_kimi_api(api_key, system_prompt, user_prompt, model="kimi-k2.5", base_url="https://api.moonshot.cn/v1"):
+    """
+    Executes the API call to Kimi (Moonshot AI).
+    Compatible with OpenAI SDK pattern.
+    """
+    if not api_key:
+        return "Error: Missing Kimi API Key"
+
+    clean_key = api_key.strip()
+    # Correctly join the base_url with the path
+    import os
+    if base_url.endswith('/'):
+        base_url = base_url[:-1]
+    url = f"{base_url}/chat/completions"
+    
+    headers = {
+        "Content-Type": "application/json",
+        "Authorization": f"Bearer {clean_key}"
+    }
+    
+    # Debug: Print Sanitized Info to Terminal
+    print(f"DEBUG KIMI: URL={url} MODEL={model} KEY_PFX={clean_key[:8]}...")
+    
+    payload = {
+        "model": model,
+        "messages": [
+            {"role": "system", "content": system_prompt},
+            {"role": "user", "content": user_prompt}
+        ],
+        "temperature": 1.0 # kimi-k2.5 requires exactly 1.0
+    }
+    
+    try:
+        response = requests.post(url, headers=headers, json=payload, timeout=120)
+        if response.status_code == 200:
+            res_json = response.json()
+            if 'choices' in res_json and len(res_json['choices']) > 0:
+                content = res_json['choices'][0]['message'].get('content', '')
+                return content
+            return f"Kimi API Error: Empty response format {res_json}"
+        else:
+            k_len = len(clean_key)
+            k_pfx = clean_key[:5] if k_len > 5 else clean_key
+            return f"Kimi API Error {response.status_code}: {response.text} (Key: {k_pfx}..., Len: {k_len})"
+    except Exception as e:
+        return f"Kimi Request Failed: {str(e)}"
+
+def call_ai_model(model_name, api_key, system_prompt, user_prompt, specific_model=None, base_url=None):
     """
     Unified dispatcher for AI models.
-    model_name: "deepseek" or "qwen"
-    specific_model: (Optional) specific model ID, e.g. 'qwen-plus', 'qwen-turbo'.
+    model_name: "deepseek", "qwen", or "kimi"
+    specific_model: (Optional) specific model ID.
     """
     if model_name == "deepseek":
-        # DeepSeek currently hardcoded to 'deepseek-reasoner' inside call_deepseek_api
-        # To support switching, we'd need to refactor call_deepseek_api too. 
-        # But for now Red Team uses DeepSeek R1 (reasoner) which is correct.
         content, reasoning = call_deepseek_api(api_key, system_prompt, user_prompt)
         return content, reasoning
     elif model_name == "qwen":
         target_model = specific_model if specific_model else "qwen-max"
         content = call_qwen_api(api_key, system_prompt, user_prompt, model=target_model)
-        # Qwen returns only content, no reasoning
+        return content, ""
+    elif model_name == "kimi":
+        target_model = specific_model if specific_model else "kimi-k2.5"
+        # If base_url is not provided, use the one from call_kimi_api default (or we could fetch from config here)
+        if base_url:
+            content = call_kimi_api(api_key, system_prompt, user_prompt, model=target_model, base_url=base_url)
+        else:
+            content = call_kimi_api(api_key, system_prompt, user_prompt, model=target_model)
         return content, ""
     else:
         return f"Error: Unknown Model {model_name}", ""
@@ -555,19 +619,7 @@ def build_refinement_prompt(original_context, original_plan, audit_report, promp
     
     # 2. Build Refinement Instruction (User Prompt)
     # Default instruction incorporating "Blue Team Autonomy"
-    default_refine_instr = """
-【来自红军 (审计师) 的反馈】
-{audit_report}
-
-【你的任务 / v2.0 迭代】
-你是策略专家（蓝军），不是红军的下属。请仔细阅读上述审计意见，并进行**独立判断**：
-1. **去伪存真**：如果红军指出的事实错误（如看错数据）确实存在，请修正；如果红军产生了幻觉（错误引用），请在思考中反驳并坚持原判。
-2. **吸收建议**：如果红军的 GTO 建议合理（如调整仓位赔率），请优化你的策略。
-
-请输出《交易策略 v2.0 (Refined)》。
-- 如果你完全接受红军意见，请修改策略。
-- 如果你认为红军错了，请保留原策略并说明理由。
-"""
+    default_refine_instr = "Please refine the strategy based on the audit feedback."
     refine_tpl = prompt_templates.get("refinement_instruction", default_refine_instr)
     
     try:
@@ -634,42 +686,21 @@ def build_final_decision_prompt(aggregated_history: list, prompt_templates=None,
 
     # 3. System Prompt (Reuse Blue Team)
     sys_key = "proposer_system"
-    default_sys = f"你那位专业的股票交易员，奉行 'LAG + GTO' 交易哲学。当前关注标的: {target_info}。"
+    default_sys = f"You are a professional trader analyzing {target_info}."
     system_prompt = prompt_templates.get(sys_key, default_sys)
     
     # 4. User Prompt (Decision Instruction)
     # Using triple-quoted string to ensure formatting
-    default_instr = f"""
-{core_context}
-
-【全量博弈决策追踪】
-以下是针对 {target_info} 进行的 5 个步骤全自动博弈模组中的前 4 步全量记录：
-
-{history_text}
-
----
-【最终主帅执行令 (v4.3 - Commander Signature)】
-请作为蓝军主帅 (Commander)，在全面复审上述从“草案”到“终审”的逻辑冲突点、风险点及最终共识后，签署该标的的 **最终执行令 (Final Order)**。
-
-【签署禁令】: 
-1. **标的锁定**: 严禁提及或受历史参考记录中其他无关标的（如荣盛发展等）的误导。目前的博弈对象仅为 {target_info}。
-2. **逻辑穿透**: 即使红军在终审中提出了异议，若蓝军认为在该行情背景下风险可控且符合 LAG 进攻逻辑，蓝军主帅有权维持优化后的方案，但需在决策依据中注明。
-
-【执行令格式】:
-【标的】: {target_info}
-【方向】: [买入/卖出/观望/持有/调仓]
-【建议价格/区间】: [具体数值]
-【建议股数/偏好】: [具体建议]
-【止损参考】: [具体数值]
-【止盈参考】: [具体数值]
-【今日场景重点】: [对齐 v4.2 场景演变的一句话核心]
-【最终决策依据】: [简述理由，必须涵盖对前序审计分歧点的综合权衡]
-"""
+    default_instr = f"Please review the strategy history and provide a final trading decision for {target_info}."
     user_tpl = prompt_templates.get("proposer_final_decision", default_instr)
     
     try:
         # Note: If user_tpl contains other keys, this might need refinement
-        user_prompt = user_tpl.format(final_verdict=history_text) if "{final_verdict}" in user_tpl else user_tpl
+        user_prompt = user_tpl.format(
+            core_context=core_context,
+            target_info=target_info,
+            history_text=history_text
+        )
         return system_prompt, user_prompt
     except Exception as e:
         return system_prompt, default_instr # Fallback

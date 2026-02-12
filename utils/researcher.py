@@ -69,9 +69,9 @@ def ask_metaso_research(api_key: str, base_url: str, context_data: dict, query_t
             try:
                 query = query_template_fallback.format(**context_data)
             except:
-                query = f"{context_data.get('name')} ({context_data.get('code')}) 最新研报"
+                query = f"A股 {context_data.get('name')} ({context_data.get('code')}) 近期重大利好利空消息、最新公告及业绩预告"
         else:
-            query = f"{context_data.get('name')} ({context_data.get('code')}) 最新研报" 
+            query = f"A股 {context_data.get('name')} ({context_data.get('code')}) 近期重大利好利空消息、最新公告及业绩预告" 
     
     # Execute Cached
     return _execute_metaso_query(api_key, base_url, query)
