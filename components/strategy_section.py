@@ -780,148 +780,154 @@ def render_strategy_section(code: str, name: str, price: float, shares_held: int
                     from utils.storage import load_minute_data
                     from utils.indicators import calculate_indicators
                     
-                    # Logic to determine base price for Limit Calculation
-                    # Default: Pre-Close (Yesterday's Close)
-                    limit_base_price = pre_close
-                    # If Pre-market Analysis for Tomorrow (Evening session), use Today's Close as base
-                    if start_pre and datetime.datetime.now().time() > datetime.time(15, 0):
-                        limit_base_price = price
-                    
-                    # Fetch Base Position
-                    from utils.database import db_get_position
-                    pos_data = db_get_position(code)
-                    base_shares = pos_data.get("base_shares", 0)
-                    tradable_shares = max(0, shares_held - base_shares)
-                    
-                    # Calculate Available Cash (Buying Power for this stock)
-                    current_market_value = shares_held * price
-                    available_cash = max(0.0, eff_capital - current_market_value)
-                    
-                    context = {
-                        "base_shares": base_shares,
-                        "tradable_shares": tradable_shares,
-                        "limit_base_price": limit_base_price,
-                        "code": code, 
-                        "name": name, 
-                        "name": name, 
-                        "price": price, 
-                        "pre_close": pre_close if pre_close > 0 else price,
-                        "change_pct": (price - pre_close) / pre_close * 100 if pre_close > 0 else 0.0,
-                        "cost": avg_cost,
-                        "shares": shares_held,         # FIXED: Key for ai_advisor.py
-                        "current_shares": shares_held, # Keep for backward compatibility if any
-                        "available_cash": available_cash, # FIXED: Added available cash
-                        "support": strat_res.get('support'), 
-                        "resistance": strat_res.get('resistance'), 
-                        "signal": strat_res.get('signal'),
-                        "reason": strat_res.get('reason'), 
-                        "quantity": strat_res.get('quantity'),
-                        "target_position": strat_res.get('target_position', 0),
-                        "stop_loss": strat_res.get('stop_loss'), 
-                        "capital_allocation": current_alloc,
-                        "total_capital": total_capital, 
-                        "known_info": get_claims_for_prompt(code)
-                    }
-                    
-                    
-                    # [2-Stage Logic] Pre-process Intelligence if too long
-                    raw_claims = get_claims_for_prompt(code) # Intel DB
-                    news_items = get_stock_news_raw(code)
-                    
-                    final_research_context = raw_claims
-                    if news_items:
-                        full_news_text = "".join([n.get('title','')+n.get('content','') for n in news_items])
-                        if len(full_news_text) > 1000 or len(news_items) > 5:
-                            with st.spinner("🤖 正在进行第一阶段情报提炼 (Intelligence Refining)..."):
-                                summary_intel = summarize_intelligence(deepseek_api_key, news_items, name)
-                                if summary_intel:
-                                    final_research_context += f"\n\n【最新市场情报摘要】\n{summary_intel}"
-                        else:
-                             # Short enough, append directly
-                             news_str = ""
-                             for n in news_items[:5]:
-                                 news_str += f"- {n.get('date')} {n.get('title')}\n"
-                             final_research_context += f"\n\n【最新新闻】\n{news_str}"
-
-                    minute_df = load_minute_data(code)
-                    tech_indicators = calculate_indicators(minute_df)
-                    tech_indicators["daily_stats"] = aggregate_minute_to_daily(minute_df, precision=get_price_precision(code))
-                    
-                    intraday_pattern = analyze_intraday_pattern(minute_df)
-                    
-                    # [Noon Review Enhanced] Calculate Morning Stats (Fixed for Datetime Index)
-                    morning_stats = {}
-                    if not minute_df.empty and '时间' in minute_df.columns:
-                        try:
-                            # 1. ensure datetime
-                            if not pd.api.types.is_datetime64_any_dtype(minute_df['时间']):
-                                minute_df['时间'] = pd.to_datetime(minute_df['时间'])
-                            
-                            # 2. Filter for Latest Date (Today)
-                            latest_date = minute_df['时间'].dt.date.iloc[-1]
-                            today_df = minute_df[minute_df['时间'].dt.date == latest_date]
-                            
-                            # 3. Filter for Morning Session (09:30 - 11:30)
-                            # Using 11:31 to be safe inclusive of 11:30:00
-                            import datetime as dt_module
-                            m_start = dt_module.time(9, 30)
-                            m_end = dt_module.time(11, 31) 
-                            
-                            m_df = today_df[
-                                (today_df['时间'].dt.time >= m_start) & 
-                                (today_df['时间'].dt.time < m_end)
-                            ]
-                            
-                            if not m_df.empty:
-                                m_open = m_df.iloc[0]['收盘']
-                                if '开盘' in m_df.columns: 
-                                    # Use the first minute's open if available, or just first record
-                                    m_open = m_df.iloc[0]['开盘'] if m_df.iloc[0]['开盘'] > 0 else m_df.iloc[0]['收盘']
+                    # [P2-3 Fix] Add Exception Handling for Strategy Generation
+                    try:
+                        # Logic to determine base price for Limit Calculation
+                        # Default: Pre-Close (Yesterday's Close)
+                        limit_base_price = pre_close
+                        # If Pre-market Analysis for Tomorrow (Evening session), use Today's Close as base
+                        if start_pre and datetime.datetime.now().time() > datetime.time(15, 0):
+                            limit_base_price = price
+                        
+                        # Fetch Base Position
+                        from utils.database import db_get_position
+                        pos_data = db_get_position(code)
+                        base_shares = pos_data.get("base_shares", 0)
+                        tradable_shares = max(0, shares_held - base_shares)
+                        
+                        # Calculate Available Cash (Buying Power for this stock)
+                        current_market_value = shares_held * price
+                        available_cash = max(0.0, eff_capital - current_market_value)
+                        
+                        context = {
+                            "base_shares": base_shares,
+                            "tradable_shares": tradable_shares,
+                            "limit_base_price": limit_base_price,
+                            "code": code, 
+                            "name": name, 
+                            "price": price, 
+                            "pre_close": pre_close if pre_close > 0 else price,
+                            "change_pct": (price - pre_close) / pre_close * 100 if pre_close > 0 else 0.0,
+                            "cost": avg_cost,
+                            "shares": shares_held,         # FIXED: Key for ai_advisor.py
+                            "current_shares": shares_held, # Keep for backward compatibility if any
+                            "available_cash": available_cash, # FIXED: Added available cash
+                            "support": strat_res.get('support'), 
+                            "resistance": strat_res.get('resistance'), 
+                            "signal": strat_res.get('signal'),
+                            "reason": strat_res.get('reason'), 
+                            "quantity": strat_res.get('quantity'),
+                            "target_position": strat_res.get('target_position', 0),
+                            "stop_loss": strat_res.get('stop_loss'), 
+                            "capital_allocation": current_alloc,
+                            "total_capital": total_capital, 
+                            "known_info": get_claims_for_prompt(code)
+                        }
+                        
+                        
+                        # [2-Stage Logic] Pre-process Intelligence if too long
+                        raw_claims = get_claims_for_prompt(code) # Intel DB
+                        news_items = get_stock_news_raw(code)
+                        
+                        final_research_context = raw_claims
+                        if news_items:
+                            full_news_text = "".join([n.get('title','')+n.get('content','') for n in news_items])
+                            if len(full_news_text) > 1000 or len(news_items) > 5:
+                                with st.spinner("🤖 正在进行第一阶段情报提炼 (Intelligence Refining)..."):
+                                    summary_intel = summarize_intelligence(deepseek_api_key, news_items, name)
+                                    if summary_intel:
+                                        final_research_context += f"\n\n【最新市场情报摘要】\n{summary_intel}"
+                            else:
+                                 # Short enough, append directly
+                                 news_str = ""
+                                 for n in news_items[:5]:
+                                     news_str += f"- {n.get('date')} {n.get('title')}\n"
+                                 final_research_context += f"\n\n【最新新闻】\n{news_str}"
+    
+                        minute_df = load_minute_data(code)
+                        tech_indicators = calculate_indicators(minute_df)
+                        tech_indicators["daily_stats"] = aggregate_minute_to_daily(minute_df, precision=get_price_precision(code))
+                        
+                        intraday_pattern = analyze_intraday_pattern(minute_df)
+                        
+                        # [Noon Review Enhanced] Calculate Morning Stats (Fixed for Datetime Index)
+                        morning_stats = {}
+                        if not minute_df.empty and '时间' in minute_df.columns:
+                            try:
+                                # 1. ensure datetime
+                                if not pd.api.types.is_datetime64_any_dtype(minute_df['时间']):
+                                    minute_df['时间'] = pd.to_datetime(minute_df['时间'])
                                 
-                                m_close = m_df.iloc[-1]['收盘']
-                                m_high = m_df['最高'].max() if '最高' in m_df.columns else m_df['收盘'].max()
-                                m_low = m_df['最低'].min() if '最低' in m_df.columns else m_df['收盘'].min()
-                                m_vol = m_df['成交量'].sum()
+                                # 2. Filter for Latest Date (Today)
+                                latest_date = minute_df['时间'].dt.date.iloc[-1]
+                                today_df = minute_df[minute_df['时间'].dt.date == latest_date]
                                 
-                                morning_stats = {
-                                    "morning_open": m_open,
-                                    "morning_high": m_high,
-                                    "morning_low": m_low,
-                                    "morning_close": m_close,
-                                    "morning_vol": m_vol
-                                }
-                                context.update(morning_stats)
-                        except Exception as e:
-                            print(f"Morning Stats Calc Error: {e}")
+                                # 3. Filter for Morning Session (09:30 - 11:30)
+                                # Using 11:31 to be safe inclusive of 11:30:00
+                                import datetime as dt_module
+                                m_start = dt_module.time(9, 30)
+                                m_end = dt_module.time(11, 31) 
+                                
+                                m_df = today_df[
+                                    (today_df['时间'].dt.time >= m_start) & 
+                                    (today_df['时间'].dt.time < m_end)
+                                ]
+                                
+                                if not m_df.empty:
+                                    m_open = m_df.iloc[0]['收盘']
+                                    if '开盘' in m_df.columns: 
+                                        # Use the first minute's open if available, or just first record
+                                        m_open = m_df.iloc[0]['开盘'] if m_df.iloc[0]['开盘'] > 0 else m_df.iloc[0]['收盘']
+                                    
+                                    m_close = m_df.iloc[-1]['收盘']
+                                    m_high = m_df['最高'].max() if '最高' in m_df.columns else m_df['收盘'].max()
+                                    m_low = m_df['最低'].min() if '最低' in m_df.columns else m_df['收盘'].min()
+                                    m_vol = m_df['成交量'].sum()
+                                    
+                                    morning_stats = {
+                                        "morning_open": m_open,
+                                        "morning_high": m_high,
+                                        "morning_low": m_low,
+                                        "morning_close": m_close,
+                                        "morning_vol": m_vol
+                                    }
+                                    context.update(morning_stats)
+                            except Exception as e:
+                                print(f"Morning Stats Calc Error: {e}")
+    
+                        # Force update history for Prompt Context (Ensure freshness before AI reads it)
+                        # We pass the same dataframe structure, but force check API
+                        ff_history_prompt = get_stock_fund_flow_history(code, force_update=True)
+                        
+                        # 1. Build Prompt
+                        sys_p, user_p = build_advisor_prompt(
+                            context, research_context=final_research_context, 
+                            technical_indicators=tech_indicators, fund_flow_data=get_stock_fund_flow(code),
+                            fund_flow_history=ff_history_prompt, prompt_templates=prompts,
+                            intraday_summary=intraday_pattern,
+                            suffix_key=target_suffix_key,
+                            symbol=code
+                        )
+                        
+                        # 2. Store in Session State for Preview
+                        st.session_state[f"preview_prompt_{code}"] = {
+                            "sys_p": sys_p,
+                            "user_p": user_p,
+                            "target_suffix_key": target_suffix_key,
+                            "warning_msg": warning_msg,
+                            "context_snapshot": context, # Saved for Blue Legion (MoE)
+                            # Additional data for DeepSeekExpert.propose()
+                            "intraday_summary": intraday_pattern,
+                            "technical_indicators": tech_indicators,
+                            "fund_flow_data": get_stock_fund_flow(code),
+                            "fund_flow_history": ff_history_prompt,
+                            "research_context": final_research_context
+                        }
 
-                    # Force update history for Prompt Context (Ensure freshness before AI reads it)
-                    # We pass the same dataframe structure, but force check API
-                    ff_history_prompt = get_stock_fund_flow_history(code, force_update=True)
-                    
-                    # 1. Build Prompt
-                    sys_p, user_p = build_advisor_prompt(
-                        context, research_context=final_research_context, 
-                        technical_indicators=tech_indicators, fund_flow_data=get_stock_fund_flow(code),
-                        fund_flow_history=ff_history_prompt, prompt_templates=prompts,
-                        intraday_summary=intraday_pattern,
-                        suffix_key=target_suffix_key,
-                        symbol=code
-                    )
-                    
-                    # 2. Store in Session State for Preview
-                    st.session_state[f"preview_prompt_{code}"] = {
-                        "sys_p": sys_p,
-                        "user_p": user_p,
-                        "target_suffix_key": target_suffix_key,
-                        "warning_msg": warning_msg,
-                        "context_snapshot": context, # Saved for Blue Legion (MoE)
-                        # Additional data for DeepSeekExpert.propose()
-                        "intraday_summary": intraday_pattern,
-                        "technical_indicators": tech_indicators,
-                        "fund_flow_data": get_stock_fund_flow(code),
-                        "fund_flow_history": ff_history_prompt,
-                        "research_context": final_research_context
-                    }
+                    except Exception as e:
+                        st.error(f"❌ 策略生成中断: {str(e)}")
+                        st.stop() # Stop execution to prevent cascading errors
+                        
                     st.rerun()
 
         # --- Prompt Preview and Confirmation ---

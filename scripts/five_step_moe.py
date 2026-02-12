@@ -12,7 +12,7 @@ Step 5: Order    → DeepSeek-R1 (蓝军执行令)
 
 import json
 from datetime import datetime
-from typing import Dict, Any, Optional, Tuple
+from typing import Dict, Any, Optional, Tuple, Union
 
 # Import existing AI functions from utils.ai_advisor
 from utils.ai_advisor import (
@@ -313,7 +313,7 @@ def run_five_step_workflow(
     fund_flow: Dict,
     deepseek_api_key: str,
     qwen_api_key: str,
-    intel_hub_data: str = "",
+    intel_hub_data: Union[str, Dict] = "",
     prompt_templates: Optional[Dict] = None
 ) -> Dict[str, Any]:
     """
