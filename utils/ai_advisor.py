@@ -265,12 +265,13 @@ def build_advisor_prompt(context_data, research_context="", technical_indicators
 
         suffix_data = {
             "daily_stats": technical_indicators.get('daily_stats', 'N/A'),
-            "macd": technical_indicators.get('MACD', 'N/A'),
-            "kdj": technical_indicators.get('KDJ', 'N/A'),
-            "rsi": technical_indicators.get('RSI(14)', 'N/A'),
-            "ma": technical_indicators.get('MA', 'N/A'),
-            "bollinger": technical_indicators.get('Bollinger', 'N/A'),
-            "tech_summary": technical_indicators.get('signal_summary', 'N/A'),
+            # [Pure Algo Removed] The following technical fields are removed from prompt templates
+            # "macd": technical_indicators.get('MACD', 'N/A'),
+            # "kdj": technical_indicators.get('KDJ', 'N/A'),
+            # "rsi": technical_indicators.get('RSI(14)', 'N/A'),
+            # "ma": technical_indicators.get('MA', 'N/A'),
+            # "bollinger": technical_indicators.get('Bollinger', 'N/A'),
+            # "tech_summary": technical_indicators.get('signal_summary', 'N/A'),
             "research_context": final_research_context,
             "capital_flow": capital_flow_str,
             "generated_time": datetime.now().strftime("%Y-%m-%d %H:%M:%S")

@@ -11,10 +11,6 @@
 - 持仓结构: 总持仓: {shares} 股; 底仓 (Locked): {base_shares} 股 (长期信仰，禁止卖出); 可交易 (Tradable): {tradable_shares} 股 (本次可操作上限)
 - 支撑位: {support}; 阻力位: {resistance}
 
-【信号与风控】
-- 信号: {signal} (Reason: {reason})
-- 算法建议下单量: {quantity} 股 (目标仓位: {target_position}) [⚠️ 算法建议，未执行]
-- 关键离场位: {stop_loss} (判定: 若 > 持仓成本，为利润回撤保护位; 若 < 持仓成本，为止损位)
 
 【进阶止盈策略: 分批退出与仓位再平衡】
 - 核心原则: 止盈是"多少"和"如何"的决策，在触及关键阻力位时优先部分锁定利润。

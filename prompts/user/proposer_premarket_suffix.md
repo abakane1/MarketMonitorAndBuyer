@@ -3,14 +3,6 @@
 ## 市场情报与历史上下文
 {research_context}
 
-## 技术面快照 (Technical Indicators)
-- 日线统计: {daily_stats}
-- MACD: {macd}
-- KDJ: {kdj}
-- RSI(14): {rsi}
-- 均线系统 (MA): {ma}
-- 布林带 (Bollinger): {bollinger}
-- 综合信号: {tech_summary}
 
 ## 资金流向 (Capital Flow)
 {capital_flow}
