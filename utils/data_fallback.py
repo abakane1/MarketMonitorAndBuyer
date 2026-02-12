@@ -28,13 +28,11 @@ def get_stock_spot_sina(symbol: str) -> Optional[Dict]:
         Dict with stock data or None if failed
     """
     try:
-        # Convert symbol format
-        if symbol.startswith('6'):
+        # 转换代码前缀：6/5 开头 → 上交所(sh)，0/3 开头 → 深交所(sz)
+        if symbol.startswith(('6', '5')):
             sina_symbol = f"sh{symbol}"
-        elif symbol.startswith('0') or symbol.startswith('3'):
+        elif symbol.startswith(('0', '3')):
             sina_symbol = f"sz{symbol}"
-        elif symbol.startswith('588'):  # STAR 50 ETF
-            sina_symbol = f"sh{symbol}"
         else:
             sina_symbol = symbol
         
@@ -95,13 +93,11 @@ def get_stock_spot_tencent(symbol: str) -> Optional[Dict]:
         Dict with stock data or None if failed
     """
     try:
-        # Convert symbol format
-        if symbol.startswith('6'):
+        # 转换代码前缀：6/5 开头 → 上交所(sh)，0/3 开头 → 深交所(sz)
+        if symbol.startswith(('6', '5')):
             tencent_symbol = f"sh{symbol}"
-        elif symbol.startswith('0') or symbol.startswith('3'):
+        elif symbol.startswith(('0', '3')):
             tencent_symbol = f"sz{symbol}"
-        elif symbol.startswith('588'):
-            tencent_symbol = f"sh{symbol}"
         else:
             tencent_symbol = symbol
         
