@@ -19,27 +19,9 @@ def render_stock_dashboard(code: str, name: str, total_capital: float, risk_pct:
     """
     
     # 1. Fetch Real-time Info
-    # [v2.0] Manual Refresh Button (One-Click Sync)
-    col_refresh, col_last_update = st.columns([1, 4])
-    with col_refresh:
-        if st.button("🔄 立即刷新数据 (Fetch Now)", type="primary", key=f"fetch_btn_{code}"):
-            with st.spinner("正在从交易所同步最新数据..."):
-                try:
-                    # 1. Update Market Snapshot (Price, Open, High, Low...)
-                    # This might fail due to EastMoney blocking, but we proceed to Minute Data (Sina Fallback)
-                    snapshot_count = fetch_and_cache_market_snapshot()
-                    if snapshot_count == 0:
-                        st.warning("全市场快照更新失败，将尝试单独更新本股数据...")
-                        
-                    # 2. Update Minute Data for this stock
-                    save_minute_data(code)
-                    st.success("数据更新完成！")
-                    st.cache_data.clear() # Force clear cache to show new data immediately
-                    # import time # REMOVE
-                    time.sleep(0.5)
-                    st.rerun()
-                except Exception as e:
-                    st.error(f"更新失败: {e}")
+
+    # [v2.0] Manual Refresh Button REMOVED (Moved to Sidebar Global Refresh)
+
     
     # 1. Fetch Real-time Info (Now Offline-First)
     info = get_stock_realtime_info(code)
@@ -56,7 +38,8 @@ def render_stock_dashboard(code: str, name: str, total_capital: float, risk_pct:
     avg_cost = pos_data.get('cost', 0.0)
     market_value = shares_held * price
     pnl = market_value - (shares_held * avg_cost)
-    pnl_pct = (pnl / (shares_held * avg_cost)) * 100 if shares_held > 0 else 0.0
+    # Fix ZeroDivisionError if cost is 0 (e.g. gifted shares or data error)
+    pnl_pct = (pnl / (shares_held * avg_cost)) * 100 if shares_held > 0 and avg_cost > 0 else 0.0
     
     with st.expander("💼 我的持仓 (Holdings)", expanded=False):
         c1, c2, c3, c4 = st.columns(4)

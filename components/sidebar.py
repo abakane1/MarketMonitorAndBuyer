@@ -240,7 +240,35 @@ def render_sidebar() -> dict:
         st.markdown("---")
         st.header("数据管理")
         
-        if st.sidebar.button("📉 下载/更新历史数据"):
+        # [NEW] 一键刷新实时数据
+        if st.sidebar.button("🔄 一键刷新实时数据 (Live)", type="primary"):
+            if not selected_labels:
+                st.warning("请先添加关注股票")
+            else:
+                with st.spinner("正在同步交易所实时数据..."):
+                    # 1. 更新全市场快照 (Price, Volume, etc.)
+                    from utils.data_fetcher import fetch_and_cache_market_snapshot
+                    try:
+                        fetch_and_cache_market_snapshot()
+                    except Exception as e:
+                        st.error(f"快照更新失败: {e}")
+                    
+                    # 2. 更新分钟数据 (Minute Data)
+                    progress_bar = st.progress(0)
+                    for i, label in enumerate(selected_labels):
+                        code_to_sync = label.split(" | ")[0]
+                        try:
+                            save_minute_data(code_to_sync)
+                        except Exception as e:
+                            print(f"Failed to sync {code_to_sync}: {e}")
+                        progress_bar.progress((i + 1) / len(selected_labels))
+                    
+                    st.success(f"已更新 {len(selected_labels)} 只股票的实时数据！")
+                    st.cache_data.clear()
+                    time.sleep(0.5)
+                    st.rerun()
+        
+        if st.sidebar.button("📉 下载/更新历史数据 (History)"):
             if not selected_labels:
                 st.warning("请先添加关注股票")
             else:
