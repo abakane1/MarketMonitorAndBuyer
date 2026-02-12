@@ -925,8 +925,12 @@ def render_strategy_section(code: str, name: str, price: float, shares_held: int
                         }
 
                     except Exception as e:
-                        st.error(f"❌ 策略生成中断: {str(e)}")
-                        st.stop() # Stop execution to prevent cascading errors
+                        st.error(f"❌ 策略生成失败: {str(e)}")
+                        # Removed st.stop() to allow user to retry or check other stocks without restarting the app
+                        # Instead, we just let the flow complete (rerun will happen anyway, and preview_prompt won't be set)
+                        # We clear the specific state to prevent stale preview
+                        if f"preview_prompt_{code}" in st.session_state:
+                           del st.session_state[f"preview_prompt_{code}"]
                         
                     st.rerun()
 
