@@ -7,7 +7,9 @@ from utils.storage import load_minute_data
 from utils.backtester import simulate_day, simulate_day_generator
 from utils.prompt_optimizer import generate_prompt_improvement, generate_human_vs_ai_review
 from utils.backtest_gen import generate_missing_strategy
-from utils.config import get_settings
+from utils.config import get_settings, load_config, save_prompt
+from utils.backtest_utils import build_historical_context
+from components.lab_strategy_panel import render_lab_strategy_panel
 
 def render_strategy_lab():
     
@@ -269,7 +271,7 @@ def render_strategy_lab():
                 opt_key = f"multi_opt_{selected_stock}_{start_date}_{end_date}"
                 if st.button("🧠 生成全周期优化建议 (Generate Full-Cycle Optimization)", key=opt_key):
                     from utils.prompt_optimizer import generate_multi_day_review
-                    from utils.config import get_settings
+                    pass # removed local import
                     
                     with st.spinner("DeepSeek 正在分析全周期博弈数据..."):
                         settings = get_settings()
@@ -326,7 +328,7 @@ def render_strategy_lab():
                     if suggestion:
                         st.divider()
                         st.markdown("#### 🧬 指令进化 (Evolution)")
-                        from utils.config import load_config, save_prompt
+                        # from utils.config import save_prompt # Global import
                         current_conf = load_config()
                         # Align to 'deepseek_system' which is the active key
                         current_sys = current_conf.get("prompts", {}).get("proposer_system", "")
@@ -369,6 +371,40 @@ def render_strategy_lab():
     # Single Day Logic Flow Continuation (selected_date already assigned at top)
     if not selected_date:
         return
+        
+    # --- [v3.1 Lab Upgrade] Historical Strategy Generation Panel ---
+    st.markdown("---")
+    
+    # 1. Build Context
+    with st.spinner(f"正在构建 {selected_date} 的历史回测环境..."):
+        # We need the code, not just name.
+        # selected_stock in lab is code (from watchlist)
+        ctx = build_historical_context(selected_stock, selected_date)
+    
+    if ctx:
+        # Load Keys/Prompts
+        cfg = load_config()
+        prompts = cfg.get('prompts', {})
+        settings = get_settings()
+        api_keys = {
+            'deepseek_api_key': settings.get('deepseek_api_key'),
+            'qwen_api_key': settings.get('qwen_api_key')
+        }
+        
+        # Determine Capital (Mock or Real Alloc)
+        # Use DB alloc
+        from utils.database import db_get_allocation
+        alloc = db_get_allocation(selected_stock)
+        if alloc <= 0: alloc = 100000.0
+        
+        # Render Panel
+        render_lab_strategy_panel(ctx, api_keys, prompts, total_capital=alloc)
+        
+    else:
+        st.error(f"无法构建 {selected_date} 的回测数据！(可能缺少当天的分钟线数据)")
+        st.info("请先在仪表盘执行 'Fetch All' 或确保本地有该日期的分钟线数据。")
+
+    st.markdown("---")
 
     # Filter logs for that day
     # Filter logs: Include Pre-market (from Prev Day 15:00) to Target Day Close
@@ -397,16 +433,12 @@ def render_strategy_lab():
         if is_same_day or is_prev_day_after_close:
             day_logs.append(l)
             
-    # Active Generation Check (v1.8.0)
-    has_pre_strategy = any("盘前" in l.get('tag', '') or "盘前" in l.get('result', '') for l in day_logs)
+    # Active Generation Check (v1.8.0) - REMOVED/DEPRECATED by Panel
+    # But we keep the warning if empty
+    has_pre_strategy = any("盘前" in l.get('tag', '') or "盘前" in l.get('result', '') or "[Lab" in l.get('tag', '') for l in day_logs)
     
     if not has_pre_strategy:
-        st.warning(f"⚠️ {selected_date} 缺少盘前策略记录。")
-        if st.checkbox("🔄 自动回溯生成 (Active Generation)", value=True, help="消耗 Token 基于当时的历史数据生成一份盘前策略"):
-             # We will handle this INSIDE the button click to avoid re-running on every render?
-             # No, better to do it before Button so the log is ready for the Sim Generator.
-             # Or do it lazily.
-             pass
+        st.info(f"💡 {selected_date} 暂无策略记录。请使用上方「策略生成面板」生成一份。")
     
     day_logs.sort(key=lambda x: x['timestamp']) # Ensure sorted
     st.caption(f"该日共有 {len(day_logs)} 条策略记录 (含盘前)。")
@@ -1102,7 +1134,7 @@ def render_strategy_lab():
                     st.markdown("#### 🧬 指令进化 (Evolution)")
                     st.caption("以下是 AI 建议添加的指令。您可以编辑合并后的完整 Prompt：")
                     
-                    from utils.config import load_config, save_prompt
+                    # from utils.config import save_prompt # Global import
                     current_conf = load_config()
                     # Align to deepseek_system
                     current_sys = current_conf.get("prompts", {}).get("proposer_system", "")
@@ -1178,7 +1210,7 @@ def render_strategy_lab():
                     st.divider()
                     st.markdown("#### 🧬 指令修复 (Fix)")
                     
-                    from utils.config import load_config, save_prompt
+                    # from utils.config import save_prompt # Global import
                     current_conf = load_config()
                     # Align to deepseek_system
                     current_sys = current_conf.get("prompts", {}).get("proposer_system", "")

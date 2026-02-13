@@ -28,6 +28,42 @@ def render_sidebar() -> dict:
     app_mode = st.sidebar.radio("选择页面", ["复盘与预判", "操盘记录", "提示词中心", "策略实验室"], index=0)
     
     st.sidebar.markdown("---")
+    
+    # [NEW] Quick Trade (Unified Entry)
+    with st.sidebar.expander("⚡️ 快速交易 (Quick Trade)", expanded=True):
+        trade_cmd = st.text_input("交易指令", placeholder="例如: 600076 4.2买入 1000", key="quick_trade_input")
+        
+        if st.button("执行交易", type="primary", key="btn_exec_trade"):
+            if not trade_cmd.strip():
+                st.error("请输入交易指令")
+            else:
+                from utils.text_parser import parse_trade_command
+                from utils.trade_manager import execute_trade
+                
+                # 1. Parse
+                parsed = parse_trade_command(trade_cmd)
+                if not parsed["valid"]:
+                    st.error(f"解析失败: {parsed['error']}")
+                else:
+                    # 2. Confirm (Auto-execute for now, or use Session STate logic for double confirm? 
+                    # User requested 'Input -> System extracts -> Updates'. Let's do direct for speed, maybe toast.)
+                    
+                    code = parsed["symbol"]
+                    action = parsed["action"] # buy/sell
+                    price = parsed["price"]
+                    qty = parsed["quantity"]
+                    
+                    # 3. Execute
+                    with st.spinner(f"正在执行: {action} {code} {qty}股 @ {price}..."):
+                        res = execute_trade(code, action, price, qty, note="快速交易")
+                        
+                    if res["success"]:
+                        st.success(res["message"])
+                        time.sleep(1)
+                        st.rerun()
+                    else:
+                        st.error(res["message"])
+
     st.sidebar.header("📌 关注列表管理")
     
     with st.sidebar:
@@ -65,6 +101,22 @@ def render_sidebar() -> dict:
         
         # --- 当前关注列表 ---
         watchlist = db_get_watchlist_with_names()
+        
+        # [NEW] Sort by Holding Value (shares * current_price)
+        # 1. Get all positions
+        from utils.database import db_get_all_positions
+        all_positions = db_get_all_positions()
+        pos_map = {p['symbol']: p['shares'] for p in all_positions}
+        
+        # 2. Get current prices for valuation (optional, but better sort)
+        # For simplicity and speed, we might just sort by shares count if price is not readily available in sidebar
+        # taking 'shares' as proxy for 'size' as requested ("持股的大小")
+        # If we really want market value, we need real-time price, which might be slow.
+        # Let's sort by shares first (descending).
+        
+        # Sort logic: Primary = Shares (Desc), Secondary = Added Time (Implicit/Original Order)
+        # watchlist is list of (symbol, name)
+        watchlist.sort(key=lambda x: pos_map.get(x[0], 0), reverse=True)
         
         if watchlist:
             st.caption(f"当前关注 ({len(watchlist)} 只)")

@@ -28,6 +28,10 @@ def build_advisor_prompt(context_data, research_context="", technical_indicators
     if not base_tpl:
         return "", "Error: Prompt templates missing."
 
+    # [Safeguard] Ensure default behavioral keys exist to prevent Template KeyErrors used in newer prompts
+    context_data.setdefault('user_actions_summary', '无显著操作')
+    context_data.setdefault('previous_advice_summary', '暂无历史研判')
+
     # [Logic] Phase Determination based on Time (Centralized in time_utils)
     now = get_beijing_time()
     session = get_market_session()

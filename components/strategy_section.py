@@ -1,6 +1,7 @@
 # -*- coding: utf-8 -*-
 import streamlit as st
 import time
+import json
 from utils.strategy import analyze_volume_profile_strategy
 from utils.storage import get_volume_profile, get_latest_production_log, save_production_log, load_production_log, delete_production_log
 from utils.ai_parser import extract_bracket_content
@@ -1270,8 +1271,49 @@ def render_strategy_section(code: str, name: str, price: float, shares_held: int
                         
                     res_text = selected_log.get('result', '')
                     
+                    # --- Parse Cumulative Result ---
+                    cumulative_data = {}
+                    main_display_text = res_text
+                    
+                    # Markers
+                    markers = {
+                        'draft': "--- 📜 v1.0 Draft ---",
+                        'audit1': "--- 🔴 Round 1 Audit ---",
+                        'refine': "--- 🔄 v2.0 Refined ---",
+                        'audit2': "--- ⚖️ Final Verdict ---",
+                        'final_marker': "[Final Execution Order]"
+                    }
+                    
+                    if markers['draft'] in res_text:
+                        # It's a cumulative log
+                        try:
+                            # Split by Draft First to get the Head (Final Decision)
+                            parts = res_text.split(markers['draft'])
+                            main_display_text = parts[0].strip()
+                            remaining = parts[1] if len(parts) > 1 else ""
+                            
+                            # Extract Draft
+                            if markers['audit1'] in remaining:
+                                p_draft = remaining.split(markers['audit1'])
+                                cumulative_data['draft'] = p_draft[0].strip()
+                                remaining = p_draft[1]
+                            
+                            # Extract Audit1
+                            if markers['refine'] in remaining:
+                                p_a1 = remaining.split(markers['refine'])
+                                cumulative_data['audit1'] = p_a1[0].strip()
+                                remaining = p_a1[1]
+                                
+                            # Extract Refine
+                            if markers['audit2'] in remaining:
+                                p_ref = remaining.split(markers['audit2'])
+                                cumulative_data['refine'] = p_ref[0].strip()
+                                cumulative_data['audit2'] = p_ref[1].strip()
+                        except:
+                            pass # Fallback to showing everything if parse fails
+
                     from components.strategy_display_helper import display_strategy_content
-                    display_strategy_content(res_text)
+                    display_strategy_content(main_display_text)
                     
                     if selected_log.get('reasoning'):
                         r_content = selected_log['reasoning'].strip()
@@ -1298,19 +1340,61 @@ def render_strategy_section(code: str, name: str, price: float, shares_held: int
                         details_json = selected_log.get('details')
                         has_details = False
                         if details_json:
-                            import json
+                            # import json # Moved to top level
                             try:
                                 details = json.loads(details_json)
                                 if isinstance(details, dict) and 'prompts_history' in details:
                                     has_details = True
                                     ph = details['prompts_history']
                                     with st.expander("📝 全流程详情 (Full Process History)", expanded=True):
-                                         h_tab1, h_tab2, h_tab3, h_tab4, h_tab5 = st.tabs(["Draft (草案)", "Audit1 (初审)", "Refine (反思)", "Audit2 (终审)", "Final (决策)"])
-                                         with h_tab1: st.code(f"System:\n{ph.get('draft_sys','')}\n\nUser:\n{ph.get('draft_user','')}")
-                                         with h_tab2: st.caption(f"Prompt Used:"); st.code(ph.get('audit1', 'N/A'))
-                                         with h_tab3: st.caption(f"Prompt Used:"); st.code(ph.get('refine', 'N/A'))
-                                         with h_tab4: st.caption(f"Prompt Used:"); st.code(ph.get('audit2', 'N/A'))
-                                         with h_tab5: st.caption(f"Prompt Used:"); st.code(ph.get('decide', 'N/A'))
+                                        h_tab1, h_tab2, h_tab3, h_tab4, h_tab5 = st.tabs(["Draft (草案)", "Audit1 (初审)", "Refine (反思)", "Audit2 (终审)", "Final (决策)"])
+                                        
+                                        def show_prompt_in_tab(tab, ph_data, prefix, title="Prompt", result_content=None):
+                                            with tab:
+                                                if result_content:
+                                                    st.markdown(f"#### 🧠 {title} Result")
+                                                    st.markdown(result_content)
+                                                    st.divider()
+
+                                                sys_p = ph_data.get(f"{prefix}_sys")
+                                                user_p = ph_data.get(f"{prefix}_user")
+                                                
+                                                # Fallback for old keys or auto-drive single keys
+                                                combined = ph_data.get(prefix)
+                                                
+                                                if sys_p or user_p:
+                                                    if sys_p:
+                                                        st.caption("System Prompt")
+                                                        st.code(sys_p, language='text')
+                                                    if user_p:
+                                                        st.caption("User Prompt")
+                                                        st.code(user_p, language='text')
+                                                elif combined:
+                                                    st.caption(f"{title} (Combined)")
+                                                    st.code(combined, language='text')
+                                                else:
+                                                    st.caption("No prompt data available for this step.")
+
+                                        show_prompt_in_tab(h_tab1, ph, "draft", "Draft", cumulative_data.get('draft'))
+                                        show_prompt_in_tab(h_tab2, ph, "audit1", "Audit Round 1", cumulative_data.get('audit1'))
+                                        show_prompt_in_tab(h_tab3, ph, "refine", "Refinement", cumulative_data.get('refine'))
+                                        
+                                        with h_tab4:
+                                            res_a2 = cumulative_data.get('audit2')
+                                            if 'final_sys' in ph or 'final_user' in ph:
+                                                show_prompt_in_tab(st, ph, "final", "Final Verdict", res_a2) 
+                                            else:
+                                                show_prompt_in_tab(st, ph, "audit2", "Final Verdict", res_a2)
+
+                                        with h_tab5:
+                                            # Final Decision is mainly displayed above, but we can show it here too if needed
+                                            # But usually 'main_display_text' is the final decision.
+                                            if 'exec_sys' in ph or 'exec_user' in ph:
+                                                show_prompt_in_tab(st, ph, "exec", "Final Decision")
+                                            elif 'decision_sys' in ph:
+                                                show_prompt_in_tab(st, ph, "decision", "Final Decision")
+                                            else:
+                                                show_prompt_in_tab(st, ph, "decide", "Final Decision")
                             except:
                                 pass
                         

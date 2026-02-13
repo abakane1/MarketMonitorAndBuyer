@@ -271,15 +271,16 @@ def db_load_intelligence(symbol: str) -> any:
 
 # --- Strategy Logs (For Lab) ---
 
-def db_save_strategy_log(symbol: str, prompt: str, result: str, reasoning: str, model: str = "DeepSeek", custom_timestamp: str = None, details: dict = None):
+def db_save_strategy_log(symbol: str, prompt: str, result: str, reasoning: str, model: str = "DeepSeek", custom_timestamp: str = None, details: dict = None, tag: str = None):
     conn = get_db_connection()
     c = conn.cursor()
     ts = custom_timestamp if custom_timestamp else datetime.now().strftime("%Y-%m-%d %H:%M:%S")
     
-    # Try extract Tag
-    import re
-    tag_match = re.search(r"【(.*?)】", result)
-    tag = tag_match.group(0) if tag_match else ""
+    # Try extract Tag if not provided
+    if not tag:
+        import re
+        tag_match = re.search(r"【(.*?)】", result)
+        tag = tag_match.group(0) if tag_match else ""
     
     # Serialize details
     import json
@@ -528,14 +529,16 @@ def db_get_position_at_date(symbol: str, target_date_str: str) -> dict:
             total_cost += qty * p
         elif any(w in t for w in ["卖", "出", "sell"]):
             if shares > 0:
-                # 按照移动平均减去成本
-                avg_p = total_cost / shares
+                # [MODIFIED] Diluted Cost Logic (摊薄成本法)
+                # Deduct revenue from total cost
+                revenue = qty * p
+                
                 shares -= qty
+                total_cost -= revenue
+                
                 if shares <= 0:
                     shares = 0
                     total_cost = 0.0
-                else:
-                    total_cost = shares * avg_p
             else:
                 shares = 0
                 total_cost = 0.0

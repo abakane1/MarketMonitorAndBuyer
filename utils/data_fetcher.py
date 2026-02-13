@@ -717,7 +717,8 @@ def get_stock_minute_data(symbol: str) -> pd.DataFrame:
         df = ef.stock.get_quote_history(symbol, klt=1)
         
         if df is None or df.empty:
-            return pd.DataFrame()
+            # [MODIFIED] If efinance returns empty, treat as failure to trigger fallback (Sina/ETF)
+            raise ValueError("efinance returned empty data")
             
         # efinance returns columns: 股票名称, 股票代码, 日期, 开盘, 收盘, 最高, 最低, 成交量, 成交额, ...
         # Standardize columns
@@ -739,10 +740,41 @@ def get_stock_minute_data(symbol: str) -> pd.DataFrame:
     except Exception as e:
         logger.warning(f"efinance minute data failed ({e}), attempting Sina Fallback...")
         try:
-            return _fetch_minute_data_sina(symbol)
+            df_sina = _fetch_minute_data_sina(symbol)
+            if not df_sina.empty:
+                return df_sina
+
+            # If Sina returns empty, fall through to ETF check
         except Exception as sina_e:
-            logger.error(f"Sina Fallback also failed for {symbol}: {sina_e}")
-            raise e
+            logger.error(f"Sina Fallback failed for {symbol}: {sina_e}")
+            # Fall through to ETF check
+
+        # [NEW] ETF/Fund Fallback (v3.2)
+        # Some ETFs (e.g., 563230) might fail in stock interfaces.
+        # Try specific ETF interface if applicable.
+        if symbol.startswith(('51', '588', '15', '56')):
+             try:
+                 logger.info(f"Attempting ETF specific interface for {symbol}...")
+                 import akshare as ak
+                 # period='1' for 1 minute
+                 df_etf = ak.fund_etf_period_minute_em(symbol=symbol, period='1')
+                 if not df_etf.empty:
+                     # Normalize columns: 时间, 开盘, 收盘, 最高, 最低, 成交量, 成交额
+                     # EM returns: 时间, 开盘, 收盘, 最高, 最低, 成交量, 成交额, 振幅, 涨跌幅, 涨跌额, 换手率
+                     # We just need standard cols
+                     df_etf = df_etf.rename(columns={'成交额': '成交额', '成交量': '成交量'}) 
+                     # Ensure numeric
+                     numeric_cols = ['开盘', '最高', '最低', '收盘', '成交量', '成交额']
+                     for col in numeric_cols:
+                         if col in df_etf.columns:
+                             df_etf[col] = pd.to_numeric(df_etf[col], errors='coerce')
+                     df_etf['时间'] = pd.to_datetime(df_etf['时间'])
+                     return df_etf
+             except Exception as etf_e:
+                 logger.error(f"ETF Interface also failed for {symbol}: {etf_e}")
+        
+        # If all failed, raise original error or return empty
+        raise e
 
 def _fetch_minute_data_sina(symbol: str) -> pd.DataFrame:
     """
