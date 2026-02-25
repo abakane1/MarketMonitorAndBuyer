@@ -94,15 +94,17 @@ def render_stock_dashboard(code: str, name: str, total_capital: float, risk_pct:
         st.markdown("---")
         st.caption("📜 交易记录 (History)")
         history = get_history(code)
-        # Filter for transactions only
-        tx_history = [h for h in history if h['type'] in ['buy', 'sell', 'override']]
+        # Filter for transactions only (including legacy Chinese strings from quick trade bug)
+        tx_history = [h for h in history if h['type'] in ['buy', 'sell', 'override', '买入', '卖出']]
         
         if tx_history:
             # Map types to Chinese
             type_map = {
                 "buy": "买入",
                 "sell": "卖出", 
-                "override": "修正"
+                "override": "修正",
+                "买入": "买入",
+                "卖出": "卖出"
             }
             
             # Prepare Data for Table
@@ -111,7 +113,8 @@ def render_stock_dashboard(code: str, name: str, total_capital: float, risk_pct:
             note_map = {
                 "Position Correction": "持仓修正",
                 "Manual Buy": "手动买入",
-                "Manual Sell": "手动卖出"
+                "Manual Sell": "手动卖出",
+                "快速交易": "快速交易"
             }
             
             for entry in tx_history[::-1]:

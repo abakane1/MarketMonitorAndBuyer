@@ -48,6 +48,12 @@ PROMPT_MAPPINGS = {
     'reviewer_final_audit': ('audit', 'reviewer_final_audit.md'),
     'refinement_instruction': ('audit', 'refinement_instruction.md'),
     
+    # Principles (Dual-track)
+    'etf_position': ('principles', 'etf_position.md'),
+    'etf_risk': ('principles', 'etf_risk.md'),
+    'stock_position': ('principles', 'stock_position.md'),
+    'stock_risk': ('principles', 'stock_risk.md'),
+    
     # Final decision
     'proposer_final_decision': ('final', 'proposer_final_decision.md'),
 }

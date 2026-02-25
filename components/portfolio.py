@@ -9,12 +9,15 @@ import plotly.graph_objects as go
 from datetime import datetime
 
 from utils.database import (
+    db_get_positions, # Changed from db_get_all_positions
     db_get_all_positions,
     db_get_all_history,
     db_compute_realized_pnl,
-    db_get_watchlist
+    db_get_watchlist,
+    db_get_trade_dates_range # Added
 )
 from utils.data_fetcher import get_stock_realtime_info
+from utils.asset_classifier import is_etf # Added
 
 
 def _get_stock_name(symbol: str) -> str:
@@ -128,7 +131,9 @@ def _render_position_table(positions: list, all_pnl_data: dict):
         st.info("📭 当前无持仓")
         return
     
-    rows = []
+    etf_rows = []
+    stock_rows = []
+    
     for pos in positions:
         symbol = pos["symbol"]
         shares = pos["shares"]
@@ -149,7 +154,7 @@ def _render_position_table(positions: list, all_pnl_data: dict):
         pnl_data = all_pnl_data.get(symbol, {})
         realized = pnl_data.get("realized_pnl", 0)
         
-        rows.append({
+        row_data = {
             "股票": f"{name} ({symbol})",
             "持仓": shares,
             "底仓": base,
@@ -159,9 +164,12 @@ def _render_position_table(positions: list, all_pnl_data: dict):
             "浮动盈亏": round(floating_pnl, 0),
             "盈亏%": round(floating_pct, 2),
             "已实现": round(realized, 0)
-        })
-    
-    df = pd.DataFrame(rows)
+        }
+        
+        if is_etf(symbol):
+            etf_rows.append(row_data)
+        else:
+            stock_rows.append(row_data)
     
     # 使用 Streamlit 的条件格式
     def color_pnl(val):
@@ -173,17 +181,44 @@ def _render_position_table(positions: list, all_pnl_data: dict):
                 return "color: #ff5252; font-weight: bold;"
         return ""
     
-    styled = df.style.applymap(color_pnl, subset=["浮动盈亏", "盈亏%", "已实现"])
-    styled = styled.format({
-        "成本价": "{:.3f}",
-        "最新价": "{:.2f}",
-        "市值": "¥{:,.0f}",
-        "浮动盈亏": "¥{:+,.0f}",
-        "盈亏%": "{:+.2f}%",
-        "已实现": "¥{:+,.0f}"
-    })
+    def render_dataframe(title, subtitle, r_list, bg_color):
+        if not r_list:
+            return
+        st.markdown(f"<h4 style='margin-bottom: 0px;'>{title}</h4>", unsafe_allow_html=True)
+        st.markdown(f"<span style='color: gray; font-size: 0.9em;'>{subtitle}</span>", unsafe_allow_html=True)
+        
+        df = pd.DataFrame(r_list)
+        styled = df.style.applymap(color_pnl, subset=["浮动盈亏", "盈亏%", "已实现"])
+        
+        # 设置行样式和格式化
+        styled = styled.set_table_styles([
+            {'selector': 'thead th', 'props': [('background-color', bg_color)]}
+        ])
+        
+        styled = styled.format({
+            "成本价": "{:.3f}",
+            "最新价": "{:.2f}",
+            "市值": "¥{:,.0f}",
+            "浮动盈亏": "¥{:+,.0f}",
+            "盈亏%": "{:+.2f}%",
+            "已实现": "¥{:+,.0f}"
+        })
+        st.dataframe(styled, use_container_width=True, hide_index=True)
+        st.write("") # break
+        
+    render_dataframe(
+        "🛡️ 长线护城河 (ETF 底仓)", 
+        "策略：网格/定投、越跌越买、钝化短线破位、耐心积累份额。",
+        etf_rows,
+        "rgba(33, 150, 243, 0.2)"
+    )
     
-    st.dataframe(styled, use_container_width=True, hide_index=True)
+    render_dataframe(
+        "⚔️ 短线突击队 (个股)", 
+        "策略：动量突破、右侧追高、严格止损、高抛低吸。",
+        stock_rows,
+        "rgba(255, 152, 0, 0.2)"
+    )
 
 
 def _render_pnl_chart(all_pnl_data: dict, positions: list):
@@ -202,15 +237,41 @@ def _render_pnl_chart(all_pnl_data: dict, positions: list):
         st.info("📈 暂无历史卖出记录，无法生成收益曲线。开始交易后数据将自动充填。")
         return
     
-    # 按日期排序并计算累计
-    sorted_dates = sorted(combined_daily.keys())
+    # 引入日期和交易日历
+    import datetime
+    from utils.database import db_get_trade_dates_range
+    
+    # 获取日期范围
+    min_date = min(combined_daily.keys())
+    today_str = datetime.datetime.now().strftime("%Y-%m-%d")
+    max_date = max(max(combined_daily.keys()), today_str)
+    
+    # 从数据库获取交易日历
+    td_info = db_get_trade_dates_range(min_date, max_date)
+    trading_days = [d["date"] for d in td_info if d["is_trading"]]
+    
+    # 兼容处理：如果日历未初始化，降级生成工作日
+    if not trading_days:
+        curr = datetime.datetime.strptime(min_date, "%Y-%m-%d")
+        end = datetime.datetime.strptime(max_date, "%Y-%m-%d")
+        while curr <= end:
+            if curr.isoweekday() <= 5:
+                trading_days.append(curr.strftime("%Y-%m-%d"))
+            curr += datetime.timedelta(days=1)
+            
+    # 防止存在周末记录的交易漏掉，合并键值集合
+    all_dates_set = set(trading_days) | set(combined_daily.keys())
+    sorted_dates = sorted(list(all_dates_set))
+    
+    # 计算累计
     cumulative = []
+    daily_values = []
     cum = 0.0
     for d in sorted_dates:
-        cum += combined_daily[d]
+        pnl = combined_daily.get(d, 0.0)
+        cum += pnl
         cumulative.append(cum)
-    
-    daily_values = [combined_daily[d] for d in sorted_dates]
+        daily_values.append(pnl)
     
     # 创建 Plotly 图表
     fig = go.Figure()
@@ -240,7 +301,8 @@ def _render_pnl_chart(all_pnl_data: dict, positions: list):
     
     fig.update_layout(
         title=dict(text="📈 累计收益曲线 (P&L Curve)", font=dict(size=16)),
-        xaxis_title="日期",
+        xaxis_title="交易日期",
+        xaxis=dict(type='category', tickangle=-45), # 强制类目轴，忽略日历断层
         yaxis=dict(title="累计盈亏 (¥)", side='left'),
         yaxis2=dict(title="每日盈亏 (¥)", side='right', overlaying='y'),
         template="plotly_dark",

@@ -8,6 +8,8 @@ from utils.storage import load_production_log
 from utils.data_fetcher import calculate_price_limits
 from utils.database import db_get_history
 from utils.time_utils import get_beijing_time, get_market_session, get_next_trading_day, is_trading_day
+from utils.calendar_manager import CalendarManager
+from utils.asset_classifier import is_etf, get_asset_type_and_tags
 
 def build_advisor_prompt(context_data, research_context="", technical_indicators=None, fund_flow_data=None, fund_flow_history=None, intraday_summary=None, prompt_templates=None, suffix_key="proposer_premarket_suffix", symbol=None, analysis_depth="标准"):
     """
@@ -31,6 +33,15 @@ def build_advisor_prompt(context_data, research_context="", technical_indicators
     # [Safeguard] Ensure default behavioral keys exist to prevent Template KeyErrors used in newer prompts
     context_data.setdefault('user_actions_summary', '无显著操作')
     context_data.setdefault('previous_advice_summary', '暂无历史研判')
+
+    # [Dual-Track System] Inject correct principles based on asset type
+    sym = context_data.get('code', symbol)
+    if is_etf(sym):
+        context_data['position_principle'] = prompt_templates.get("etf_position", "[ETF Position Principle Missing]")
+        context_data['risk_principle'] = prompt_templates.get("etf_risk", "[ETF Risk Principle Missing]")
+    else:
+        context_data['position_principle'] = prompt_templates.get("stock_position", "[Stock Position Principle Missing]")
+        context_data['risk_principle'] = prompt_templates.get("stock_risk", "[Stock Risk Principle Missing]")
 
     # [Logic] Phase Determination based on Time (Centralized in time_utils)
     now = get_beijing_time()
@@ -151,32 +162,48 @@ def build_advisor_prompt(context_data, research_context="", technical_indicators
         # Format RAG Context (History + Execution)
         # 1. Start with Intelligence (Most Important for Decision)
         final_research_context = ""
+        
+        # [NEW] Inject Trading Calendar Info
+        try:
+            today = get_beijing_time().date()
+            is_trade = CalendarManager.is_trading_day(today)
+            next_trade = CalendarManager.get_next_trading_day(today)
+            
+            cal_status = "交易日" if is_trade else "非交易日"
+            cal_info = f"【📅 交易日历情报】\n- 今日 ({today}): {cal_status}\n- 下个交易日: {next_trade}\n"
+            
+            # Check for holidays
+            # (Simple check: if next trading day is not tomorrow and not Monday (if today is Friday))
+            days_diff = (next_trade - today).days
+            if days_diff > 3: # Long break
+                cal_info += f"- ⚠️ 注意: 距离下个交易日还有 {days_diff} 天 (长假/休市)\n"
+            elif not is_trade and days_diff == 1:
+                # Should not happen for non-trading day unless valid is tomorrow? 
+                pass
+                
+            final_research_context += cal_info + "\n"
+        except Exception as e:
+            print(f"Calendar Info Injection Failed: {e}")
+
         if research_context and len(research_context.strip()) > 0:
-            final_research_context = f"\n[核心情报库 (Market Intelligence & Search Context)]:\n{research_context}"
+            final_research_context += f"\n[核心情报库 (Market Intelligence & Search Context)]:\n"
+            final_research_context += f"> ⚠️ 时间锚点校准：当前真实时间为 {today} (2026年)。\n"
+            final_research_context += f"> 以下情报中如果出现 2025 年的记录，它们属于最近半年的【真实历史背景数据】，依然具有极高的参考价值。请将它们视作历史走势的因果印证，绝对不要判定为“数据错误”或“模拟数据”。\n\n"
+            final_research_context += research_context
         else:
-            final_research_context = "\n[核心情报库]: (暂无外部敏感信号)"
+            final_research_context += "\n[核心情报库]: (暂无外部敏感信号)"
         
         if symbol:
             try:
                 # 1. ALWAYS Load Trades (Even if no AI history exists)
                 all_trades = db_get_history(symbol)
-                valid_types = ['buy', 'sell']
+                valid_types = ['buy', 'sell', '买入', '卖出']
                 real_trades = []
                 for t in all_trades:
                     t_type = str(t.get('type', '')).strip().lower()
-                    if (t_type in valid_types or 'override' in t_type) and t.get('amount', 0) > 0:
+                    if (t_type in valid_types or 'override' in t_type or '修正' in t_type) and t.get('amount', 0) > 0:
                         t['type'] = t_type 
                         real_trades.append(t)
-                
-                # 1b. [Digital Twin v4.0] Dedicated Recent Execution Registry
-                if real_trades:
-                    exec_lines = ["\n[🚨 数字化身：近期实操成交流水 (User Real-world Behavior Snapshot)]"]
-                    # Last 5 trades descending
-                    latest_trades = sorted(real_trades, key=lambda x: x['timestamp'], reverse=True)[:5]
-                    for lt in latest_trades:
-                        act = "买入" if 'buy' in lt['type'] else ("卖出" if 'sell' in lt['type'] else "修正")
-                        exec_lines.append(f"- {lt['timestamp']}: {act} {int(lt['amount'])}股 @ {lt['price']}")
-                    final_research_context += "\n" + "\n".join(exec_lines)
 
                 history_logs = load_production_log(symbol)
                 if history_logs:
@@ -216,7 +243,7 @@ def build_advisor_prompt(context_data, research_context="", technical_indicators
                             # Parse timestamp string to datetime object for comparison if needed, 
                             # but assuming strings work if format is consistent ISO
                             if start_time <= t['timestamp'] < end_time:
-                                 action = "买入" if t['type'] == 'buy' else "卖出"
+                                 action = "买入" if t['type'] in ['buy', '买入'] else ("卖出" if t['type'] in ['sell', '卖出'] else "修正")
                                  matched_tx.append(f"{action} {int(t['amount'])}股 @ {t['price']}")
                         
                         if matched_tx:
@@ -250,9 +277,7 @@ def build_advisor_prompt(context_data, research_context="", technical_indicators
                     history_context_lines.append(f"【⚠️ 数字化身指令】: 深度思考你之前的建议是否被用户采纳？如果是被拒绝了，分析用户当时避开了什么风险，或者在等待什么机会？在本次化身决策中，请继承这一行为惯性并进行优化。")
                     
                     # [NEW] Enhanced Behavioral Alignment Variables
-                    user_actions_summary = "\n".join(matched_tx) if matched_tx else "无显著操作"
-                    previous_advice_summary = "见下文历史研判参考"
-                    context_data['user_actions_summary'] = user_actions_summary
+                    previous_advice_summary = "见上文历史研判参考 (Previous AI Analysis & User Execution) 模块"
                     context_data['previous_advice_summary'] = previous_advice_summary
                     
                     final_research_context += "\n" + "\n".join(history_context_lines)
@@ -330,10 +355,13 @@ def build_advisor_prompt(context_data, research_context="", technical_indicators
     # [OPTIMIZATION] Append Critical State Block at the VERY END for Recency Bias
     # This ensures the AI sees the most important numbers last, reducing calculation errors.
     if context_data:
-        p = context_data.get('price', 0)
-        cost = context_data.get('avg_cost', context_data.get('cost', 0))
-        shares = context_data.get('shares', 0)
-        cash = context_data.get('available_cash', 0)
+        try:
+            p = float(context_data.get('price', 0))
+            cost = float(context_data.get('avg_cost', context_data.get('cost', 0)))
+            shares = int(context_data.get('shares', 0))
+            cash = float(context_data.get('available_cash', 0))
+        except:
+            p, cost, shares, cash = 0, 0, 0, 0
         
         # Calculate max buy/sell for easy reference
         max_buy = int(cash / p) if p > 0 else 0
@@ -527,6 +555,9 @@ def build_red_team_prompt(context_data, prompt_templates=None, is_final_round=Fa
     sys_tpl = prompt_templates.get("reviewer_system", DEFAULT_RED_SYS)
     
     try:
+        # [PATCH] Inject Safe Defaults for missing template keys in Simple Mode
+        context_data.setdefault('history_summary', '')
+        
         user_prompt = user_tpl.format(**context_data)
         
         # [PATCH] Inject History if available (for Final Verdict)

@@ -60,8 +60,7 @@ selected_labels = sidebar_data["selected_labels"]
 total_capital = sidebar_data["total_capital"]
 risk_pct = sidebar_data["risk_pct"]
 proximity_pct = sidebar_data["proximity_pct"]
-auto_refresh = sidebar_data["auto_refresh"]
-refresh_rate = sidebar_data["refresh_rate"]
+
 
 # Main Area
 if app_mode == "策略实验室":
@@ -71,6 +70,10 @@ if app_mode == "策略实验室":
 elif app_mode == "操盘记录":
     from components.portfolio import render_portfolio_dashboard
     render_portfolio_dashboard()
+
+elif app_mode == "交易日历":
+    from components.calendar_view import render_calendar_view
+    render_calendar_view()
 
 elif app_mode == "提示词中心":
     st.header("🧠 智能体提示词中心 (Agent Prompt Center)")
@@ -321,13 +324,7 @@ elif app_mode == "复盘与预判":
         update_view()
     
         # Loop for Auto Refresh
-        if auto_refresh:
-            # Check Trading Hours
-            if is_trading_time():
-                time.sleep(refresh_rate)
-                st.rerun()
-            else:
-                st.caption("😴 当前非交易时间，自动刷新已暂停。")
+        st.caption("ℹ️ 点击左侧栏的【🔄 一键刷新实时数据】按钮以更新行情。")
     
     # Add Bottom Spacer to fix scrolling issue
     st.markdown('<div class="main-footer-spacer"></div>', unsafe_allow_html=True)

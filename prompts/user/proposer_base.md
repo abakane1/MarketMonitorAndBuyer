@@ -33,9 +33,9 @@
 用户最近 3 次操作摘要：{user_actions_summary}
 前次建议摘要：{previous_advice_summary}
 
-{load_principle: principles/position_management.md}
+{position_principle}
 
-{load_principle: principles/risk_management.md}
+{risk_principle}
 
 【交易约束】
 1. 本股专项资金限额: {capital_allocation} 元 (所有买入基于此限额)

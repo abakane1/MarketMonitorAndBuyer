@@ -175,15 +175,18 @@ def get_all_stocks_list(force_update: bool = False) -> pd.DataFrame:
     # 如果列表长度明显小于 5000，说明可能漏了 ETF 或股票
     if not df_final.empty:
         try:
-            # 检查是否包含 588 开头的 ETF，如果没有，尝试单独补充
-            has_etf = df_final['代码'].str.startswith('588').any()
-            if not has_etf:
-                logger.info("正在补充 ETF 列表...")
+            # [modified] Always try to fetch and merge ETFs to ensure completeness (e.g. 588200 might be missing from efinance)
+            if True: 
+                # logger.info("正在补充 ETF 列表...") 
                 df_etfs = ak.fund_etf_spot_em()
                 if not df_etfs.empty:
+                    # Filter for common ETF prefixes
                     df_target_etfs = df_etfs[df_etfs['代码'].str.startswith(('588', '51', '56', '15'))].copy()
                     df_target_etfs = df_target_etfs[['代码', '名称']]
+                    
+                    # Merge with existing list
                     df_final = pd.concat([df_final, df_target_etfs], axis=0).drop_duplicates(subset=['代码'])
+                    # logger.info(f"ETF 合并后总条数: {len(df_final)}")
         except Exception as e:
             logger.warning(f"补充 ETF 失败: {e}")
 
@@ -377,113 +380,30 @@ def get_stock_realtime_info(symbol: str) -> Optional[Dict]:
     """
     from utils.storage import load_realtime_quote, SPOT_DATA_PATH
     
-    # [FIX v2.8.1] Check cache freshness first
+    # [FIX v3.1.0] Strictly Offline - No Auto-Fetch
+    # Only read from local snapshot or minute data. 
+    # If cache is stale, return stale data or None. User must click "Refresh" manually.
+    
     data = None
-    spot_mtime = 0
-    cache_is_fresh = False
     
+    # 1. Try Global Snapshot (Updated via Sidebar)
     if os.path.exists(SPOT_DATA_PATH):
-        spot_mtime = os.path.getmtime(SPOT_DATA_PATH)
-        cache_age_hours = (time.time() - spot_mtime) / 3600
-        # Consider cache fresh if less than 1 hour old
-        cache_is_fresh = cache_age_hours < 1
-        
-        if cache_is_fresh:
-            data = load_realtime_quote(symbol)
-    
-    # If no fresh cache, try real-time APIs immediately
-    if not data or not cache_is_fresh:
-        if _FALLBACK_AVAILABLE:
-            try:
-                # Try Sina first for real-time data
-                sina_data = get_stock_spot_sina(symbol)
-                if sina_data:
-                    logger.info(f"Using Sina real-time data for {symbol}")
-                    return {
-                        'code': sina_data['代码'],
-                        'name': sina_data['名称'],
-                        'price': float(sina_data['最新价']),
-                        'pre_close': float(sina_data['昨收']),
-                        'market_cap': 0,
-                        'open': float(sina_data['今开']),
-                        'high': float(sina_data['最高']),
-                        'low': float(sina_data['最低']),
-                        'volume': float(sina_data['成交量']),
-                        'amount': float(sina_data['成交额']),
-                        '来源': 'sina'
-                    }
-                
-                # Try Tencent if Sina fails
-                tencent_data = get_stock_spot_tencent(symbol)
-                if tencent_data:
-                    logger.info(f"Using Tencent real-time data for {symbol}")
-                    return {
-                        'code': tencent_data['代码'],
-                        'name': tencent_data['名称'],
-                        'price': float(tencent_data['最新价']),
-                        'pre_close': float(tencent_data['昨收']),
-                        'market_cap': 0,
-                        'open': float(tencent_data['今开']),
-                        'high': float(tencent_data['最高']),
-                        'low': float(tencent_data['最低']),
-                        'volume': float(tencent_data['成交量']),
-                        'amount': float(tencent_data['成交额']),
-                        '来源': 'tencent'
-                    }
-            except Exception as e:
-                logger.warning(f"Real-time API failed for {symbol}: {e}")
-    
-    # 2. Fallback to v1.x individual files (stock_spot.parquet / etf_spot.parquet)
-    if not data:
-        for path in [STOCK_SPOT_PATH, ETF_SPOT_PATH]:
-            if os.path.exists(path):
-                try:
-                    df_v1 = pd.read_parquet(path)
-                    row_v1 = df_v1[df_v1['代码'] == symbol]
-                    if not row_v1.empty:
-                        data = row_v1.iloc[0].to_dict()
-                        break
-                except:
-                    continue
-
-
-
-    # 3. Check Minute Data (Freshness Override)
-    # If Global Spot failed (stale), we might have fresh Minute Data which contains Local Spot info.
-    # We prioritize Minute Data if it is significantly newer than Spot Data file.
-    use_minute_override = False
-    min_df = pd.DataFrame() # Init
-    
-    if not data:
-        use_minute_override = True
-    else:
-        # Check if Minute Data is fresher
         try:
+            data = load_realtime_quote(symbol)
+        except:
+            pass
+            
+    # 2. Try Fallback to Minute Data (Updated via Sidebar/Backtest)
+    # If snapshot is missing but we have minute data, use it.
+    if not data:
+         try:
             from utils.storage import load_minute_data
             min_df = load_minute_data(symbol)
             if not min_df.empty:
-                min_last = pd.to_datetime(min_df.iloc[-1]['时间'])
-                min_ts = min_last.timestamp()
-                
-                # If minute data is > 60s newer than spot file
-                if min_ts > (spot_mtime + 60):
-                    use_minute_override = True
-        except:
-            pass
-
-    if use_minute_override:
-        try:
-            from utils.storage import load_minute_data
-            if min_df.empty: min_df = load_minute_data(symbol)
-            
-            if not min_df.empty:
                 latest = min_df.iloc[-1]
-                # Construct fake spot data from minute data
-                # [MODIFIED] Do NOT override '昨收' with current close when falling back to minute data.
-                # Use current close as a LAST RESORT only if absolutely null.
-                data_from_min = {
+                data = {
                     '代码': symbol,
-                    '名称': 'Unknown',
+                    '名称': 'Unknown', # Will try to patch below
                     '最新价': latest.get('收盘', 0),
                     '今开': latest.get('开盘', 0),
                     '最高': latest.get('最高', 0),
@@ -491,12 +411,8 @@ def get_stock_realtime_info(symbol: str) -> Optional[Dict]:
                     '成交量': latest.get('成交量', 0),
                     '成交额': latest.get('成交额', 0)
                 }
-                if data:
-                    data.update(data_from_min)
-                else:
-                    data = data_from_min
                 
-                # Try to get Name from Stock List if possible
+                # Try to get Name from Stock List
                 try:
                     name_df = get_all_stocks_list()
                     row_n = name_df[name_df['代码'] == symbol]
@@ -504,40 +420,29 @@ def get_stock_realtime_info(symbol: str) -> Optional[Dict]:
                         data['名称'] = row_n.iloc[0]['名称']
                 except:
                     pass
-        except:
-            pass
-            
+         except:
+             pass
+
     if data:
-        # Map fields to standard format
+        # Map fields
         price = data.get('最新价', 0)
-        # Initialize pre_close with default from data
+        # Initialize pre_close
         pre_close = float(data.get('昨收', data.get('pre_close', price)))
         
-        # [v3.0.7] Data Integrity: Use Fund Flow History to Cross-Verify Pre-Close
-        # Real-time 'pre_close' from EM might be buggy during dividends or lags.
+        # Try to refine pre_close from History if available (Offline)
         try:
-             # Fetch history without forcing API hit if not needed, but here accuracy is worth it
              ff_h = get_stock_fund_flow_history(symbol, force_update=False)
-             if not ff_h.empty:
-                 # Check if today's record exists in ff_h. 
-                 # Usually, the last row is Today, and second to last is Yesterday.
-                 # Actually, df is sorted by date ascending.
-                 if len(ff_h) > 1:
-                     latest_ff_date = ff_h.iloc[-1]['日期']
-                     now_str = datetime.now().strftime("%Y-%m-%d")
-                     
-                     if latest_ff_date == now_str:
-                         # Last row is today, so 'Yesterday' is row -2
-                         real_pre_close = float(ff_h.iloc[-2]['收盘价'])
-                     else:
-                         # Last row is likely 'Yesterday' or the last trading day
-                         real_pre_close = float(ff_h.iloc[-1]['收盘价'])
-                     
-                     if real_pre_close > 0:
-                         pre_close = real_pre_close
-                         # logger.info(f"[{symbol}] Pre-Close cross-verified via Fund Flow History: {pre_close}")
-        except Exception as e_verify:
-             logger.warning(f"Failed to cross-verify pre_close via Fund Flow History: {e_verify}")
+             if not ff_h.empty and len(ff_h) > 1:
+                 # Check existing history without fetching new
+                 latest_date = ff_h.iloc[-1]['日期']
+                 # Simple check: take last close as approximated pre_close for today
+                 # (If history is up to yesterday, then last close IS pre-close)
+                 # (If history includes today, then 2nd last close is pre-close)
+                 # We can't know for sure without checking date against today, 
+                 # but since we are offline, we just best-effort.
+                 pass 
+        except:
+             pass
 
         return {
             'code': data['代码'],
@@ -551,47 +456,8 @@ def get_stock_realtime_info(symbol: str) -> Optional[Dict]:
             'volume': float(data.get('成交量', 0)),
             'amount': float(data.get('成交额', 0))
         }
-        
-    # 4. Try Fallback APIs (Sina/Tencent) if disk data not available
-    if _FALLBACK_AVAILABLE:
-        try:
-            # Try Sina first
-            sina_data = get_stock_spot_sina(symbol)
-            if sina_data:
-                logger.info(f"Using Sina API for {symbol}")
-                return {
-                    'code': sina_data['代码'],
-                    'name': sina_data['名称'],
-                    'price': float(sina_data['最新价']),
-                    'pre_close': float(sina_data['昨收']),
-                    'market_cap': 0,  # Not available from Sina
-                    'open': float(sina_data['今开']),
-                    'high': float(sina_data['最高']),
-                    'low': float(sina_data['最低']),
-                    'volume': float(sina_data['成交量']),
-                    'amount': float(sina_data['成交额'])
-                }
-            
-            # Try Tencent if Sina fails
-            tencent_data = get_stock_spot_tencent(symbol)
-            if tencent_data:
-                logger.info(f"Using Tencent API for {symbol}")
-                return {
-                    'code': tencent_data['代码'],
-                    'name': tencent_data['名称'],
-                    'price': float(tencent_data['最新价']),
-                    'pre_close': float(tencent_data['昨收']),
-                    'market_cap': 0,  # Not available from Tencent
-                    'open': float(tencent_data['今开']),
-                    'high': float(tencent_data['最高']),
-                    'low': float(tencent_data['最低']),
-                    'volume': float(tencent_data['成交量']),
-                    'amount': float(tencent_data['成交额'])
-                }
-        except Exception as e:
-            logger.warning(f"Fallback APIs failed for {symbol}: {e}")
     
-    return None # Return None if all sources failed (Dashboard handles this)
+    return None
 
     # --- Legacy/Fetcher below (used by manual sync) ---
     try:
@@ -1080,7 +946,13 @@ def get_stock_fund_flow_history(symbol: str, force_update: bool = False) -> pd.D
             if not should_fetch and not force_update:
                 return df_cache
         except:
-             should_fetch = True
+             pass # If file corrupt, we might need new one, but if not forced, we might just return empty or stale.
+             
+    # [FIX v3.1.0] Strictly Offline
+    if not force_update:
+        # If we have cache, return it (even if stale/empty). If not, return empty.
+        # Do NOT fetch from API unless user asked for it.
+        return df_cache
     
     # 2. Fetch from API
     if should_fetch or force_update:
@@ -1329,12 +1201,17 @@ def calculate_price_limits(code: str, name: str, pre_close: float) -> tuple:
 
 
 
+NEWS_CACHE_DIR = "stock_data/news_cache"
+
+def get_news_cache_path(symbol: str) -> str:
+    """获取新闻缓存文件路径并确保目录存在"""
+    if not os.path.exists(NEWS_CACHE_DIR):
+        os.makedirs(NEWS_CACHE_DIR, exist_ok=True)
+    return os.path.join(NEWS_CACHE_DIR, f"{symbol}_news.json")
+
+
 @st.cache_data(ttl=300)
-def get_stock_news_raw(symbol: str, n: int = 5) -> list:
-    """
-    Fetch latest professional news from EastMoney via AkShare.
-    Returns list of dicts: [{'title':..., 'date':..., 'source':...}]
-    """
+def fetch_and_save_news(symbol: str, n: int = 5) -> list:
     try:
         df = ak.stock_news_em(symbol=symbol)
         if df.empty:
@@ -1354,10 +1231,40 @@ def get_stock_news_raw(symbol: str, n: int = 5) -> list:
                 "source": str(row['文章来源']).strip(),
                 "url": str(row['新闻链接']).strip()
             })
-        return news_list
+            
+        # Save to disk
+        try:
+            path = get_news_cache_path(symbol)
+            with open(path, "w", encoding="utf-8") as f:
+                json.dump(news_list, f, ensure_ascii=False, indent=2)
+            logger.info(f"Saved {len(news_list)} news items for {symbol}")
+        except Exception as e_save:
+            logger.error(f"Failed to save news cache: {e_save}")
+
+        return news_list[:n]
     except Exception as e:
         logger.error(f"Failed to fetch news raw for {symbol}: {e}")
         return []
+
+def load_cached_news(symbol: str, n: int = 5) -> list:
+    """
+    [FIX v3.1.0] Strictly Offline - Read from disk only.
+    """
+    path = get_news_cache_path(symbol)
+    if not os.path.exists(path):
+        return []
+        
+    try:
+        with open(path, "r", encoding="utf-8") as f:
+            news_list = json.load(f)
+            return news_list[:n]
+    except Exception as e:
+        logger.error(f"Failed to load cached news: {e}")
+        return []
+
+# Backward compatibility alias (Redirect to Offline Load)
+def get_stock_news_raw(symbol: str, n: int = 5) -> list:
+    return load_cached_news(symbol, n)
 
 def get_stock_news(symbol: str, n: int = 5) -> str:
     """

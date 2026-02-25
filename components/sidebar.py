@@ -25,7 +25,7 @@ def render_sidebar() -> dict:
     """
     # 导航
     st.sidebar.title("🎮 功能导航")
-    app_mode = st.sidebar.radio("选择页面", ["复盘与预判", "操盘记录", "提示词中心", "策略实验室"], index=0)
+    app_mode = st.sidebar.radio("选择页面", ["复盘与预判", "操盘记录", "提示词中心", "策略实验室", "交易日历"], index=0)
     
     st.sidebar.markdown("---")
     
@@ -284,9 +284,7 @@ def render_sidebar() -> dict:
             abs(new_settings["proximity_threshold"] - settings.get("proximity_threshold", 0.012)) > 0.0001):
             save_settings(new_settings)
         
-        # 刷新设置
-        auto_refresh = st.checkbox("自动刷新", value=False)
-        refresh_rate = st.slider("刷新间隔 (秒)", 30, 300, 60, help="建议保持 60秒以上，以避免触发数据源流控限制。")
+
         
         # 数据管理
         st.markdown("---")
@@ -346,6 +344,5 @@ def render_sidebar() -> dict:
         "metaso_api_key": metaso_api_key,
         "metaso_base_url": metaso_base_url,
         "analysis_depth": analysis_depth,
-        "auto_refresh": auto_refresh,
-        "refresh_rate": refresh_rate
+
     }

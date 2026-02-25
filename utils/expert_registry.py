@@ -11,7 +11,8 @@ from utils.ai_advisor import (
     build_red_team_prompt,
     build_refinement_prompt,
     build_final_decision_prompt,
-    call_qwen_api
+    call_qwen_api,
+    call_ai_model
 )
 from utils.legion_advisor import run_blue_legion, run_red_legion
 
@@ -233,7 +234,19 @@ class KimiExpert(BaseExpert):
         self.model_name = model_name
 
     def propose(self, context_data: Dict[str, Any], prompt_templates: Dict[str, str], **kwargs) -> Tuple[str, str, Any, Any]:
-        return "Kimi Proposer Not Implemented", "", "", []
+        research_context = kwargs.get('research_context', "")
+        
+        sys_p, user_p = build_advisor_prompt(
+            context_data, research_context, kwargs.get('technical_indicators'), 
+            kwargs.get('fund_flow_data'), kwargs.get('fund_flow_history'), kwargs.get('intraday_summary'), 
+            prompt_templates, kwargs.get('suffix_key', "proposer_premarket_suffix"), context_data.get('code')
+        )
+        
+        if "Error" in user_p and sys_p == "":
+            return user_p, "", user_p, None
+            
+        content, reasoning = call_ai_model("kimi", self.api_key, sys_p, user_p, specific_model=self.model_name, base_url=self.base_url)
+        return content, reasoning, user_p, None
 
     def audit(self, context_data: Dict[str, Any], plan_content: str, prompt_templates: Dict[str, str], is_final: bool = False, **kwargs) -> Tuple[str, str]:
         """
@@ -263,10 +276,20 @@ class KimiExpert(BaseExpert):
         return final_res, full_log
 
     def refine(self, original_context: str, original_plan: str, audit_report: str, prompt_templates: Dict[str, str], **kwargs) -> Tuple[str, str, str]:
-        return "Kimi Refine Not Implemented", "", ""
+        sys_p, user_p = build_refinement_prompt(
+            original_context, original_plan, audit_report, prompt_templates
+        )
+        full_prompt = f"System: {sys_p}\n\nUser: {user_p}"
+        if not self.api_key: return "Error: Missing Kimi API Key", "", full_prompt
+        content, reasoning = call_ai_model("kimi", self.api_key, sys_p, user_p, specific_model=self.model_name, base_url=self.base_url)
+        return content, reasoning, full_prompt
 
     def decide(self, aggregated_history: list, prompt_templates: Dict[str, str], context_data: Dict[str, Any] = None, **kwargs) -> Tuple[str, str, str]:
-        return "Kimi Decide Not Implemented", "", ""
+        sys_p, user_p = build_final_decision_prompt(aggregated_history, prompt_templates, context_data=context_data)
+        full_prompt = f"System: {sys_p}\n\nUser: {user_p}"
+        if not self.api_key: return "Error: Missing Kimi API Key", "", full_prompt
+        content, reasoning = call_ai_model("kimi", self.api_key, sys_p, user_p, specific_model=self.model_name, base_url=self.base_url)
+        return content, reasoning, full_prompt
 
 
 class ExpertRegistry:

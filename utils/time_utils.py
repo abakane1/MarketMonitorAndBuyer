@@ -52,16 +52,11 @@ HOLIDAYS_2026 = [
 
 def is_trading_day(date_obj) -> bool:
     """
-    Checks if a date is a valid trading day (Mon-Fri and not a holiday).
+    Checks if a date is a valid trading day.
+    Uses CalendarManager (DB) -> Fallback to Mon-Fri.
     """
-    if date_obj.weekday() > 4: # Sat, Sun
-        return False
-    
-    date_str = date_obj.strftime("%Y-%m-%d")
-    if date_str in HOLIDAYS_2026:
-        return False
-        
-    return True
+    from utils.calendar_manager import CalendarManager
+    return CalendarManager.is_trading_day(date_obj)
 
 def get_next_trading_day(start_date=None) -> datetime.date:
     """
@@ -72,11 +67,9 @@ def get_next_trading_day(start_date=None) -> datetime.date:
     """
     if not start_date:
         start_date = get_beijing_time().date()
-        
-    next_day = start_date + timedelta(days=1)
-    while not is_trading_day(next_day):
-        next_day += timedelta(days=1)
-    return next_day
+    
+    from utils.calendar_manager import CalendarManager
+    return CalendarManager.get_next_trading_day(start_date)
 
 def get_target_date_for_strategy(generated_time: datetime) -> str:
     """
@@ -106,12 +99,18 @@ def get_target_date_for_strategy(generated_time: datetime) -> str:
 def get_market_session() -> str:
     """
     Returns the current market session status.
-    - "pre_market": Before 09:30
-    - "morning_break": 11:30 <= now <= 13:00 (Noon Break)
-    - "closed": now > 15:00 (After Market Close)
-    - "trading": Otherwise (Trading Hours)
+    - "closed": Non-trading day or now > 15:00
+    - "pre_market": Before 09:30 on a trading day
+    - "morning_break": 11:30 <= now <= 13:00 (Noon Break) on a trading day
+    - "trading": Otherwise (Trading Hours) on a trading day
     """
-    now_time = get_beijing_time().time()
+    now = get_beijing_time()
+    
+    # Check if today is a trading day first
+    if not is_trading_day(now.date()):
+        return "closed"
+        
+    now_time = now.time()
     
     # Pre-Market: Before 09:30
     if now_time < time(9, 30):
@@ -122,7 +121,7 @@ def get_market_session() -> str:
         return "morning_break"
     
     # After Close: > 15:00
-    if now_time > time(15, 0):
+    if now_time >= time(15, 0):
         return "closed"
         
     return "trading"

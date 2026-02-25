@@ -6,7 +6,8 @@ from utils.ai_parser import parse_metaso_report, find_duplicate_candidates
 from utils.researcher import ask_metaso_research_loop
 from utils.researcher import ask_metaso_research_loop
 from utils.config import load_config
-from utils.data_fetcher import get_stock_news_raw
+from utils.config import load_config
+from utils.data_fetcher import load_cached_news, fetch_and_save_news
 from utils.intelligence_processor import summarize_intelligence
 from utils.qwen_agent import search_with_qwen
 
@@ -165,8 +166,11 @@ def render_intel_hub(code: str, name: str, price: float, avg_cost: float, shares
             n_col1, n_col2 = st.columns([0.3, 0.7])
             with n_col1:
                 if st.button("🔄 刷新资讯", key=f"btn_refresh_news_{code}"):
-                    get_stock_news_raw.clear()
-                    st.toast("已清除资讯缓存，正在重新抓取...")
+                    try:
+                        fetch_and_save_news(code, n=20)
+                        st.toast("✅ 资讯已更新！")
+                    except Exception as e:
+                        st.error(f"资讯抓取失败: {e}")
                     time.sleep(0.5)
                     st.rerun()
             with n_col2:
@@ -176,7 +180,7 @@ def render_intel_hub(code: str, name: str, price: float, avg_cost: float, shares
                     else:
                         with st.spinner("🤖 正在阅读并提炼最近20条新闻..."):
                             try:
-                                raw_news = get_stock_news_raw(code, n=20)
+                                raw_news = load_cached_news(code, n=20)
                                 if raw_news:
                                     summary = summarize_intelligence(deepseek_api_key, raw_news, name)
                                     if summary:
@@ -193,7 +197,7 @@ def render_intel_hub(code: str, name: str, price: float, avg_cost: float, shares
                                 st.error(f"提炼失败: {e}")
                 
             try:
-                news_items = get_stock_news_raw(code, n=10)
+                news_items = load_cached_news(code, n=10)
                 if not news_items:
                     st.info("暂无最新资讯。")
                 else:

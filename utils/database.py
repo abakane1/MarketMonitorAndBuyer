@@ -53,6 +53,15 @@ def init_db():
         updated_at TEXT
     )''')
     
+    # [NEW] Trading Calendar table (v3.0.1)
+    # Stores official trading status: 1=Open, 0=Closed/Holiday
+    c.execute('''CREATE TABLE IF NOT EXISTS trade_dates (
+        date TEXT PRIMARY KEY,       -- YYYY-MM-DD
+        is_trading INTEGER,          -- 1 or 0
+        is_holiday INTEGER,          -- 1 or 0
+        description TEXT             -- e.g. "Spring Festival"
+    )''')
+    
     # [LAB] Strategy Logs table (For Lab/Backtest)
     c.execute('''CREATE TABLE IF NOT EXISTS strategy_logs (
         id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -268,6 +277,57 @@ def db_load_intelligence(symbol: str) -> any:
         except:
              return [] if "watchlist" not in symbol else {} # Context unaware fallback
     return [] # Default to empty list as mostly used for claims list
+
+# --- Trading Calendar (v3.0.1) ---
+
+def db_save_trade_date(date: str, is_trading: int, is_holiday: int, description: str = ""):
+    conn = get_db_connection()
+    c = conn.cursor()
+    c.execute("INSERT OR REPLACE INTO trade_dates (date, is_trading, is_holiday, description) VALUES (?, ?, ?, ?)",
+              (date, is_trading, is_holiday, description))
+    conn.commit()
+    conn.close()
+
+def db_get_trade_dates_range(start_date: str, end_date: str) -> list:
+    """Returns list of dicts {date, is_trading, is_holiday, description}"""
+    conn = get_db_connection()
+    c = conn.cursor()
+    c.execute("SELECT * FROM trade_dates WHERE date >= ? AND date <= ? ORDER BY date ASC", (start_date, end_date))
+    rows = c.fetchall()
+    conn.close()
+    
+    res = []
+    for r in rows:
+        res.append({
+            "date": r["date"],
+            "is_trading": bool(r["is_trading"]),
+            "is_holiday": bool(r["is_holiday"]),
+            "description": r["description"]
+        })
+    return res
+
+def db_get_single_trade_date(date: str) -> dict:
+    conn = get_db_connection()
+    c = conn.cursor()
+    c.execute("SELECT * FROM trade_dates WHERE date = ?", (date,))
+    row = c.fetchone()
+    conn.close()
+    if row:
+        return {
+            "date": row["date"],
+            "is_trading": bool(row["is_trading"]),
+            "is_holiday": bool(row["is_holiday"]),
+            "description": row["description"]
+        }
+    return None
+
+def db_get_future_trade_dates(start_date: str, limit: int = 30) -> list:
+    conn = get_db_connection()
+    c = conn.cursor()
+    c.execute("SELECT * FROM trade_dates WHERE date >= ? AND is_trading = 1 ORDER BY date ASC LIMIT ?", (start_date, limit))
+    rows = c.fetchall()
+    conn.close()
+    return [r["date"] for r in rows]
 
 # --- Strategy Logs (For Lab) ---
 

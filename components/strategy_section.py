@@ -16,6 +16,7 @@ import re
 import datetime
 from utils.prompt_loader import load_all_prompts
 from utils.time_utils import get_target_date_for_strategy, get_beijing_time, is_trading_time, get_market_session
+from utils.asset_classifier import get_asset_type_and_tags
 
 def render_strategy_section(code: str, name: str, price: float, shares_held: int, avg_cost: float, total_capital: float, risk_pct: float, proximity_pct: float, pre_close: float = 0.0):
     """
@@ -115,6 +116,11 @@ def render_strategy_section(code: str, name: str, price: float, shares_held: int
 
     # --- AI Section (Review / Pre-market) ---
     with st.expander("🧠 复盘与预判 (Review & Prediction)", expanded=True):
+        
+        # [Dual-Track System] 资产阵营提示
+        asset_info = get_asset_type_and_tags(code)
+        st.info(f"{asset_info['badge']} | {asset_info['description']}")
+        
         # [UX] Toast Feedback
         toast_key = f"toast_msg_{code}"
         if toast_key in st.session_state:
@@ -705,8 +711,8 @@ def render_strategy_section(code: str, name: str, price: float, shares_held: int
         
         # Fund Flow History Display Moved to Dashboard
     with st.container():
-        # Use prompts loaded at the top of function (line 24)
-        # prompts = load_config().get("prompts", {})  # REMOVED: Redundant call
+        # Load prompts needed for strategy generation
+        prompts = load_config().get("prompts", {})
         
         col1, col2 = st.columns([3, 1])
 
@@ -781,16 +787,20 @@ def render_strategy_section(code: str, name: str, price: float, shares_held: int
                         # [User Actions Context] Fetch recent history for AI context
                         try:
                             user_history = db_get_history(code)
+                            # Filter out system logs like base_position/allocation
+                            valid_types = ['buy', 'sell', 'override', '买入', '卖出']
+                            tx_history = [h for h in user_history if h.get('type') in valid_types]
                             # Get last 3 actions
-                            recent_actions = user_history[-3:] if user_history else []
+                            recent_actions = tx_history[-3:] if tx_history else []
                             if recent_actions:
                                 action_strs = []
                                 for act in recent_actions:
-                                    ts = act.get('timestamp', '')[:10] # Date only
-                                    typ = act.get('type', 'N/A')
-                                    amt = act.get('amount', 0)
+                                    ts = act.get('timestamp', '')[:16] # Date and HH:MM
+                                    t_type = act.get('type', 'N/A')
+                                    act_name = "买入" if t_type in ['buy', '买入'] else ("卖出" if t_type in ['sell', '卖出'] else "修正")
+                                    amt = int(act.get('amount', 0))
                                     prc = act.get('price', 0)
-                                    action_strs.append(f"{ts} {typ} {amt}股@{prc}")
+                                    action_strs.append(f"{ts} {act_name} {amt}股@{prc}")
                                 user_actions_summary = "; ".join(action_strs)
                             else:
                                 user_actions_summary = "无近期操作记录"
@@ -925,14 +935,17 @@ def render_strategy_section(code: str, name: str, price: float, shares_held: int
                         }
 
                     except Exception as e:
+                        import traceback
+                        error_trace = traceback.format_exc()
+                        print(f"Strategy Generation Error for {code}:\n{error_trace}")
                         st.error(f"❌ 策略生成失败: {str(e)}")
-                        # Removed st.stop() to allow user to retry or check other stocks without restarting the app
-                        # Instead, we just let the flow complete (rerun will happen anyway, and preview_prompt won't be set)
-                        # We clear the specific state to prevent stale preview
+                        
+                        # Instead of rerunning and wiping the error, we stop here to show the error
                         if f"preview_prompt_{code}" in st.session_state:
                            del st.session_state[f"preview_prompt_{code}"]
-                        
-                    st.rerun()
+                    else:
+                        # Only rerun if successful
+                        st.rerun()
 
         # --- Prompt Preview and Confirmation ---
         preview_key = f"preview_prompt_{code}"
@@ -958,7 +971,7 @@ def render_strategy_section(code: str, name: str, price: float, shares_held: int
             st.caption("🤖 模型战队配置 (AI Team Config)")
             ms_c1, ms_c2 = st.columns(2)
             with ms_c1:
-                blue_model = st.selectbox("🔵 蓝军 (进攻/策略)", ["DeepSeek", "Qwen"], index=0, key=f"blue_sel_{code}", help="负责生成交易计划 (Proposer)")
+                blue_model = st.selectbox("🔵 蓝军 (进攻/策略)", ["DeepSeek", "Kimi"], index=0, key=f"blue_sel_{code}", help="负责生成交易计划 (Proposer)")
             with ms_c2:
                 red_model = st.selectbox("🔴 红军 (防守/审查)", ["Kimi", "DeepSeek", "None"], index=0, key=f"red_sel_{code}", help="负责风险审计 (Reviewer)")
             

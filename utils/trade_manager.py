@@ -44,7 +44,7 @@ def execute_trade(symbol: str, action: str, price: float, quantity: int, note: s
             new_cost = new_total_cost / new_shares if new_shares > 0 else 0.0
             
             # Log
-            db_add_history(symbol, timestamp, "买入", price, quantity, note)
+            db_add_history(symbol, timestamp, "buy", price, quantity, note)
             
         elif action == "sell":
             if current_shares < quantity:
@@ -72,7 +72,7 @@ def execute_trade(symbol: str, action: str, price: float, quantity: int, note: s
             new_cost = new_unit_cost
             
             # Log
-            db_add_history(symbol, timestamp, "卖出", price, quantity, note)
+            db_add_history(symbol, timestamp, "sell", price, quantity, note)
 
         else:
              return {"success": False, "message": f"无效动作: {action}"}
