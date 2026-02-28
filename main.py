@@ -299,7 +299,7 @@ elif app_mode == "复盘与预判":
             st.caption(f"最后更新时间: {datetime.now().strftime('%H:%M:%S')}")
             
             # Switch to Tabs for Stocks
-            stock_names = [label.split(" | ")[1] for label in selected_labels]
+            stock_names = [f"{label.split(' | ')[1]} ({label.split(' | ')[0]})" for label in selected_labels]
             stock_tabs = st.tabs(stock_names)
             
             for idx, label in enumerate(selected_labels):

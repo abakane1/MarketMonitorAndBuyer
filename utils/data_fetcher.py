@@ -10,7 +10,7 @@ from datetime import datetime, time
 
 # Import fallback data sources (Sina/Tencent)
 try:
-    from utils.data_fallback import get_stock_spot_sina, get_stock_spot_tencent
+    from utils.data_fallback import get_stock_spot_sina, get_stock_spot_tencent, get_stock_spot_with_fallback
     _FALLBACK_AVAILABLE = True
 except ImportError:
     _FALLBACK_AVAILABLE = False
@@ -125,6 +125,7 @@ def validate_stock_code(code: str) -> dict:
     # 仍然允许添加（用户知道自己的代码）
     return {'valid': True, 'code': code, 'name': code}
 
+@st.cache_data(ttl=3600)
 def get_all_stocks_list(force_update: bool = False) -> pd.DataFrame:
     """
     获取全 A 股及主流 ETF 清单。
@@ -181,7 +182,7 @@ def get_all_stocks_list(force_update: bool = False) -> pd.DataFrame:
                 df_etfs = ak.fund_etf_spot_em()
                 if not df_etfs.empty:
                     # Filter for common ETF prefixes
-                    df_target_etfs = df_etfs[df_etfs['代码'].str.startswith(('588', '51', '56', '15'))].copy()
+                    df_target_etfs = df_etfs[df_etfs['代码'].str.startswith(('588', '51', '56', '15', '50'))].copy()
                     df_target_etfs = df_target_etfs[['代码', '名称']]
                     
                     # Merge with existing list
@@ -315,10 +316,26 @@ def fetch_and_cache_market_snapshot():
         
         # 1. Fetch All (efinance gets mixed stocks and etfs usually)
         # ef.stock.get_realtime_quotes() returns a big DataFrame
-        df_all = ef.stock.get_realtime_quotes()
+        df_all = None
+        try:
+            df_all = ef.stock.get_realtime_quotes()
+        except Exception as e_ef:
+            logger.warning(f"efinance market snapshot fetch failed with exception (connection issue or limit): {e_ef}")
         
         if df_all is None or df_all.empty:
-            logger.error("efinance returned empty market snapshot.")
+            logger.warning("efinance returned empty market snapshot, falling back to akshare...")
+            
+            # --- Akshare Fallback ---
+            try:
+                df_ak_stock = ak.stock_zh_a_spot_em()
+                df_ak_etf = ak.fund_etf_spot_em()
+                df_all = pd.concat([df_ak_stock, df_ak_etf], ignore_index=True)
+            except Exception as e_ak:
+                logger.error(f"Akshare fallback also failed: {e_ak}")
+                return
+                
+        if df_all is None or df_all.empty:
+            logger.error("All API sources failed for market snapshot.")
             return
 
         # Rename columns to match internal schema (AkShare emulation)
@@ -337,14 +354,15 @@ def fetch_and_cache_market_snapshot():
             '昨收': '昨收',
             '昨日收盘': '昨收' # Fallback if '昨收' missing
         }
-        df_all = df_all.rename(columns=rename_map)
+        # Only rename columns that actually exist in df_all
+        df_all = df_all.rename(columns={k: v for k, v in rename_map.items() if k in df_all.columns})
         
         # Ensure '代码' is string
         df_all['代码'] = df_all['代码'].astype(str)
         
         # 2. Split into Stocks and ETFs
-        # ETFs: 51, 588, 15, 56
-        etf_prefixes = ('51', '588', '15', '56')
+        # ETFs: 51, 588, 15, 56, 50
+        etf_prefixes = ('51', '588', '15', '56', '50')
         
         # Note: df_all might have other types, but let's assume we want to split by prefix
         df_etf = df_all[df_all['代码'].str.startswith(etf_prefixes)].copy()
@@ -361,6 +379,10 @@ def fetch_and_cache_market_snapshot():
         
         df_stock.to_parquet(STOCK_SPOT_PATH)
         df_etf.to_parquet(ETF_SPOT_PATH)
+        
+        # Also save unified cache for general access
+        from utils.storage import SPOT_DATA_PATH
+        df_all.to_parquet(SPOT_DATA_PATH)
         
         # Update timestamp file
         with open("stock_data/last_update.txt", "w") as f:
@@ -415,35 +437,33 @@ def get_stock_realtime_info(symbol: str) -> Optional[Dict]:
                 # Try to get Name from Stock List
                 try:
                     name_df = get_all_stocks_list()
-                    row_n = name_df[name_df['代码'] == symbol]
-                    if not row_n.empty:
-                        data['名称'] = row_n.iloc[0]['名称']
-                except:
+                    if not name_df.empty and '代码' in name_df.columns:
+                        row_n = name_df[name_df['代码'] == symbol]
+                        if not row_n.empty:
+                            data['名称'] = row_n.iloc[0]['名称']
+                except Exception as ex:
+                    logger.warning(f"Failed to patch name for {symbol}: {ex}")
                     pass
-         except:
+         except Exception as e:
+             logger.warning(f"Failed to load minute data for {symbol}: {e}")
              pass
 
     if data:
+        # Patch name if still missed or 'Unknown'
+        if data.get('名称', 'Unknown') == 'Unknown':
+             try:
+                 name_df = get_all_stocks_list()
+                 if not name_df.empty and '代码' in name_df.columns:
+                     row_n = name_df[name_df['代码'] == symbol]
+                     if not row_n.empty:
+                         data['名称'] = row_n.iloc[0]['名称']
+             except Exception:
+                 pass
+                 
         # Map fields
         price = data.get('最新价', 0)
         # Initialize pre_close
         pre_close = float(data.get('昨收', data.get('pre_close', price)))
-        
-        # Try to refine pre_close from History if available (Offline)
-        try:
-             ff_h = get_stock_fund_flow_history(symbol, force_update=False)
-             if not ff_h.empty and len(ff_h) > 1:
-                 # Check existing history without fetching new
-                 latest_date = ff_h.iloc[-1]['日期']
-                 # Simple check: take last close as approximated pre_close for today
-                 # (If history is up to yesterday, then last close IS pre-close)
-                 # (If history includes today, then 2nd last close is pre-close)
-                 # We can't know for sure without checking date against today, 
-                 # but since we are offline, we just best-effort.
-                 pass 
-        except:
-             pass
-
         return {
             'code': data['代码'],
             'name': data['名称'],
@@ -456,6 +476,30 @@ def get_stock_realtime_info(symbol: str) -> Optional[Dict]:
             'volume': float(data.get('成交量', 0)),
             'amount': float(data.get('成交额', 0))
         }
+    
+    # 3. Final Fallback to Live Single-Stock APIs (Sina/Tencent) 
+    # if efinance full snapshot is blocked and NO local cache exists
+    if _FALLBACK_AVAILABLE:
+        try:
+            live_data = get_stock_spot_with_fallback(symbol)
+            if live_data:
+                price = float(live_data.get('最新价', 0))
+                pre_close = float(live_data.get('昨收', price))
+                
+                return {
+                    'code': live_data['代码'],
+                    'name': live_data['名称'],
+                    'price': price,
+                    'pre_close': pre_close,
+                    'market_cap': float(live_data.get('总市值', 0)),
+                    'open': float(live_data.get('今开', 0)),
+                    'high': float(live_data.get('最高', 0)),
+                    'low': float(live_data.get('最低', 0)),
+                    'volume': float(live_data.get('成交量', 0)),
+                    'amount': float(live_data.get('成交额', 0))
+                }
+        except Exception as e_fb:
+            logger.error(f"Single stock fallback failed: {e_fb}")
     
     return None
 

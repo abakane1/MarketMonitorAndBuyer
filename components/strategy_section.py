@@ -154,7 +154,7 @@ def render_strategy_section(code: str, name: str, price: float, shares_held: int
             # --- STAGE 2: RED TEAM AUDIT ---
             if ai_strat_log.get('audit'):
                 # [Display Audit Result]
-                with st.expander(f"🔴 {ai_strat_log.get('red_model', 'Qwen')} 风控官审查报告 (Red Team Audit)", expanded=True):
+                with st.expander(f"🔴 {ai_strat_log.get('red_model', 'Kimi')} 风控官审查报告 (Red Team Audit)", expanded=True):
                     st.markdown(ai_strat_log['audit'])
                     
                     # --- STAGE 3: REFINEMENT ---
@@ -245,7 +245,7 @@ def render_strategy_section(code: str, name: str, price: float, shares_held: int
                          
                          if not ai_strat_log.get('final_audit'):
                              # [Trigger Final Audit]
-                             red_model = ai_strat_log.get('red_model', 'Qwen')
+                             red_model = ai_strat_log.get('red_model', 'Kimi')
                              st.info(f"⚖️ 等待红军 ({red_model}) 终极裁决 (Final Verdict)...")
                              
                              if final_audit_key not in st.session_state:
@@ -329,7 +329,7 @@ def render_strategy_section(code: str, name: str, price: float, shares_held: int
                                          
                          else:
                              # Display Final Audit
-                             with st.expander(f"⚖️ {ai_strat_log.get('red_model','Qwen')} 终极裁决 (Final Verdict)", expanded=True):
+                             with st.expander(f"⚖️ {ai_strat_log.get('red_model','Kimi')} 终极裁决 (Final Verdict)", expanded=True):
                                  st.markdown(ai_strat_log['final_audit'])
                                 
                              # --- STAGE 5: FINAL DECISION (Blue Team) ---
@@ -971,9 +971,9 @@ def render_strategy_section(code: str, name: str, price: float, shares_held: int
             st.caption("🤖 模型战队配置 (AI Team Config)")
             ms_c1, ms_c2 = st.columns(2)
             with ms_c1:
-                blue_model = st.selectbox("🔵 蓝军 (进攻/策略)", ["DeepSeek", "Kimi"], index=0, key=f"blue_sel_{code}", help="负责生成交易计划 (Proposer)")
+                blue_model = st.selectbox("🔵 蓝军 (进攻/策略)", ["Kimi", "DeepSeek"], index=0, key=f"blue_sel_{code}", help="负责生成交易计划 (Proposer)")
             with ms_c2:
-                red_model = st.selectbox("🔴 红军 (防守/审查)", ["Kimi", "DeepSeek", "None"], index=0, key=f"red_sel_{code}", help="负责风险审计 (Reviewer)")
+                red_model = st.selectbox("🔴 红军 (防守/审查)", ["DeepSeek", "Kimi", "None"], index=0, key=f"red_sel_{code}", help="负责风险审计 (Reviewer)")
             
             # Auto-Drive Toggle
             auto_drive = st.checkbox("⚡ 极速模式 (Auto-Drive)", value=True, help="一键全自动：蓝军草案 -> 红军初审 -> 蓝军反思优化(v2.0) -> 红军终审", key=f"auto_drive_{code}")

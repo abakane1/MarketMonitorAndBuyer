@@ -54,7 +54,7 @@ def render_lab_strategy_panel(context, api_keys, prompts, total_capital=100000.0
 
         # --- RED TEAM ADUIT ---
         if ai_strat_log.get('audit'):
-             with st.expander(f"🔴 {ai_strat_log.get('red_model', 'Qwen')} 风控审查", expanded=True):
+             with st.expander(f"🔴 {ai_strat_log.get('red_model', 'DeepSeek')} 风控审查", expanded=True):
                  st.markdown(ai_strat_log['audit'])
          
              # --- REFINEMENT ---
@@ -64,7 +64,7 @@ def render_lab_strategy_panel(context, api_keys, prompts, total_capital=100000.0
                  
                  if refine_key not in st.session_state:
                      if st.button("🔄 [Lab] 优化策略", key=f"btn_ref_{u_key}"):
-                         blue_model = ai_strat_log.get('blue_model', 'DeepSeek')
+                         blue_model = ai_strat_log.get('blue_model', 'Kimi')
                          sys_p, user_p = build_refinement_prompt(
                              ai_strat_log.get('raw_context', ''),
                              ai_strat_log['result'],
@@ -111,7 +111,7 @@ def render_lab_strategy_panel(context, api_keys, prompts, total_capital=100000.0
                      if final_audit_key not in st.session_state:
                          if st.button("⚖️ [Lab] 终极裁决", key=f"btn_fin_{u_key}"):
                              # Build Prompt
-                             red_model = ai_strat_log.get('red_model', 'Qwen')
+                             red_model = ai_strat_log.get('red_model', 'DeepSeek')
                              # ... logic mostly same as strategy_section
                              # Simplified for Lab: Use generic context or Draft V2
                              history = f"Draft: {ai_strat_log.get('draft_v1','')[:500]}...\nRefine: {ai_strat_log['result']}"
@@ -154,7 +154,7 @@ def render_lab_strategy_panel(context, api_keys, prompts, total_capital=100000.0
                      if not ai_strat_log.get('final_exec'):
                          if final_exec_key not in st.session_state:
                              if st.button("🏁 [Lab] 签署执行令", key=f"btn_exec_{u_key}"):
-                                 blue_model = ai_strat_log.get('blue_model', 'DeepSeek')
+                                 blue_model = ai_strat_log.get('blue_model', 'Kimi')
                                  
                                  history_chain = [
                                      ai_strat_log.get('draft_v1', 'N/A'),
@@ -201,7 +201,7 @@ def render_lab_strategy_panel(context, api_keys, prompts, total_capital=100000.0
              audit_prev_key = f"audit_prev_{u_key}"
              if audit_prev_key not in st.session_state:
                  if st.button("🛡️ [Lab] 启动风控审查", key=f"btn_audit_{u_key}"):
-                     red_model = "Qwen" # Default
+                     red_model = "DeepSeek" # Default
                      # Build Prompt
                      # Use 'raw_context' in context
                      audit_ctx = {
@@ -329,7 +329,7 @@ def render_lab_strategy_panel(context, api_keys, prompts, total_capital=100000.0
                         'result': res,
                         'reasoning': reason,
                         'prompt': user_p,
-                        'blue_model': 'DeepSeek',
+                        'blue_model': 'Kimi',
                         'timestamp': datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
                         'raw_context': context['raw_context'], # Save for audit
                         'context_snapshot': context, # Full snapshot

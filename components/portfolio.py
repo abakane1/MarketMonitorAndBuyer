@@ -9,7 +9,6 @@ import plotly.graph_objects as go
 from datetime import datetime
 
 from utils.database import (
-    db_get_positions, # Changed from db_get_all_positions
     db_get_all_positions,
     db_get_all_history,
     db_compute_realized_pnl,
