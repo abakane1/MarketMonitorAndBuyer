@@ -15,7 +15,6 @@ Usage:
     prompts_config = load_all_prompts()
 """
 
-import os
 import re
 from pathlib import Path
 from typing import Dict, Optional
@@ -29,10 +28,19 @@ PROMPT_MAPPINGS = {
     # System prompts
     'proposer_system': ('system', 'proposer_system.md'),
     'reviewer_system': ('system', 'reviewer_system.md'),
+    
+    # Agent prompts (Blue Legion)
     'blue_quant_sys': ('agents', 'blue_quant_sys.md'),
     'blue_intel_sys': ('agents', 'blue_intel_sys.md'),
+    
+    # Agent prompts (Red Legion)
     'red_quant_auditor_system': ('agents', 'red_quant_sys.md'),
     'red_intel_auditor_system': ('agents', 'red_intel_sys.md'),
+    'red_commander_system': ('agents', 'red_commander_system.md'),
+    
+    # Intelligence processing
+    'intelligence_processor_system': ('agents', 'intelligence_processor_system.md'),
+    'qwen_agent_system': ('agents', 'qwen_agent_system.md'),
     
     # User prompt templates
     'proposer_base': ('user', 'proposer_base.md'),
@@ -56,6 +64,12 @@ PROMPT_MAPPINGS = {
     
     # Final decision
     'proposer_final_decision': ('final', 'proposer_final_decision.md'),
+    
+    # Fallback defaults (for hardcoded prompts migration)
+    'fallback_quant_sys': ('defaults', 'fallback_quant_sys.md'),
+    'fallback_intel_sys': ('defaults', 'fallback_intel_sys.md'),
+    'fallback_red_quant_sys': ('defaults', 'fallback_red_quant_sys.md'),
+    'fallback_red_intel_sys': ('defaults', 'fallback_red_intel_sys.md'),
 }
 
 
