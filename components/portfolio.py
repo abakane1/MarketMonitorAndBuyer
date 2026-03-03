@@ -243,7 +243,7 @@ def _get_stock_name(symbol: str) -> str:
     return symbol
 
 
-def _calculate_portfolio_metrics(positions: list, all_pnl_data: dict):
+def _calculate_portfolio_metrics(positions: list, all_pnl_data: dict, current_portfolio: str):
     """计算组合指标。"""
     metrics = {
         'total_market_value': 0.0,
@@ -566,9 +566,9 @@ def _render_pnl_chart(all_pnl_data: dict):
     st.plotly_chart(fig, use_container_width=True)
 
 
-def _render_trade_timeline(limit: int = 30):
+def _render_trade_timeline(limit: int = 30, current_portfolio: str = "default"):
     """渲染交易流水。"""
-    all_history = db_get_all_history()
+    all_history = db_get_all_history(portfolio_id=current_portfolio)
     
     if not all_history:
         st.info("暂无交易记录")

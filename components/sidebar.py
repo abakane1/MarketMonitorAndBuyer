@@ -12,7 +12,10 @@ from utils.config import get_settings, save_settings
 from utils.database import (
     db_get_watchlist_with_names,
     db_add_watchlist_with_name,
-    db_remove_watchlist
+    db_remove_watchlist,
+    db_get_all_portfolios,
+    db_add_portfolio,
+    db_delete_portfolio
 )
 
 
@@ -54,8 +57,10 @@ def render_sidebar() -> dict:
                     qty = parsed["quantity"]
                     
                     # 3. Execute
+                    # Pass the currently active portfolio_id to the execution
+                    current_portfolio = st.session_state.get("active_portfolio", "default")
                     with st.spinner(f"正在执行: {action} {code} {qty}股 @ {price}..."):
-                        res = execute_trade(code, action, price, qty, note="快速交易")
+                        res = execute_trade(code, action, price, qty, note="快速交易", portfolio_id=current_portfolio)
                         
                     if res["success"]:
                         st.success(res["message"])
@@ -63,6 +68,65 @@ def render_sidebar() -> dict:
                         st.rerun()
                     else:
                         st.error(res["message"])
+
+    # [NEW] 投资组合管理 (Multi-Portfolio)
+    st.sidebar.markdown("---")
+    st.sidebar.header("💼 投资组合选择")
+    
+    portfolios = db_get_all_portfolios()
+    # Handle edge case where DB might not be initialized properly
+    if not portfolios:
+        portfolios = [{"id": "default", "name": "主组合"}]
+        
+    portfolio_options = {p["id"]: f"{p['name']} ({p['id']})" for p in portfolios}
+    
+    # Initialize session state for portfolio
+    if "active_portfolio" not in st.session_state:
+        st.session_state.active_portfolio = "default"
+        
+    # Selector
+    selected_portfolio_id = st.sidebar.selectbox(
+        "当前激活的组合",
+        options=list(portfolio_options.keys()),
+        format_func=lambda x: portfolio_options[x],
+        index=list(portfolio_options.keys()).index(st.session_state.active_portfolio) if st.session_state.active_portfolio in portfolio_options else 0,
+        key="portfolio_selector"
+    )
+    
+    # Update Session State
+    if selected_portfolio_id != st.session_state.active_portfolio:
+        st.session_state.active_portfolio = selected_portfolio_id
+        st.rerun()
+        
+    with st.sidebar.expander("管理投资组合 / 新建组合", expanded=False):
+        new_pf_id = st.text_input("组合ID (限英文字母/数字)", key="new_pf_id")
+        new_pf_name = st.text_input("组合名称", key="new_pf_name")
+        if st.button("创建新组合"):
+            if new_pf_id and new_pf_name:
+                import re
+                if not re.match(r'^[a-zA-Z0-9_]+$', new_pf_id):
+                    st.error("组合ID只能包含字母、数字和下划线")
+                elif new_pf_id in portfolio_options:
+                    st.error("该组合ID已存在")
+                else:
+                    db_add_portfolio(new_pf_id, new_pf_name)
+                    st.success(f"已创建组合: {new_pf_name}")
+                    st.session_state.active_portfolio = new_pf_id
+                    time.sleep(0.5)
+                    st.rerun()
+            else:
+                st.warning("ID 和 名称 不能为空")
+                
+        st.markdown("---")
+        if selected_portfolio_id != "default":
+            if st.button("🗑️ 删除当前组合", type="primary"):
+                if db_delete_portfolio(selected_portfolio_id):
+                    st.success("组合已删除")
+                    st.session_state.active_portfolio = "default"
+                    time.sleep(0.5)
+                    st.rerun()
+                else:
+                    st.error("删除失败")
 
     st.sidebar.header("📌 关注列表管理")
     
@@ -344,5 +408,5 @@ def render_sidebar() -> dict:
         "metaso_api_key": metaso_api_key,
         "metaso_base_url": metaso_base_url,
         "analysis_depth": analysis_depth,
-
+        "active_portfolio": selected_portfolio_id
     }

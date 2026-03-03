@@ -6,7 +6,7 @@ from utils.database import (
 )
 from datetime import datetime
 
-def execute_trade(symbol: str, action: str, price: float, quantity: int, note: str = "快速交易") -> dict:
+def execute_trade(symbol: str, action: str, price: float, quantity: int, note: str = "快速交易", portfolio_id: str = "default") -> dict:
     """
     Executes a trade (Buy/Sell), updates position and history.
     
@@ -16,6 +16,8 @@ def execute_trade(symbol: str, action: str, price: float, quantity: int, note: s
         price: Transaction price
         quantity: Transaction quantity (shares)
         note: Optional note
+        portfolio_id: Portfolio identifier
+
         
     Returns:
         dict: {
@@ -26,7 +28,7 @@ def execute_trade(symbol: str, action: str, price: float, quantity: int, note: s
     """
     try:
         # 1. Fetch current position
-        pos = db_get_position(symbol)
+        pos = db_get_position(symbol, portfolio_id)
         current_shares = pos["shares"]
         current_cost = pos["cost"]
         base_shares = pos["base_shares"]
@@ -44,7 +46,7 @@ def execute_trade(symbol: str, action: str, price: float, quantity: int, note: s
             new_cost = new_total_cost / new_shares if new_shares > 0 else 0.0
             
             # Log
-            db_add_history(symbol, timestamp, "buy", price, quantity, note)
+            db_add_history(symbol, timestamp, "buy", price, quantity, note, portfolio_id=portfolio_id)
             
         elif action == "sell":
             if current_shares < quantity:
@@ -72,13 +74,13 @@ def execute_trade(symbol: str, action: str, price: float, quantity: int, note: s
             new_cost = new_unit_cost
             
             # Log
-            db_add_history(symbol, timestamp, "sell", price, quantity, note)
+            db_add_history(symbol, timestamp, "sell", price, quantity, note, portfolio_id=portfolio_id)
 
         else:
              return {"success": False, "message": f"无效动作: {action}"}
              
         # 3. Update Database
-        db_update_position(symbol, new_shares, new_cost, base_shares)
+        db_update_position(symbol, new_shares, new_cost, base_shares, portfolio_id=portfolio_id)
         
         return {
             "success": True,
