@@ -11,7 +11,7 @@ import time
 import requests
 import pandas as pd
 from datetime import datetime, timedelta
-from typing import Optional, Dict, List
+from typing import Optional, Dict, List, Any
 import logging
 
 logger = logging.getLogger(__name__)
@@ -213,15 +213,77 @@ def get_stock_spot_eastmoney(symbol: str) -> Optional[Dict]:
         return None
 
 
+class DataSourceManager:
+    """数据源调度器：支持熔断、健康度动态评级与回退"""
+    
+    def __init__(self):
+        self.sources: Dict[str, Dict[str, Any]] = {
+            'sina': {'func': get_stock_spot_sina, 'success': 0, 'fail': 0, 'weight': 1.0, 'consecutive_failures': 0},
+            'tencent': {'func': get_stock_spot_tencent, 'success': 0, 'fail': 0, 'weight': 1.0, 'consecutive_failures': 0},
+            'eastmoney': {'func': get_stock_spot_eastmoney, 'success': 0, 'fail': 0, 'weight': 1.0, 'consecutive_failures': 0}
+        }
+        self.max_failures = 5 # 连续失败5次熔断
+        
+    def record_result(self, source_name: str, success: bool):
+        source = self.sources.get(source_name)
+        if not source:
+            return
+            
+        if success:
+            source['success'] += 1
+            source['consecutive_failures'] = 0
+            source['weight'] = min(1.0, source['weight'] * 1.1)
+        else:
+            source['fail'] += 1
+            source['consecutive_failures'] += 1
+            source['weight'] = max(0.1, source['weight'] * 0.5)
+
+    def get_spot_data(self, symbol: str) -> Optional[Dict]:
+        """按权重分发请求，故障自动降级"""
+        # 按照健康权重排序活跃的源
+        active_sources = [
+            (name, data) for name, data in self.sources.items() 
+            if data['consecutive_failures'] < self.max_failures
+        ]
+        
+        # 如果全部熔断，报错前尝试重置一次
+        if not active_sources:
+            logger.warning("所有数据源请求均发生熔断，正在重置状态...")
+            for data in self.sources.values():
+                data['consecutive_failures'] = 0
+                data['weight'] = 1.0
+            active_sources = list(self.sources.items())
+            
+        # 根据 weight 降序
+        sorted_sources = sorted(active_sources, key=lambda x: x[1]['weight'], reverse=True)
+        
+        for name, data in sorted_sources:
+            try:
+                res = data['func'](symbol)
+                if validate_spot_data(res):
+                    self.record_result(name, True)
+                    logger.debug(f"[{name}] API succeeded for {symbol}")
+                    res['来源'] = name
+                    return res
+                else:
+                    self.record_result(name, False)
+            except Exception as e:
+                logger.debug(f"[{name}] API exception for {symbol}: {e}")
+                self.record_result(name, False)
+                
+        return None
+
+# 全局健康度管理器实例
+data_manager = DataSourceManager()
+
 def get_stock_spot_with_fallback(symbol: str) -> Optional[Dict]:
     """
     Try multiple data sources to get stock spot data.
     
     Priority:
     1. Local cache (if fresh)
-    2. Sina API
-    3. Tencent API
-    4. Local cache (stale)
+    2. Dynamic DataSourceManager APIs
+    3. Local cache (stale)
     
     Args:
         symbol: Stock code like '600076'
@@ -242,23 +304,11 @@ def get_stock_spot_with_fallback(symbol: str) -> Optional[Dict]:
     except ImportError:
         local_data = None
     
-    # Try Sina API
-    sina_data = get_stock_spot_sina(symbol)
-    if validate_spot_data(sina_data):
-        logger.info(f"Using Sina API for {symbol}")
-        return sina_data
-    
-    # Try Tencent API
-    tencent_data = get_stock_spot_tencent(symbol)
-    if validate_spot_data(tencent_data):
-        logger.info(f"Using Tencent API for {symbol}")
-        return tencent_data
-        
-    # Try EastMoney API
-    em_data = get_stock_spot_eastmoney(symbol)
-    if validate_spot_data(em_data):
-        logger.info(f"Using EastMoney API for {symbol}")
-        return em_data
+    # Try dynamic APIs
+    live_data = data_manager.get_spot_data(symbol)
+    if live_data:
+        return live_data
+
     
     # Fall back to local cache even if stale
     if local_data:
