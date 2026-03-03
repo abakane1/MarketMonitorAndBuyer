@@ -664,6 +664,122 @@ def _render_portfolio_stats(all_pnl_data: dict, metrics: dict):
             """, unsafe_allow_html=True)
 
 
+def _render_kline_with_trades():
+    """渲染带有交易点位标注的行情 K 线图"""
+    st.markdown("<div class='cyber-title'>个股交易标绘 (K线图)</div>", unsafe_allow_html=True)
+    
+    # 1. 选择要查看的股票
+    positions = db_get_all_positions()
+    watchlist = db_get_watchlist()
+    all_symbols = list(set([p["symbol"] for p in positions] + watchlist))
+    
+    if not all_symbols:
+        st.info("暂无持仓或自选股数据可供查看")
+        return
+        
+    symbol_options = {sym: f"{_get_stock_name(sym)} ({sym})" for sym in all_symbols}
+    
+    col1, _ = st.columns([1, 2])
+    with col1:
+        selected_symbol = st.selectbox(
+            "选择标的", 
+            options=all_symbols, 
+            format_func=lambda x: symbol_options.get(x, x),
+            key="kline_symbol_selector"
+        )
+        
+    if not selected_symbol:
+        return
+        
+    # 2. 获取该股票的日线数据和交易历史
+    from utils.data_fetcher import get_stock_daily_data
+    
+    with st.spinner(f"正在加载 {selected_symbol} 的历史行情..."):
+        daily_df = get_stock_daily_data(selected_symbol, days=90)
+        
+    if daily_df.empty:
+        st.warning(f"无法获取 {selected_symbol} 的近期 K 线数据。")
+        return
+        
+    # 抽取交易记录
+    all_history = db_get_all_history()
+    stock_trades = [tx for tx in all_history if tx.get("symbol") == selected_symbol and str(tx.get("type", "")).strip().lower() in ["buy", "买入", "sell", "卖出"]]
+    
+    # 3. 绘制 Plotly K线图
+    fig = go.Figure(data=[go.Candlestick(
+        x=daily_df['日期'],
+        open=daily_df['开盘'],
+        high=daily_df['最高'],
+        low=daily_df['最低'],
+        close=daily_df['收盘'],
+        name='K线',
+        increasing_line_color='#f85149', 
+        decreasing_line_color='#3fb950'  
+    )])
+    
+    # 添加交易点位作为 Scatter markers
+    if stock_trades:
+        buy_dates, buy_prices, buy_texts = [], [], []
+        sell_dates, sell_prices, sell_texts = [], [], []
+        
+        for tx in stock_trades:
+            # tx['timestamp'] format is usually 'YYYY-MM-DD HH:MM:SS'
+            dt_str = str(tx.get('timestamp', '')).split(' ')[0]
+            action = str(tx.get('type')).lower()
+            price = tx.get('price', 0)
+            amount = tx.get('amount', 0)
+            text_label = f"{action.upper()} {amount}股 @ ¥{price}"
+            
+            # Simple date matching: find closest trading day if exact match is not in df
+            if action in ['buy', '买入']:
+                buy_dates.append(dt_str)
+                buy_prices.append(price)
+                buy_texts.append(text_label)
+            else:
+                sell_dates.append(dt_str)
+                sell_prices.append(price)
+                sell_texts.append(text_label)
+                
+        # 添加买入标记
+        if buy_dates:
+            fig.add_trace(go.Scatter(
+                x=buy_dates, y=buy_prices,
+                mode='markers',
+                name='买入点 (Buy)',
+                marker=dict(symbol='triangle-up', size=12, color='#f85149', line=dict(width=1, color='White')),
+                text=buy_texts,
+                hoverinfo='text+x+y',
+                yaxis='y'
+            ))
+            
+        # 添加卖出标记
+        if sell_dates:
+            fig.add_trace(go.Scatter(
+                x=sell_dates, y=sell_prices,
+                mode='markers',
+                name='卖出点 (Sell)',
+                marker=dict(symbol='triangle-down', size=12, color='#3fb950', line=dict(width=1, color='White')),
+                text=sell_texts,
+                hoverinfo='text+x+y',
+                yaxis='y'
+            ))
+            
+    fig.update_layout(
+        template='plotly_dark',
+        paper_bgcolor='rgba(0,0,0,0)',
+        plot_bgcolor='rgba(0,0,0,0)',
+        font=dict(color='#c9d1d9'),
+        title=dict(text=f'{symbol_options.get(selected_symbol)} - 近90日 K线与交易点位', font=dict(color='#58a6ff')),
+        xaxis=dict(title='', gridcolor='rgba(255,255,255,0.1)', rangeslider=dict(visible=False)),
+        yaxis=dict(title='价格', gridcolor='rgba(255,255,255,0.1)'),
+        margin=dict(l=60, r=60, t=60, b=40),
+        height=500,
+        legend=dict(orientation="h", yanchor="bottom", y=1.02, xanchor="right", x=1)
+    )
+    
+    st.plotly_chart(fig, use_container_width=True)
+
+
 def render_portfolio_dashboard():
     """
     渲染科技感操盘记录大屏。
@@ -715,7 +831,7 @@ def render_portfolio_dashboard():
     st.markdown("</div>", unsafe_allow_html=True)
     
     # 使用 Tabs 组织内容
-    tab1, tab2, tab3 = st.tabs(["持仓看板", "收益分析", "交易流水"])
+    tab1, tab2, tab3, tab4 = st.tabs(["持仓看板", "收益分析", "交易流水", "交易标绘"])
     
     with tab1:
         st.markdown("<div class='cyber-container' style='margin-top: 20px;'>", unsafe_allow_html=True)
@@ -773,4 +889,9 @@ def render_portfolio_dashboard():
     with tab3:
         st.markdown("<div class='cyber-container' style='margin-top: 20px;'>", unsafe_allow_html=True)
         _render_trade_timeline(limit=50)
+        st.markdown("</div>", unsafe_allow_html=True)
+
+    with tab4:
+        st.markdown("<div class='cyber-container' style='margin-top: 20px;'>", unsafe_allow_html=True)
+        _render_kline_with_trades()
         st.markdown("</div>", unsafe_allow_html=True)

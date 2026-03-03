@@ -38,6 +38,23 @@ st.markdown("""
     .main-footer-spacer {
         height: 100px;
     }
+    /* 移动端响应式优化 */
+    @media (max-width: 768px) {
+        /* 图表和卡片减小 padding */
+        .block-container {
+            padding-top: 1rem !important;
+            padding-left: 0.5rem !important;
+            padding-right: 0.5rem !important;
+        }
+        /* 侧边栏按钮铺满 */
+        .stButton button {
+            width: 100%;
+        }
+        /* 避免表格字太大 */
+        .dataframe {
+            font-size: 0.75rem !important;
+        }
+    }
 </style>
 """, unsafe_allow_html=True)
 
@@ -355,8 +372,43 @@ elif app_mode == "提示词中心":
                     st.caption(f"Key: `{key}`")
                 
                 st.markdown("---")
-                st.text_area("提示词内容", value=content, height=250, disabled=True, 
-                            key=f"ta_{key}", label_visibility="collapsed")
+                
+                # 编辑模式切换
+                is_editing = st.checkbox("编辑当前提示词", key=f"edit_toggle_{key}")
+                
+                if is_editing:
+                    new_content = st.text_area("提示词内容", value=content, height=350, key=f"ta_{key}", label_visibility="collapsed")
+                    
+                    if st.button("💾 保存修改", key=f"save_{key}", type="primary"):
+                        if new_content != content:
+                            import json
+                            import os
+                            config_path = "user_config.json"
+                            
+                            try:
+                                # 完整读取现有配置
+                                with open(config_path, "r", encoding="utf-8") as f:
+                                    current_config = json.load(f)
+                                
+                                # 更新提示词
+                                if "prompts" not in current_config:
+                                    current_config["prompts"] = {}
+                                current_config["prompts"][key] = new_content
+                                
+                                # 写回配置
+                                with open(config_path, "w", encoding="utf-8") as f:
+                                    json.dump(current_config, f, indent=4, ensure_ascii=False)
+                                
+                                st.success(f"提示词 `{key}` 已成功保存！")
+                                time.sleep(1)
+                                st.rerun()
+                            except Exception as e:
+                                st.error(f"保存失败: {str(e)}")
+                        else:
+                            st.info("内容未改变，无需保存。")
+                else:
+                    st.text_area("提示词内容", value=content, height=250, disabled=True, 
+                                key=f"ta_view_{key}", label_visibility="collapsed")
         
         if count == 0:
             st.info("该分类下暂无提示词配置")
