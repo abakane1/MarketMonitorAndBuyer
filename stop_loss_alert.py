@@ -11,20 +11,19 @@ from datetime import datetime
 from utils.database import db_get_all_positions
 from utils.data_fetcher import get_stock_realtime_info, is_trading_time
 from utils.risk_control import get_stepped_stop_loss_price
+from utils.notification import send_notification
 
 def send_alert(message: str):
-    """发送飞书提醒并打印控制台信标"""
+    """发送告警通知并打印控制台信标"""
     print(f"\n[ALERT SIGNAL] {message}\n")
     try:
-        subprocess.run([
-            'openclaw', 'message', 'send', 
-            '--channel', 'feishu',
-            '--target', 'chat:oc_35c86a6affec6e670d4288eb48bb6271',
-            '--message', message
-        ], timeout=10)
-        print(f"[{datetime.now().strftime('%H:%M:%S')}] 提醒已发送飞书")
+        success = send_notification("⚠️ 时时风控告警", message, level="alert")
+        if success:
+            print(f"[{datetime.now().strftime('%H:%M:%S')}] 提醒已发送至配置的 Webhook")
+        else:
+            print(f"[{datetime.now().strftime('%H:%M:%S')}] 通知发送失败，请检查配置")
     except Exception as e:
-        print(f"飞书推送失败, 异常跳过: {e}")
+        print(f"推送失败, 异常跳过: {e}")
 
 def monitor_positions():
     """核对实时持仓与阶梯止损"""

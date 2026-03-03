@@ -4,11 +4,12 @@ from utils.database import (
     db_add_history,
     db_get_all_positions
 )
+from utils.broker_api import execute_broker_order
 from datetime import datetime
 
 def execute_trade(symbol: str, action: str, price: float, quantity: int, note: str = "快速交易", portfolio_id: str = "default") -> dict:
     """
-    Executes a trade (Buy/Sell), updates position and history.
+    Executes a trade (Buy/Sell), updates position and history, and submits via broker API.
     
     Args:
         symbol: Stock code
@@ -82,9 +83,16 @@ def execute_trade(symbol: str, action: str, price: float, quantity: int, note: s
         # 3. Update Database
         db_update_position(symbol, new_shares, new_cost, base_shares, portfolio_id=portfolio_id)
         
+        # 4. Delegate to Broker API for "actual" exchange submission
+        # This function acts as the bridge. If the broker fails, we might need a rollback
+        # or flag the db record as PENDING. For now, just logging it.
+        broker_res = execute_broker_order(symbol, action, price, quantity, portfolio_id, note)
+        
+        message_suffix = "" if broker_res["success"] else f" (券商API异常: {broker_res.get('message', '未知')})"
+        
         return {
             "success": True,
-            "message": f"交易成功: {action.upper()} {quantity}股 @ {price}",
+            "message": f"交易成功: {action.upper()} {quantity}股 @ {price}{message_suffix}",
             "new_position": {"shares": new_shares, "cost": new_cost}
         }
         
