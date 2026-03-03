@@ -12,7 +12,7 @@ sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 from utils.config import load_config, get_allocation
 from utils.database import db_get_position, db_get_history
 from utils.storage import save_production_log, load_minute_data
-from utils.prompt_loader import load_all_prompts
+from utils.prompt_manager import prompt_manager
 from utils.expert_registry import ExpertRegistry
 from utils.time_utils import get_beijing_time, get_target_date_for_strategy, is_trading_time
 from utils.data_fetcher import get_stock_realtime_info, aggregate_minute_to_daily, get_price_precision, analyze_intraday_pattern, get_stock_fund_flow, get_stock_fund_flow_history, get_stock_news_raw
@@ -169,8 +169,19 @@ def generate_strategy_for_stock(code, name, config, prompts, api_keys):
     try:
         # 执行完整的 Auto-Drive 流程
         logger.info(f"[{blue_model} & {red_model}] 开始生成和风控审核循环...")
+        
+        # 为了 A/B Test 记录版本号
+        used_versions = {}
+        if isinstance(prompts, tuple) and len(prompts) == 2:
+            # 这是一个 (prompts, versions) 的元组，解构它
+            prompt_contents, prompt_versions = prompts
+            used_versions = prompt_versions
+        else:
+            prompt_contents = prompts
+            used_versions = {k: "unknown" for k in prompt_contents.keys()}
+            
         c1, r1, p1, moe_logs = blue_expert.propose(
-            context, prompts, 
+            context, prompt_contents, 
             research_context=final_research_context,
             raw_context=user_p,
             intraday_summary=intraday_pattern,
@@ -197,16 +208,16 @@ def generate_strategy_for_stock(code, name, config, prompts, api_keys):
         p_decide = ""
 
         if red_expert:
-            audit1_res, p_audit1 = red_expert.audit(context, c1, prompts, is_final=False, raw_context=user_p)
+            audit1_res, p_audit1 = red_expert.audit(context, c1, prompt_contents, is_final=False, raw_context=user_p)
             round_history.append(f"【回合 2 (一审审计)】\n审计报告: {audit1_res}")
             
-            c2, r2, p_refine = blue_expert.refine(user_p, c1, audit1_res, prompts)
+            c2, r2, p_refine = blue_expert.refine(user_p, c1, audit1_res, prompt_contents)
             round_history.append(f"【回合 3 (优化反思)】\n反思逻辑: {r2}\n优化建议: {c2}")
             
-            audit2_res, p_audit2 = red_expert.audit(context, c2, prompts, is_final=True, raw_context=user_p)
+            audit2_res, p_audit2 = red_expert.audit(context, c2, prompt_contents, is_final=True, raw_context=user_p)
             round_history.append(f"【回合 4 (红军终审)】\n最终裁决: {audit2_res}")
             
-            c3, r3, p_decide = blue_expert.decide(round_history, prompts, context_data=context)
+            c3, r3, p_decide = blue_expert.decide(round_history, prompt_contents, context_data=context)
         
         # 构建最终结果
         final_result = f"{strategy_tag} {c3}\n\n[Final Execution Order]"
@@ -253,6 +264,7 @@ def generate_strategy_for_stock(code, name, config, prompts, api_keys):
 
         # 保存策略记录
         details = {
+            'versions': used_versions,
             'prompts_history': {
                 'draft_sys': sys_p,
                 'draft_user': user_p,
@@ -286,10 +298,13 @@ def run_batch_generation():
     config = load_config()
     settings = config.get("settings", {})
     
-    prompts = load_all_prompts()
+    prompts, versions = prompt_manager.get_all(enable_ab_test=True)
     if config.get("prompts"):
+        # UI或其余地方动态编辑过覆盖的，暂时丢弃版本特征
         prompts.update(config.get("prompts"))
-        
+        for k in config.get("prompts").keys():
+            versions[k] = "custom_override"
+            
     api_keys = {
         "deepseek_api_key": settings.get("deepseek_api_key"),
         "qwen_api_key": settings.get("qwen_api_key") or settings.get("dashscope_api_key"),
@@ -297,6 +312,9 @@ def run_batch_generation():
         "kimi_base_url": settings.get("kimi_base_url")
     }
     
+    # 将 prompts 连带 version 信息打包成元组传给下层
+    prompts_bundle = (prompts, versions)
+
     # 我们不仅为关注列表生成，还应当为持仓股票生成
     # 但为简单和明确起见，通常我们获取数据库中持有的股票和 config 里关注的股票
     watchlist = config.get("watchlist", [])
@@ -322,7 +340,7 @@ def run_batch_generation():
     
     success_count = 0
     for code, name in target_stocks.items():
-        if generate_strategy_for_stock(code, name, config, prompts, api_keys):
+        if generate_strategy_for_stock(code, name, config, prompts_bundle, api_keys):
             success_count += 1
         # 添加小延迟，避免 API 速率限制
         time.sleep(2)

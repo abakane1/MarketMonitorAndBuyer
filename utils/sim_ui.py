@@ -11,6 +11,7 @@ from utils.ai_advisor import ask_deepseek_advisor
 from utils.data_fetcher import aggregate_minute_to_daily, get_price_precision, analyze_intraday_pattern
 from utils.indicators import calculate_indicators
 from utils.config import load_config
+from utils.prompt_manager import get_all_prompts
 from utils.storage import save_research_log, get_latest_strategy_log, save_daily_strategy, load_daily_strategy
 from utils.monitor_logger import log_ai_heartbeat
 from components.ai_monitor import render_ai_monitor
@@ -471,7 +472,9 @@ def render_backtest_widget(code, current_holding_shares=0, current_holding_cost=
                             "quantity": 0, "target_position": 0, "stop_loss": 0,
                             "capital_allocation": 150000, "total_capital": 1000000, "known_info": "历史模拟模式"
                         }
-                        prompts = load_config().get("prompts", {})
+                        prompts = get_all_prompts()
+                        if load_config().get("prompts"):
+                            prompts.update(load_config().get("prompts"))
                         api_key = st.session_state.get("input_apikey", "")
                         
                         advice, reasoning, used_prompt = ask_deepseek_advisor(
@@ -505,7 +508,9 @@ def render_backtest_widget(code, current_holding_shares=0, current_holding_cost=
                             "quantity": 0, "target_position": 0, "stop_loss": 0,
                             "capital_allocation": 150000, "total_capital": 1000000, "known_info": "历史模拟模式"
                         }
-                        prompts = load_config().get("prompts", {})
+                        prompts = get_all_prompts()
+                        if load_config().get("prompts"):
+                            prompts.update(load_config().get("prompts"))
                         api_key = st.session_state.get("input_apikey", "")
                         
                         advice, reasoning, used_prompt = ask_deepseek_advisor(
@@ -629,7 +634,9 @@ def render_backtest_widget(code, current_holding_shares=0, current_holding_cost=
                 }
                 
                 # 3. Call AI
-                prompts = load_config().get("prompts", {})
+                prompts = get_all_prompts()
+                if load_config().get("prompts"):
+                    prompts.update(load_config().get("prompts"))
                 api_key = st.session_state.get("input_apikey", "")
                 
                 # We need a specific prompt template for "Update Strategy"
