@@ -113,7 +113,9 @@ def analyze_volume_profile_strategy(
             
     elif signal == "卖出":
         target_position = 0 # Sell signal implies exit
-        
+    else:
+        target_position = current_shares # Hold target
+
     # Calculate Action (Delta)
     action_shares = target_position - current_shares
     
