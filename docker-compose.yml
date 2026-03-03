@@ -1,0 +1,15 @@
+version: '3.8'
+
+services:
+  market-monitor:
+    build: .
+    image: market-monitor-buyer:latest
+    container_name: market_monitor
+    ports:
+      - "8501:8501"
+    volumes:
+      - ./user_data.db:/app/user_data.db
+      - ./user_config.json:/app/user_config.json
+    restart: unless-stopped
+    environment:
+      - TZ=Asia/Shanghai
