@@ -1,22 +1,13 @@
-import akshare as ak
-import efinance as ef
 import pandas as pd
 import streamlit as st
 import os
+import json
 import logging
 from typing import List, Dict, Optional
 from utils.time_utils import is_trading_time
 from datetime import datetime, time
 
-# Import fallback data sources (Sina/Tencent)
-try:
-    from utils.data_fallback import get_stock_spot_sina, get_stock_spot_tencent, get_stock_spot_with_fallback
-    _FALLBACK_AVAILABLE = True
-except ImportError:
-    _FALLBACK_AVAILABLE = False
-    logging.warning("data_fallback module not available, using akshare only")
-
-# --- 日志配置 ---
+# --- 日志配置 (必须在最前面) ---
 logger = logging.getLogger(__name__)
 if not logger.handlers:
     handler = logging.StreamHandler()
@@ -25,6 +16,54 @@ if not logger.handlers:
     ))
     logger.addHandler(handler)
     logger.setLevel(logging.INFO)
+
+# --- 数据源导入与降级处理 ---
+# akshare 可能被封禁，使用 try-except 确保模块可用性
+_akshare_available = False
+_efinance_available = False
+
+# 1. 尝试导入 akshare (延迟验证，避免启动时网络请求)
+try:
+    import akshare as ak
+    # [FIX] 不再在导入时测试 API 可用性，避免启动时网络请求
+    # 只在实际使用时检测，让用户手动刷新时知道数据源是否可用
+    _akshare_available = True
+    logger.info("akshare 模块加载成功")
+except Exception as e:
+    logger.warning(f"akshare 加载失败: {e}")
+    ak = None
+    _akshare_available = False
+
+# 2. 尝试导入 efinance
+try:
+    import efinance as ef
+    _efinance_available = True
+    logger.info("efinance 加载成功")
+except ImportError as e:
+    logger.warning(f"efinance 加载失败: {e}")
+    ef = None
+
+# 3. 导入备用数据源 (Sina/Tencent) - 这些通常更稳定
+try:
+    from utils.data_fallback import get_stock_spot_sina, get_stock_spot_tencent, get_stock_spot_with_fallback
+    _FALLBACK_AVAILABLE = True
+    logger.info("备用数据源 (Sina/Tencent) 加载成功")
+except ImportError:
+    _FALLBACK_AVAILABLE = False
+    logger.warning("data_fallback module not available")
+    get_stock_spot_sina = None
+    get_stock_spot_tencent = None
+    get_stock_spot_with_fallback = None
+
+def _check_akshare():
+    """检查 akshare 是否可用"""
+    if not _akshare_available:
+        raise DataFetchError("akshare 当前不可用，请使用备用数据源或检查网络连接")
+
+def _check_efinance():
+    """检查 efinance 是否可用"""
+    if not _efinance_available:
+        raise DataFetchError("efinance 当前不可用")
 
 # --- 装饰器 ---
 import time
@@ -51,6 +90,28 @@ def retry_with_backoff(retries=3, backoff_in_seconds=1):
     return decorator
 
 
+# --- 内存缓存 ---
+_memory_cache = {}
+_memory_cache_timestamp = {}
+
+def get_from_memory_cache(key, max_age_seconds=300):
+    """从内存缓存获取数据，避免频繁读取文件"""
+    if key in _memory_cache:
+        timestamp = _memory_cache_timestamp.get(key, 0)
+        if time.time() - timestamp < max_age_seconds:
+            return _memory_cache[key]
+    return None
+
+def set_memory_cache(key, value):
+    """设置内存缓存"""
+    _memory_cache[key] = value
+    _memory_cache_timestamp[key] = time.time()
+
+def clear_memory_cache():
+    """清空内存缓存"""
+    _memory_cache.clear()
+    _memory_cache_timestamp.clear()
+
 # --- 自定义异常类 ---
 from utils.storage import save_realtime_data
 
@@ -74,32 +135,55 @@ def get_stock_name_by_code(symbol: str) -> str:
     """
     通过 Sina API 按股票代码查询名称。
     轻量级单次请求，无需拉取全市场数据。
+    优先使用内存缓存 -> 本地文件 -> Sina/Tencent API。
     返回股票名称，失败则返回代码本身。
     """
-    # 1. 先尝试从本地缓存查（如果存在）
+    if not symbol:
+        return ""
+    
+    symbol = str(symbol).strip().zfill(6)
+    cache_key = f"name_{symbol}"
+    
+    # 1. 尝试内存缓存（最快）
+    cached = get_from_memory_cache(cache_key, max_age_seconds=300)
+    if cached is not None:
+        return cached
+    
+    # 2. 尝试通过股票名称映射缓存查询（避免读取文件）
+    name_map = get_stock_name_map()
+    if symbol in name_map:
+        name = name_map[symbol]
+        set_memory_cache(cache_key, name)
+        return name
+    
+    # 3. 尝试从本地文件直接查询（兼容旧逻辑）
     if os.path.exists(STOCK_LIST_PATH):
         try:
             df = pd.read_parquet(STOCK_LIST_PATH)
             row = df[df['代码'] == symbol]
             if not row.empty:
-                return row.iloc[0]['名称']
+                name = row.iloc[0]['名称']
+                set_memory_cache(cache_key, name)
+                return name
         except:
             pass
     
-    # 2. 通过 Sina API 查询
+    # 4. 通过 Sina API 查询
     if _FALLBACK_AVAILABLE:
         try:
             sina_data = get_stock_spot_sina(symbol)
             if sina_data and sina_data.get('名称'):
+                set_memory_cache(cache_key, sina_data['名称'])
                 return sina_data['名称']
         except:
             pass
     
-    # 3. 通过 Tencent API 查询
+    # 5. 通过 Tencent API 查询
     if _FALLBACK_AVAILABLE:
         try:
             tencent_data = get_stock_spot_tencent(symbol)
             if tencent_data and tencent_data.get('名称'):
+                set_memory_cache(cache_key, tencent_data['名称'])
                 return tencent_data['名称']
         except:
             pass
@@ -125,18 +209,33 @@ def validate_stock_code(code: str) -> dict:
     # 仍然允许添加（用户知道自己的代码）
     return {'valid': True, 'code': code, 'name': code}
 
-@st.cache_data(ttl=3600)
-def get_all_stocks_list(force_update: bool = False) -> pd.DataFrame:
+def get_all_stocks_list(force_update: bool = False, use_memory_cache: bool = True) -> pd.DataFrame:
     """
     获取全 A 股及主流 ETF 清单。
-    优先读取本地缓存，若需更新则结合 efinance 和 AkShare。
+    优先读取内存缓存 -> 本地文件缓存 -> API 获取
+    
+    Args:
+        force_update: 是否强制从 API 更新
+        use_memory_cache: 是否使用内存缓存（默认开启）
     """
-    # 1. 尝试加载本地缓存
+    cache_key = "all_stocks_list"
+    
+    # 1. 尝试内存缓存（最快，避免任何 I/O）
+    if use_memory_cache and not force_update:
+        cached = get_from_memory_cache(cache_key, max_age_seconds=300)  # 5分钟内存缓存
+        if cached is not None:
+            logger.debug(f"从内存缓存加载股票列表: {len(cached)} 条")
+            return cached
+    
+    # 2. 尝试加载本地文件缓存
     cached_df = pd.DataFrame()
     if os.path.exists(STOCK_LIST_PATH):
         try:
             cached_df = pd.read_parquet(STOCK_LIST_PATH)
             if not force_update and not cached_df.empty:
+                # 保存到内存缓存
+                if use_memory_cache:
+                    set_memory_cache(cache_key, cached_df)
                 logger.debug(f"从本地缓存加载股票列表: {len(cached_df)} 条")
                 return cached_df
         except Exception as e:
@@ -150,31 +249,37 @@ def get_all_stocks_list(force_update: bool = False) -> pd.DataFrame:
     df_final = pd.DataFrame()
     
     # 2a. 尝试 efinance (全市场快照，包含股票和 ETF)
-    try:
-        logger.info("尝试 efinance 获取全市场数据...")
-        df_ef = ef.stock.get_realtime_quotes()
-        if df_ef is not None and not df_ef.empty:
-            df_ef = df_ef.rename(columns={'股票代码': '代码', '股票名称': '名称'})
-            df_ef = df_ef[['代码', '名称']]
-            df_final = df_ef.copy()
-            logger.info(f"efinance 获取成功: {len(df_final)} 条")
-    except Exception as e:
-        logger.warning(f"efinance 获取失败: {e}")
+    if _efinance_available:
+        try:
+            logger.info("尝试 efinance 获取全市场数据...")
+            df_ef = ef.stock.get_realtime_quotes()
+            if df_ef is not None and not df_ef.empty:
+                df_ef = df_ef.rename(columns={'股票代码': '代码', '股票名称': '名称'})
+                df_ef = df_ef[['代码', '名称']]
+                df_final = df_ef.copy()
+                logger.info(f"efinance 获取成功: {len(df_final)} 条")
+        except Exception as e:
+            logger.warning(f"efinance 获取失败: {e}")
+    else:
+        logger.warning("efinance 不可用，跳过")
 
     # 2b. 如果 efinance 失败，尝试 AkShare 股票
-    if df_final.empty:
+    if df_final.empty and _akshare_available:
         try:
             logger.info("尝试 AkShare 获取 A 股列表...")
             df_ak = ak.stock_zh_a_spot_em()
             if not df_ak.empty:
                 df_ak = df_ak[['代码', '名称']]
                 df_final = df_ak.copy()
+                logger.info(f"AkShare 获取成功: {len(df_final)} 条")
         except Exception as e:
             logger.warning(f"AkShare 股票获取失败: {e}")
+    elif not _akshare_available:
+        logger.warning("akshare 不可用，跳过")
 
     # 2c. 补充 ETF (如果此前只获取了 A 股)
     # 如果列表长度明显小于 5000，说明可能漏了 ETF 或股票
-    if not df_final.empty:
+    if not df_final.empty and _akshare_available:
         try:
             # [modified] Always try to fetch and merge ETFs to ensure completeness (e.g. 588200 might be missing from efinance)
             if True: 
@@ -190,6 +295,8 @@ def get_all_stocks_list(force_update: bool = False) -> pd.DataFrame:
                     # logger.info(f"ETF 合并后总条数: {len(df_final)}")
         except Exception as e:
             logger.warning(f"补充 ETF 失败: {e}")
+    elif not _akshare_available:
+        logger.warning("akshare 不可用，跳过 ETF 补充")
 
     # 3. 结果处理
     if df_final.empty:
@@ -199,7 +306,7 @@ def get_all_stocks_list(force_update: bool = False) -> pd.DataFrame:
     # 标准化代码格式
     df_final['代码'] = df_final['代码'].astype(str).str.zfill(6)
     
-    # 4. 保存到本地
+    # 4. 保存到本地和内存缓存
     try:
         if not os.path.exists("stock_data"):
             os.makedirs("stock_data")
@@ -207,8 +314,63 @@ def get_all_stocks_list(force_update: bool = False) -> pd.DataFrame:
         logger.info(f"股票列表已更新并保存: {len(df_final)} 条")
     except Exception as e:
         logger.error(f"保存股票列表失败: {e}")
+    
+    # 5. 保存到内存缓存
+    if use_memory_cache:
+        set_memory_cache(cache_key, df_final)
 
     return df_final
+
+
+# 股票名称查询缓存（基于 get_all_stocks_list 的结果）
+_stock_name_map_cache = None
+_stock_name_map_timestamp = 0
+
+def get_stock_name_map(max_age_seconds=300) -> dict:
+    """
+    获取代码到名称的映射字典（带内存缓存）
+    比反复调用 get_all_stocks_list() 查询单个名称更高效
+    
+    Returns:
+        dict: {code: name} 映射
+    """
+    global _stock_name_map_cache, _stock_name_map_timestamp
+    
+    # 检查内存缓存
+    if _stock_name_map_cache is not None:
+        if time.time() - _stock_name_map_timestamp < max_age_seconds:
+            return _stock_name_map_cache
+    
+    # 从股票列表构建映射
+    df = get_all_stocks_list(use_memory_cache=True)
+    if df.empty or '代码' not in df.columns:
+        return {}
+    
+    name_map = dict(zip(df['代码'].astype(str).str.zfill(6), df['名称']))
+    
+    # 更新缓存
+    _stock_name_map_cache = name_map
+    _stock_name_map_timestamp = time.time()
+    
+    return name_map
+
+def get_stock_name_by_code_cached(code: str) -> str:
+    """
+    使用缓存获取股票名称，避免重复查询 DataFrame
+    
+    Args:
+        code: 股票代码
+        
+    Returns:
+        股票名称，未找到返回代码本身
+    """
+    if not code:
+        return ""
+    
+    code = str(code).strip().zfill(6)
+    name_map = get_stock_name_map()
+    
+    return name_map.get(code, code)
 
 STOCK_SPOT_PATH = "stock_data/stock_spot.parquet"
 ETF_SPOT_PATH = "stock_data/etf_spot.parquet"
@@ -223,6 +385,8 @@ def get_etf_spot_cached() -> pd.DataFrame:
 
 @retry_with_backoff(retries=2, backoff_in_seconds=1)
 def _fetch_etf_spot_with_retry():
+    if not _akshare_available:
+        raise DataFetchError("akshare 不可用，无法获取 ETF 数据")
     return ak.fund_etf_spot_em()
 
 def get_etf_spot_long_cache() -> pd.DataFrame:
@@ -249,15 +413,19 @@ def get_etf_spot_long_cache() -> pd.DataFrame:
 
     if should_fetch:
         try:
+            if not _akshare_available:
+                raise DataFetchError("akshare 不可用")
             df = ak.fund_etf_spot_em()
             if not df.empty:
                 df.to_parquet(ETF_SPOT_PATH)
             return df
         except Exception as e:
+            logger.warning(f"获取 ETF 数据失败: {e}")
             # Fallback to local if exists
             if os.path.exists(ETF_SPOT_PATH):
                 return pd.read_parquet(ETF_SPOT_PATH)
-            raise e
+            # Return empty DataFrame as last resort
+            return pd.DataFrame(columns=['代码', '名称', '最新价'])     
     else:
         return pd.read_parquet(ETF_SPOT_PATH)
 
@@ -270,6 +438,8 @@ def get_stock_spot_cached() -> pd.DataFrame:
 
 @retry_with_backoff(retries=2, backoff_in_seconds=1)
 def _fetch_stock_spot_with_retry():
+    if not _akshare_available:
+        raise DataFetchError("akshare 不可用，无法获取股票数据")
     return ak.stock_zh_a_spot_em()
 
 def get_stock_spot_long_cache() -> pd.DataFrame:
@@ -296,6 +466,8 @@ def get_stock_spot_long_cache() -> pd.DataFrame:
     
     if should_fetch:
         try:
+            if not _akshare_available:
+                raise DataFetchError("akshare 不可用")
             df = ak.stock_zh_a_spot_em()
             if not df.empty:
                 df.to_parquet(STOCK_SPOT_PATH)
@@ -305,6 +477,99 @@ def get_stock_spot_long_cache() -> pd.DataFrame:
             if os.path.exists(STOCK_SPOT_PATH):
                 return pd.read_parquet(STOCK_SPOT_PATH)
             raise e
+
+def get_etf_info(symbol: str) -> Optional[Dict]:
+    """
+    新增ETF专用数据接口：获取单位净值、估算净值、溢价率等关键数据。
+    """
+    try:
+        if _akshare_available:
+            df = get_etf_spot_cached()
+            if not df.empty:
+                symbol_no_prefix = symbol.replace('sh', '').replace('sz', '').replace('SH', '').replace('SZ', '')
+                row = df[df['代码'] == symbol_no_prefix]
+                if not row.empty:
+                    data = row.iloc[0]
+                    # 容错处理缺失字段或空值
+                    iopv_val = data.get('IOPV', 0)
+                    iopv = float(iopv_val) if pd.notna(iopv_val) and str(iopv_val).strip() else 0.0
+                    
+                    premium_val = data.get('基金折溢价率', 0)
+                    premium = float(premium_val) if pd.notna(premium_val) and str(premium_val).strip() else 0.0
+                    
+                    price = float(data.get('最新价', 0))
+                    return {
+                        '代码': symbol_no_prefix,
+                        '名称': data.get('名称', ''),
+                        '最新价': price,
+                        '估算净值': iopv,
+                        '溢价率': premium,
+                        '成交额': float(data.get('成交额', 0) if pd.notna(data.get('成交额')) else 0),
+                        '换手率': float(data.get('换手率', 0) if pd.notna(data.get('换手率')) else 0)
+                    }
+    except Exception as e:
+        logger.warning(f"获取ETF专用数据失败 (AkShare): {e}")
+
+    # 全链路降级：依靠单股 spot API 提供最基础的信息
+    if _FALLBACK_AVAILABLE:
+        from utils.data_fallback import get_stock_spot_with_fallback
+        data = get_stock_spot_with_fallback(symbol)
+        if data:
+            return {
+                '代码': symbol,
+                '名称': data.get('名称', ''),
+                '最新价': data.get('最新价', 0),
+                '估算净值': data.get('最新价', 0), # Fallback 缺失真实估值
+                '溢价率': 0,
+                '成交额': data.get('成交额', 0),
+                '换手率': 0
+            }
+    return None
+
+def check_data_sources_health() -> Dict[str, bool]:
+    """
+    新增数据健康检查接口：每分钟检测各数据源可用性，不可用自动告警。
+    返回 {source: is_healthy}
+    """
+    health = {
+        'akshare': False,
+        'sina': False,
+        'tencent': False,
+        'eastmoney': False
+    }
+    
+    test_symbol = '600076'
+    
+    # 探测 AkShare
+    if _akshare_available:
+        try:
+            df = ak.stock_zh_a_spot_em()
+            if not df.empty:
+                health['akshare'] = True
+        except Exception:
+            pass
+            
+    # 探测 fallback 矩阵
+    if _FALLBACK_AVAILABLE:
+        from utils.data_fallback import get_stock_spot_sina, get_stock_spot_tencent, get_stock_spot_eastmoney, validate_spot_data
+        
+        sina_data = get_stock_spot_sina(test_symbol)
+        if validate_spot_data(sina_data):
+            health['sina'] = True
+            
+        tencent_data = get_stock_spot_tencent(test_symbol)
+        if validate_spot_data(tencent_data):
+            health['tencent'] = True
+            
+        em_data = get_stock_spot_eastmoney(test_symbol)
+        if validate_spot_data(em_data):
+            health['eastmoney'] = True
+            
+    unhealthy = [k for k, v in health.items() if not v]
+    if unhealthy:
+        logger.warning(f"【数据源健康告警】以下通道连通性异常或超时: {', '.join(unhealthy)}")
+        
+    return health
 
 def fetch_and_cache_market_snapshot():
     """
@@ -434,31 +699,34 @@ def get_stock_realtime_info(symbol: str) -> Optional[Dict]:
                     '成交额': latest.get('成交额', 0)
                 }
                 
-                # Try to get Name from Stock List
+                # Try to get Name from Stock List (Strictly Offline - NO API calls)
                 try:
-                    name_df = get_all_stocks_list()
-                    if not name_df.empty and '代码' in name_df.columns:
-                        row_n = name_df[name_df['代码'] == symbol]
-                        if not row_n.empty:
-                            data['名称'] = row_n.iloc[0]['名称']
+                    name = get_stock_name_by_code_cached(symbol)
+                    if name and name != symbol:
+                        data['名称'] = name
+                    else:
+                        # 缓存未命中，使用代码作为名称（不触发网络请求）
+                        data['名称'] = symbol
                 except Exception as ex:
                     logger.warning(f"Failed to patch name for {symbol}: {ex}")
-                    pass
+                    data['名称'] = symbol
          except Exception as e:
              logger.warning(f"Failed to load minute data for {symbol}: {e}")
              pass
 
     if data:
-        # Patch name if still missed or 'Unknown'
+        # Patch name if still missed or 'Unknown' (Strictly Offline - NO API calls)
         if data.get('名称', 'Unknown') == 'Unknown':
              try:
-                 name_df = get_all_stocks_list()
-                 if not name_df.empty and '代码' in name_df.columns:
-                     row_n = name_df[name_df['代码'] == symbol]
-                     if not row_n.empty:
-                         data['名称'] = row_n.iloc[0]['名称']
+                 # Only use cached name, never trigger network request
+                 name = get_stock_name_by_code_cached(symbol)
+                 if name and name != symbol:
+                     data['名称'] = name
+                 else:
+                     # Use symbol as name if no cache available
+                     data['名称'] = symbol
              except Exception:
-                 pass
+                 data['名称'] = symbol
                  
         # Map fields
         price = data.get('最新价', 0)
@@ -570,15 +838,8 @@ def get_stock_realtime_info(symbol: str) -> Optional[Dict]:
             if not min_df.empty:
                 latest = min_df.iloc[-1]
                 
-                # ... (Name extraction) ...
-                name = symbol
-                try:
-                    stock_list = get_all_stocks_list()
-                    name_row = stock_list[stock_list['代码'] == symbol]
-                    if not name_row.empty:
-                        name = name_row.iloc[0]['名称']
-                except:
-                    pass
+                # ... (Name extraction) 使用缓存版本 ...
+                name = get_stock_name_by_code_cached(symbol)
                 
                 # 3. Aggregate Day Stats
                 price = float(latest['收盘'])
@@ -620,71 +881,77 @@ def get_stock_realtime_info(symbol: str) -> Optional[Dict]:
 def get_stock_minute_data(symbol: str) -> pd.DataFrame:
     """
     Fetches intraday minute data for a stock or ETF using efinance.
+    Returns empty DataFrame if all sources fail (graceful degradation).
     """
+    errors = []
+    
     try:
         # efinance unified interface
         # klt=1 for 1 minute data
         df = ef.stock.get_quote_history(symbol, klt=1)
         
         if df is None or df.empty:
-            # [MODIFIED] If efinance returns empty, treat as failure to trigger fallback (Sina/ETF)
-            raise ValueError("efinance returned empty data")
+            errors.append("efinance returned empty data")
+        else:
+            # efinance returns columns: 股票名称, 股票代码, 日期, 开盘, 收盘, 最高, 最低, 成交量, 成交额, ...
+            # Standardize columns
+            rename_map = {
+                '日期': '时间',
+                # efinance uses '开盘', '收盘', '最高', '最低', '成交量', '成交额' which match our needs
+            }
+            df = df.rename(columns=rename_map)
             
-        # efinance returns columns: 股票名称, 股票代码, 日期, 开盘, 收盘, 最高, 最低, 成交量, 成交额, ...
-        # Standardize columns
-        rename_map = {
-            '日期': '时间',
-            # efinance uses '开盘', '收盘', '最高', '最低', '成交量', '成交额' which match our needs
-        }
-        df = df.rename(columns=rename_map)
-        
-        # Ensure types (efinance usually returns numerics, but be safe)
-        df['时间'] = pd.to_datetime(df['时间'])
-        numeric_cols = ['开盘', '最高', '最低', '收盘', '成交量', '成交额']
-        for col in numeric_cols:
-            if col in df.columns:
-                df[col] = pd.to_numeric(df[col], errors='coerce')
-                
-        return df
+            # Ensure types (efinance usually returns numerics, but be safe)
+            df['时间'] = pd.to_datetime(df['时间'])
+            numeric_cols = ['开盘', '最高', '最低', '收盘', '成交量', '成交额']
+            for col in numeric_cols:
+                if col in df.columns:
+                    df[col] = pd.to_numeric(df[col], errors='coerce')
+                    
+            return df
         
     except Exception as e:
-        logger.warning(f"efinance minute data failed ({e}), attempting Sina Fallback...")
+        errors.append(f"efinance failed: {e}")
+        logger.warning(f"efinance minute data failed for {symbol}: {e}")
+    
+    # Fallback 1: Sina
+    try:
+        df_sina = _fetch_minute_data_sina(symbol)
+        if not df_sina.empty:
+            logger.info(f"Sina fallback successful for {symbol}")
+            return df_sina
+        errors.append("Sina returned empty data")
+    except Exception as sina_e:
+        errors.append(f"Sina failed: {sina_e}")
+        logger.warning(f"Sina fallback failed for {symbol}: {sina_e}")
+
+    # Fallback 2: ETF specific interface
+    if symbol.startswith(('51', '588', '15', '56')) and _akshare_available:
         try:
-            df_sina = _fetch_minute_data_sina(symbol)
-            if not df_sina.empty:
-                return df_sina
-
-            # If Sina returns empty, fall through to ETF check
-        except Exception as sina_e:
-            logger.error(f"Sina Fallback failed for {symbol}: {sina_e}")
-            # Fall through to ETF check
-
-        # [NEW] ETF/Fund Fallback (v3.2)
-        # Some ETFs (e.g., 563230) might fail in stock interfaces.
-        # Try specific ETF interface if applicable.
-        if symbol.startswith(('51', '588', '15', '56')):
-             try:
-                 logger.info(f"Attempting ETF specific interface for {symbol}...")
-                 import akshare as ak
-                 # period='1' for 1 minute
-                 df_etf = ak.fund_etf_period_minute_em(symbol=symbol, period='1')
-                 if not df_etf.empty:
-                     # Normalize columns: 时间, 开盘, 收盘, 最高, 最低, 成交量, 成交额
-                     # EM returns: 时间, 开盘, 收盘, 最高, 最低, 成交量, 成交额, 振幅, 涨跌幅, 涨跌额, 换手率
-                     # We just need standard cols
-                     df_etf = df_etf.rename(columns={'成交额': '成交额', '成交量': '成交量'}) 
-                     # Ensure numeric
-                     numeric_cols = ['开盘', '最高', '最低', '收盘', '成交量', '成交额']
-                     for col in numeric_cols:
-                         if col in df_etf.columns:
-                             df_etf[col] = pd.to_numeric(df_etf[col], errors='coerce')
-                     df_etf['时间'] = pd.to_datetime(df_etf['时间'])
-                     return df_etf
-             except Exception as etf_e:
-                 logger.error(f"ETF Interface also failed for {symbol}: {etf_e}")
-        
-        # If all failed, raise original error or return empty
-        raise e
+            logger.info(f"Attempting ETF specific interface for {symbol}...")
+            df_etf = ak.fund_etf_period_minute_em(symbol=symbol, period='1')
+            if not df_etf.empty:
+                # Normalize columns
+                numeric_cols = ['开盘', '最高', '最低', '收盘', '成交量', '成交额']
+                for col in numeric_cols:
+                    if col in df_etf.columns:
+                        df_etf[col] = pd.to_numeric(df_etf[col], errors='coerce')
+                df_etf['时间'] = pd.to_datetime(df_etf['时间'])
+                logger.info(f"ETF interface successful for {symbol}")
+                return df_etf
+            errors.append("ETF interface returned empty data")
+        except Exception as etf_e:
+            errors.append(f"ETF interface failed: {etf_e}")
+            logger.warning(f"ETF interface failed for {symbol}: {etf_e}")
+    
+    # Fallback 3: Tencent (only for spot price, not minute data)
+    # Note: Tencent provides real-time quotes but not historical minute data
+    # We skip this fallback to avoid saving low-quality 'minimal data' (single record with zero volume)
+    # This ensures we only save genuine minute-by-minute historical data
+    
+    # All failed - return empty DataFrame (graceful degradation)
+    logger.error(f"All minute data sources failed for {symbol}: {'; '.join(errors)}")
+    return pd.DataFrame(columns=['时间', '开盘', '最高', '最低', '收盘', '成交量', '成交额'])
 
 def _fetch_minute_data_sina(symbol: str) -> pd.DataFrame:
     """
@@ -703,6 +970,8 @@ def _fetch_minute_data_sina(symbol: str) -> pd.DataFrame:
     sina_symbol = f"{prefix}{symbol}"
     
     # 2. Fetch
+    if not _akshare_available:
+        return pd.DataFrame()
     df = ak.stock_zh_a_minute(symbol=sina_symbol, period='1')
     
     if df.empty:
@@ -774,6 +1043,14 @@ def get_stock_daily_history(symbol: str, days: int = 30) -> pd.DataFrame:
     except Exception as e:
         logger.error(f"efinance daily history failed {symbol}: {e}")
         # Fallback to AkShare (EastMoney)
+        if not _akshare_available:
+            logger.warning("akshare 不可用，尝试 Sina 备用方案...")
+            try:
+                return _fetch_daily_sina(symbol)
+            except Exception as sina_e:
+                logger.error(f"Sina Daily Fallback also failed for {symbol}: {sina_e}")
+                raise e
+        
         try:
             # Try ETF
             is_etf = symbol.startswith(('51', '588', '15', '56'))
@@ -809,6 +1086,8 @@ def _fetch_daily_sina(symbol: str) -> pd.DataFrame:
     
     # 2. Fetch
     # ak.stock_zh_a_daily(symbol='sh600519')
+    if not _akshare_available:
+        return pd.DataFrame()
     df = ak.stock_zh_a_daily(symbol=sina_symbol)
     
     if df.empty:
@@ -909,6 +1188,10 @@ def _get_fund_flow_cache() -> pd.DataFrame:
             logger.warning(f"读取资金流向缓存失败: {e}")
     
     # 缓存不存在或过期，从 API 获取
+    if not _akshare_available:
+        logger.warning("akshare 不可用，无法获取资金流向数据")
+        return pd.DataFrame()
+    
     try:
         df = ak.stock_individual_fund_flow_rank(indicator="今日")
         if df is not None and not df.empty:
@@ -1000,6 +1283,10 @@ def get_stock_fund_flow_history(symbol: str, force_update: bool = False) -> pd.D
     
     # 2. Fetch from API
     if should_fetch or force_update:
+        if not _akshare_available:
+            logger.warning("akshare 不可用，返回缓存数据")
+            return df_cache
+        
         try:
             market = _get_market_code(symbol)
             # API: ak.stock_individual_fund_flow(stock="600519", market="sh")
@@ -1088,15 +1375,8 @@ def get_stock_fund_flow(symbol: str) -> dict:
             price_val = latest.get("收盘价", "N/A")
             change_pct = latest.get("涨跌幅", 0)
         
-        # Get name from stock list if possible
-        name = symbol
-        try:
-            name_df = get_all_stocks_list()
-            row_n = name_df[name_df['代码'] == symbol]
-            if not row_n.empty:
-                name = row_n.iloc[0]['名称']
-        except:
-            pass
+        # Get name from stock list if possible (使用缓存版本)
+        name = get_stock_name_by_code_cached(symbol)
         
         result = {
             "名称": name,
@@ -1256,6 +1536,145 @@ def get_news_cache_path(symbol: str) -> str:
 
 @st.cache_data(ttl=300)
 def fetch_and_save_news(symbol: str, n: int = 5) -> list:
+    """
+    获取股票新闻，优先使用 akshare，不可用时尝试新浪财经
+    """
+    # 优先尝试 akshare (东方财富)
+    if _akshare_available:
+        try:
+            news_list = _fetch_news_akshare(symbol, n)
+            if news_list:
+                return news_list
+        except Exception as e:
+            logger.warning(f"akshare 获取新闻失败: {e}")
+    
+    # 降级到新浪财经
+    logger.info("尝试新浪财经获取新闻...")
+    try:
+        news_list = _fetch_news_sina(symbol, n)
+        if news_list:
+            return news_list
+    except Exception as e:
+        logger.warning(f"新浪财经获取新闻失败: {e}")
+    
+    logger.error("所有新闻源均不可用")
+    return []
+
+
+def _fetch_news_akshare(symbol: str, n: int = 5) -> list:
+    """使用 akshare (东方财富) 获取新闻"""
+    df = ak.stock_news_em(symbol=symbol)
+    if df.empty:
+        return []
+    
+    # 按发布时间降序排列，确保最新新闻在前
+    df['发布时间'] = pd.to_datetime(df['发布时间'], errors='coerce')
+    df = df.sort_values('发布时间', ascending=False).reset_index(drop=True)
+        
+    latest = df.head(n)
+    news_list = []
+    for _, row in latest.iterrows():
+        news_list.append({
+            "title": str(row['新闻标题']).strip(),
+            "content": str(row['新闻内容']).strip(),
+            "date": str(row['发布时间']).strip(),
+            "source": str(row['文章来源']).strip(),
+            "url": str(row['新闻链接']).strip()
+        })
+        
+    # Save to disk
+    try:
+        path = get_news_cache_path(symbol)
+        with open(path, "w", encoding="utf-8") as f:
+            json.dump(news_list, f, ensure_ascii=False, indent=2)
+        logger.info(f"Saved {len(news_list)} news items from akshare for {symbol}")
+    except Exception as e_save:
+        logger.error(f"Failed to save news cache: {e_save}")
+
+    return news_list[:n]
+
+
+def _fetch_news_sina(symbol: str, n: int = 5) -> list:
+    """
+    使用东方财富网页爬取新闻 (备用方案)
+    当 akshare 不可用时直接爬取东方财富新闻页面
+    """
+    try:
+        import requests
+        from bs4 import BeautifulSoup
+        
+        # 东方财富新闻页面
+        url = f"https://emweb.securities.eastmoney.com/PC_HSF10/NewResearchAnalysis/Index?type=web&code={symbol}"
+        
+        headers = {
+            'User-Agent': 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
+            'Referer': 'https://emweb.securities.eastmoney.com'
+        }
+        
+        response = requests.get(url, headers=headers, timeout=10)
+        response.encoding = 'utf-8'
+        
+        soup = BeautifulSoup(response.text, 'html.parser')
+        
+        # 解析新闻列表
+        news_list = []
+        
+        # 尝试多种可能的新闻列表选择器
+        news_items = soup.select('.news-item') or soup.select('.news_list li') or soup.select('#newsList li')
+        
+        for item in news_items[:n]:
+            try:
+                # 提取标题和链接
+                a_tag = item.find('a')
+                if not a_tag:
+                    continue
+                    
+                title = a_tag.get_text(strip=True)
+                href = a_tag.get('href', '')
+                
+                # 补全 URL
+                if href and not href.startswith('http'):
+                    href = 'https://finance.eastmoney.com' + href
+                
+                # 提取日期（如果有）
+                date_span = item.find('span', class_='date') or item.find('span', class_='time')
+                date_str = date_span.get_text(strip=True) if date_span else datetime.now().strftime("%Y-%m-%d %H:%M")
+                
+                news_list.append({
+                    "title": title,
+                    "content": "",  # 列表页没有正文摘要
+                    "date": date_str,
+                    "source": "东方财富(备用)",
+                    "url": href
+                })
+            except Exception as item_e:
+                logger.debug(f"解析单条新闻失败: {item_e}")
+                continue
+        
+        if news_list:
+            # Save to disk
+            try:
+                path = get_news_cache_path(symbol)
+                with open(path, "w", encoding="utf-8") as f:
+                    json.dump(news_list, f, ensure_ascii=False, indent=2)
+                logger.info(f"Saved {len(news_list)} news items from EM backup for {symbol}")
+            except Exception as e_save:
+                logger.error(f"Failed to save news cache: {e_save}")
+        
+        return news_list[:n]
+        
+    except Exception as e:
+        logger.error(f"东方财富备用新闻获取失败: {e}")
+        return []
+
+
+# 保留原函数用于兼容，但重命名为内部函数
+@st.cache_data(ttl=300)
+def _fetch_and_save_news_akshare(symbol: str, n: int = 5) -> list:
+    if not _akshare_available:
+        logger.warning("akshare 不可用，无法获取新闻数据")
+        return []
+    
     try:
         df = ak.stock_news_em(symbol=symbol)
         if df.empty:
@@ -1293,15 +1712,38 @@ def fetch_and_save_news(symbol: str, n: int = 5) -> list:
 def load_cached_news(symbol: str, n: int = 5) -> list:
     """
     [FIX v3.1.0] Strictly Offline - Read from disk only.
+    [FIX v3.3.1] Handle empty or corrupted cache files.
     """
     path = get_news_cache_path(symbol)
     if not os.path.exists(path):
         return []
+    
+    # Check if file is empty
+    try:
+        if os.path.getsize(path) == 0:
+            # Remove empty file
+            os.remove(path)
+            return []
+    except Exception:
+        pass
         
     try:
         with open(path, "r", encoding="utf-8") as f:
-            news_list = json.load(f)
+            content = f.read().strip()
+            if not content:
+                # Empty file, remove it
+                os.remove(path)
+                return []
+            news_list = json.loads(content)
             return news_list[:n]
+    except json.JSONDecodeError:
+        # Corrupted JSON, remove file
+        logger.warning(f"Corrupted news cache for {symbol}, removing file")
+        try:
+            os.remove(path)
+        except Exception:
+            pass
+        return []
     except Exception as e:
         logger.error(f"Failed to load cached news: {e}")
         return []

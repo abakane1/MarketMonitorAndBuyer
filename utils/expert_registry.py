@@ -147,86 +147,35 @@ class DeepSeekExpert(BaseExpert):
 class QwenExpert(BaseExpert):
     """
     Expert wrapper for Qwen (Tongyi Qianwen).
-    Strong at Strategy Formation (MoE) and Synthesis.
+    **DEPRECATED for Strategy/Audit**: Qwen is now ONLY used for web search intelligence gathering.
+    See utils/qwen_agent.py for search functionality.
     """
     def __init__(self, api_key: str):
         super().__init__("Qwen", api_key)
 
     def propose(self, context_data: Dict[str, Any], prompt_templates: Dict[str, str], **kwargs) -> Tuple[str, str, Any, Any]:
-        """
-        Uses Blue Legion (MoE) logic.
-        """
-        code = context_data.get('code')
-        name = context_data.get('name')
-        price = context_data.get('price')
-        
-        # Inject standard data into context_data for sub-agents if needed
-        # run_blue_legion handles extracting 'intraday_summary', 'capital_flow_str' from context_data
-        # so we need to ensure context_data has these keys populated.
-        
-        # Helper to populate context if missing
-        if 'intraday_summary' not in context_data and kwargs.get('intraday_summary'):
-            context_data['intraday_summary'] = kwargs['intraday_summary']
-            
-        # Capital flow might be in kwargs
-        # We need to format it if not present?
-        # For now, assume caller (lab.py or strategy_section.py) has prepared context_data mostly.
-        
-        final_res, legion_reasoning, cmd_prompt, logs = run_blue_legion(
-            code, name, price, self.api_key, context_data, prompt_templates
-        )
-        return final_res, legion_reasoning, cmd_prompt, logs
+        """Qwen is no longer used for strategy generation. Use Kimi instead."""
+        return "Error: Qwen is deprecated for strategy generation. Please use Kimi as the Blue Team Commander.", "", "", None
 
     def audit(self, context_data: Dict[str, Any], plan_content: str, prompt_templates: Dict[str, str], is_final: bool = False, **kwargs) -> Tuple[str, str]:
-        """
-        Conducts Audit using Qwen Red Legion (MoE).
-        """
-        # Inject raw context for Red Legion if needed
-        audit_ctx = context_data.copy()
-        if 'daily_stats' not in audit_ctx and 'raw_context' in kwargs:
-             audit_ctx['daily_stats'] = kwargs['raw_context']
-        if 'research_context' not in audit_ctx and 'research_context' in kwargs:
-             audit_ctx['research_context'] = kwargs['research_context']
-             
-        if not self.api_key:
-             return "Error: Missing Qwen API Key", "No Prompt (Legion Mode)"
-
-        # Run Red Legion
-        final_res, full_log = run_red_legion(audit_ctx, plan_content, self.api_key, prompt_templates)
-        
-        return final_res, full_log
+        """Qwen is no longer used for audit. Use DeepSeek instead."""
+        return "Error: Qwen is deprecated for audit. Please use DeepSeek as the Red Team Auditor.", ""
 
     def refine(self, original_context: str, original_plan: str, audit_report: str, prompt_templates: Dict[str, str], **kwargs) -> Tuple[str, str, str]:
-        sys_p, user_p = build_refinement_prompt(
-            original_context, original_plan, audit_report, prompt_templates
-        )
-        
-        full_prompt = f"System: {sys_p}\n\nUser: {user_p}"
-        
-        if not self.api_key:
-             return "Error: Missing Qwen API Key", "", full_prompt
-        
-        # Qwen doesn't return separate reasoning, so reasoning is empty str
-        content = call_qwen_api(self.api_key, sys_p, user_p)
-        return content, "", full_prompt
+        """Qwen is no longer used for refinement. Use Kimi instead."""
+        return "Error: Qwen is deprecated for strategy refinement. Please use Kimi instead.", "", ""
 
     def decide(self, aggregated_history: list, prompt_templates: Dict[str, str], context_data: Dict[str, Any] = None, **kwargs) -> Tuple[str, str, str]:
-        sys_p, user_p = build_final_decision_prompt(aggregated_history, prompt_templates, context_data=context_data)
-        
-        full_prompt = f"System: {sys_p}\n\nUser: {user_p}"
-        
-        if not self.api_key:
-             return "Error: Missing Qwen API Key", "", full_prompt
-             
-        content = call_qwen_api(self.api_key, sys_p, user_p)
-        return content, "", full_prompt
+        """Qwen is no longer used for final decision. Use Kimi instead."""
+        return "Error: Qwen is deprecated for final decision. Please use Kimi instead.", "", ""
 
 
 
 class KimiExpert(BaseExpert):
     """
     Expert wrapper for Kimi (Moonshot AI).
-    Responsible for Red Legion Audit.
+    **Blue Team Commander**: Uses Blue Legion (MoE) for strategy generation.
+    Also capable of Red Team Audit and Refinement.
     """
     def __init__(self, api_key: str, base_url: str = None, model_name: str = "kimi-k2.5"):
         super().__init__("Kimi", api_key)
@@ -234,19 +183,23 @@ class KimiExpert(BaseExpert):
         self.model_name = model_name
 
     def propose(self, context_data: Dict[str, Any], prompt_templates: Dict[str, str], **kwargs) -> Tuple[str, str, Any, Any]:
-        research_context = kwargs.get('research_context', "")
+        """
+        Uses Blue Legion (MoE) logic with Kimi as the Commander.
+        """
+        code = context_data.get('code')
+        name = context_data.get('name')
+        price = context_data.get('price')
         
-        sys_p, user_p = build_advisor_prompt(
-            context_data, research_context, kwargs.get('technical_indicators'), 
-            kwargs.get('fund_flow_data'), kwargs.get('fund_flow_history'), kwargs.get('intraday_summary'), 
-            prompt_templates, kwargs.get('suffix_key', "proposer_premarket_suffix"), context_data.get('code')
-        )
-        
-        if "Error" in user_p and sys_p == "":
-            return user_p, "", user_p, None
+        # Helper to populate context if missing
+        if 'intraday_summary' not in context_data and kwargs.get('intraday_summary'):
+            context_data['intraday_summary'] = kwargs['intraday_summary']
             
-        content, reasoning = call_ai_model("kimi", self.api_key, sys_p, user_p, specific_model=self.model_name, base_url=self.base_url)
-        return content, reasoning, user_p, None
+        # Run Blue Legion with Kimi
+        final_res, legion_reasoning, cmd_prompt, logs = run_blue_legion(
+            code, name, price, self.api_key, context_data, prompt_templates, 
+            kimi_base_url=self.base_url
+        )
+        return final_res, legion_reasoning, cmd_prompt, logs
 
     def audit(self, context_data: Dict[str, Any], plan_content: str, prompt_templates: Dict[str, str], is_final: bool = False, **kwargs) -> Tuple[str, str]:
         """

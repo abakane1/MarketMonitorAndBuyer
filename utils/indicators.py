@@ -83,13 +83,27 @@ def calculate_indicators(df: pd.DataFrame) -> dict:
     if rsi > 70: interpretations.append("RSI超买(>70)")
     elif rsi < 30: interpretations.append("RSI超卖(<30)")
     
-    if hist_val > 0 and hist_val > macd_hist.iloc[-2]: interpretations.append("MACD红柱放大(强势)")
-    elif hist_val < 0 and hist_val < macd_hist.iloc[-2]: interpretations.append("MACD绿柱放大(弱势)")
-    elif (macd_line.iloc[-1] > signal_line.iloc[-1]) and (macd_line.iloc[-2] <= signal_line.iloc[-2]): interpretations.append("MACD金叉")
-    elif (macd_line.iloc[-1] < signal_line.iloc[-1]) and (macd_line.iloc[-2] >= signal_line.iloc[-2]): interpretations.append("MACD死叉")
+    # Safely check MACD trends
+    try:
+        if hist_val > 0 and len(macd_hist) > 1 and hist_val > macd_hist.iloc[-2]: 
+            interpretations.append("MACD红柱放大(强势)")
+        elif hist_val < 0 and len(macd_hist) > 1 and hist_val < macd_hist.iloc[-2]: 
+            interpretations.append("MACD绿柱放大(弱势)")
+        elif len(macd_line) > 1 and (macd_line.iloc[-1] > signal_line.iloc[-1]) and (macd_line.iloc[-2] <= signal_line.iloc[-2]): 
+            interpretations.append("MACD金叉")
+        elif len(macd_line) > 1 and (macd_line.iloc[-1] < signal_line.iloc[-1]) and (macd_line.iloc[-2] >= signal_line.iloc[-2]): 
+            interpretations.append("MACD死叉")
+    except Exception:
+        pass  # Skip MACD interpretation if data insufficient
 
-    if k_val > d_val and k.iloc[-2] <= d.iloc[-2]: interpretations.append("KDJ金叉")
-    if k_val < d_val and k.iloc[-2] >= d.iloc[-2]: interpretations.append("KDJ死叉")
+    # Safely check KDJ crossovers
+    try:
+        if len(k) > 1 and k_val > d_val and k.iloc[-2] <= d.iloc[-2]: 
+            interpretations.append("KDJ金叉")
+        if len(k) > 1 and k_val < d_val and k.iloc[-2] >= d.iloc[-2]: 
+            interpretations.append("KDJ死叉")
+    except Exception:
+        pass  # Skip KDJ interpretation if data insufficient
 
     indicators["signal_summary"] = " | ".join(interpretations) if interpretations else "无明显技术突变"
     

@@ -1,18 +1,23 @@
-# A股智能盯盘与辅助交易系统 (AShare-Monitor) v3.1.0
+# A股智能盯盘与辅助交易系统 (AShare-Monitor) v3.2.0
 
-这是一个基于 Streamlit 构建的 **AI 驱动型** A 股辅助决策系统。v3.1.0 重构了股票选择与数据刷新机制，支持全市场任意代码监控与全局一键刷新。
+这是一个基于 Streamlit 构建的 **AI 驱动型** A 股辅助决策系统。v3.2.0 统一了提示词管理，将所有硬编码提示词迁移至提示词中心，实现可配置、可热更新的提示词管理。
 
 ## 核心功能 (Core Features)
 
 - **⚔️ 蓝军军团 (Blue Legion MoE)**: 
   - **数学官 (Quant Agent)**: 深度分析资金流向、分时盘口与盈亏比。
   - **情报官 (Intel Agent)**: 全网聚合 RAG 情报，回溯历史战绩与新闻叙事。
-  - **主帅 (Commander)**: 阿里 Qwen-Max 模型统筹决策，签署最终交易令 (GTO 策略)。
+  - **主帅 (Commander)**: 月之暗面 Kimi-K2.5 模型统筹决策，签署最终交易令 (GTO 策略)。
 - **🛡️ 红军风控 (Red Audit)**: 
   - 默认集成 **DeepSeek-R1 (Reasoner)**，对蓝军策略进行 "攻击性审计"，识别逻辑漏洞与主要风险。
   - 独创 "Draft -> Audit -> Refine -> Verdict -> Final Order" 五步闭环决策流。
+- **🔍 智能情报 (Intelligence)**: 
+  - 使用 **Qwen (DashScope)** 的联网搜索能力，搜集市场情报和研报信息。
+  - Qwen 仅用于情报搜索，不参与策略生成或审计。
 - **⚡ 极速模式 (Auto-Drive)**: 
   - 一键全自动执行 "生成草案-风险初审-反思优化-终极裁决-签署命令" 全流程，仅需数秒即可完成深度复盘。
+  - **蓝军 (Kimi-k2.5)**: 策略生成与优化
+  - **红军 (DeepSeek-R1)**: 风险审计与终端裁决
 - **实时盯盘**: 分秒级监控自选股，智能缓存拒绝流量浪费，非交易时间自动休眠。
 - **提示词中心**: 模块化管理 AI 人格设定，内置 "午间复盘"、"盘前规划" 等专业场景模版。
 
@@ -20,7 +25,11 @@
 
 ### 环境依赖
 - Python 3.8+
-- API Keys: DeepSeek, DashScope (Qwen), Metaso (Optional)
+- API Keys: 
+  - **DeepSeek** (红军审计官)
+  - **Kimi/Moonshot** (蓝军主帅 - 主模型)
+  - **DashScope/Qwen** (仅用于情报搜索)
+  - Metaso (可选，用于深度研报)
 
 ### 安装与运行 (Linux/Mac)
 ```bash
@@ -33,9 +42,12 @@ pip install -r requirements.txt
 
 ### 初始化配置
 1. 打开侧边栏 (Sidebar)。
-2. 填入 API Key (推荐同时配置 DeepSeek 与 Qwen 以解锁完整 MoE 能力)。
+2. 填入 API Key：
+   - **Kimi API Key** (必填): 用于蓝军策略生成
+   - **DeepSeek API Key** (必填): 用于红军风控审计
+   - **Qwen API Key** (可选): 仅用于情报搜索
 3. 添加自选股代码 (如 `600076`)。
-4. 开启 `⚡ Auto-Drive` 体验军团作战。
+4. 开含 `⚡ Auto-Drive` 体验军团作战。
 
 ## 项目结构
 - `main.py`: 主程序 UI 入口。

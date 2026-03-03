@@ -17,6 +17,7 @@ def init_db():
     # Positions table
     c.execute('''CREATE TABLE IF NOT EXISTS positions (
         symbol TEXT PRIMARY KEY,
+        name TEXT DEFAULT '',
         shares INTEGER,
         cost REAL,
         base_shares INTEGER DEFAULT 0
@@ -36,7 +37,10 @@ def init_db():
         type TEXT,
         price REAL,
         amount REAL,
-        note TEXT
+        note TEXT,
+        fee REAL DEFAULT 0.0,
+        stamp_duty REAL DEFAULT 0.0,
+        transfer_fee REAL DEFAULT 0.0
     )''')
     
     # [NEW] Watchlist table (v2: 增加 name 字段缓存股票名称)
@@ -44,6 +48,19 @@ def init_db():
         symbol TEXT PRIMARY KEY,
         name TEXT DEFAULT '',
         added_at TEXT
+    )''')
+    
+    # [NEW] Position Snapshots table
+    c.execute('''CREATE TABLE IF NOT EXISTS position_snapshots (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        date TEXT,
+        symbol TEXT,
+        name TEXT,
+        shares INTEGER,
+        price REAL,
+        cost REAL,
+        market_value REAL,
+        unrealized_pnl REAL
     )''')
     
     # [NEW] Intelligence table
@@ -93,6 +110,24 @@ def init_db():
         # Column missing, add it
         print("Migrating DB: Adding base_shares column to positions table...")
         c.execute("ALTER TABLE positions ADD COLUMN base_shares INTEGER DEFAULT 0")
+        conn.commit()
+        
+    # --- Schema Migration: Check if name exists in positions ---
+    try:
+        c.execute("SELECT name FROM positions LIMIT 1")
+    except sqlite3.OperationalError:
+        print("Migrating DB: Adding name column to positions table...")
+        c.execute("ALTER TABLE positions ADD COLUMN name TEXT DEFAULT ''")
+        conn.commit()
+        
+    # --- Schema Migration: Check if fee exists in history ---
+    try:
+        c.execute("SELECT fee FROM history LIMIT 1")
+    except sqlite3.OperationalError:
+        print("Migrating DB: Adding fee related columns to history table...")
+        c.execute("ALTER TABLE history ADD COLUMN fee REAL DEFAULT 0.0")
+        c.execute("ALTER TABLE history ADD COLUMN stamp_duty REAL DEFAULT 0.0")
+        c.execute("ALTER TABLE history ADD COLUMN transfer_fee REAL DEFAULT 0.0")
         conn.commit()
 
     # --- Schema Migration: Check if model exists in strategy_logs ---
@@ -524,13 +559,36 @@ def db_get_latest_review_log(symbol: str) -> dict:
 
 # --- History ---
 
-def db_add_history(symbol: str, timestamp: str, action_type: str, price: float, amount: float, note: str):
+def db_add_history(symbol: str, timestamp: str, action_type: str, price: float, amount: float, note: str) -> tuple:
+    """
+    Add a history record with trade frequency check and fee calculation.
+    Returns (success: bool, message: str)
+    """
+    # 交易频率检查
+    if action_type in ['buy', 'sell', '买入', '卖出', '快速交易']:
+        from utils.trade_limit import check_trade_limit
+        allowed, msg = check_trade_limit(symbol, action_type)
+        if not allowed:
+            return False, msg
+            
+    # 计算各项费率 (基于优化方案 v3.2.0)
+    trade_value = price * amount
+    is_sell = any(w in str(action_type).lower() for w in ["卖", "出", "sell"])
+    
+    fee = round(trade_value * 0.0003, 2)
+    stamp_duty = round(trade_value * 0.0001, 2) if is_sell else 0.0
+    transfer_fee = round(trade_value * 0.00001, 2)
+    
     conn = get_db_connection()
     c = conn.cursor()
-    c.execute("INSERT INTO history (symbol, timestamp, type, price, amount, note) VALUES (?, ?, ?, ?, ?, ?)",
-              (symbol, timestamp, action_type, price, amount, note))
+    c.execute("""
+        INSERT INTO history 
+        (symbol, timestamp, type, price, amount, note, fee, stamp_duty, transfer_fee) 
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+    """, (symbol, timestamp, action_type, price, amount, note, fee, stamp_duty, transfer_fee))
     conn.commit()
     conn.close()
+    return True, "记录成功"
 
 # @st.cache_data(ttl=5) # REMOVED to fix read-after-write consistency
 def db_get_history(symbol: str) -> list:
@@ -542,13 +600,20 @@ def db_get_history(symbol: str) -> list:
     
     # Convert rows to dict list to match old API
     result = []
+    col_names = []
+    if rows:
+        col_names = rows[0].keys()
+        
     for row in rows:
         result.append({
             "timestamp": row["timestamp"],
             "type": row["type"],
             "price": row["price"],
             "amount": row["amount"],
-            "note": row["note"]
+            "note": row["note"],
+            "fee": row["fee"] if "fee" in col_names else 0.0,
+            "stamp_duty": row["stamp_duty"] if "stamp_duty" in col_names else 0.0,
+            "transfer_fee": row["transfer_fee"] if "transfer_fee" in col_names else 0.0
         })
     return result
 
@@ -637,6 +702,10 @@ def db_get_all_history() -> list:
     conn.close()
     
     result = []
+    col_names = []
+    if rows:
+        col_names = rows[0].keys()
+        
     for row in rows:
         result.append({
             "symbol": row["symbol"],
@@ -644,7 +713,10 @@ def db_get_all_history() -> list:
             "type": row["type"],
             "price": row["price"],
             "amount": row["amount"],
-            "note": row["note"]
+            "note": row["note"],
+            "fee": row["fee"] if "fee" in col_names else 0.0,
+            "stamp_duty": row["stamp_duty"] if "stamp_duty" in col_names else 0.0,
+            "transfer_fee": row["transfer_fee"] if "transfer_fee" in col_names else 0.0
         })
     return result
 
@@ -748,3 +820,38 @@ def db_compute_realized_pnl(symbol: str) -> dict:
         "trade_count": trade_count,
         "daily_pnl": daily_pnl
     }
+
+# --- Position Snapshots (v3.2.0) ---
+
+def db_save_position_snapshot(date: str, symbol: str, name: str, shares: int, price: float, cost: float, market_value: float, unrealized_pnl: float):
+    conn = get_db_connection()
+    c = conn.cursor()
+    c.execute("""
+        INSERT INTO position_snapshots 
+        (date, symbol, name, shares, price, cost, market_value, unrealized_pnl) 
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+    """, (date, symbol, name, shares, price, cost, market_value, unrealized_pnl))
+    conn.commit()
+    conn.close()
+
+def db_get_position_snapshots(start_date: str = None, end_date: str = None) -> list:
+    conn = get_db_connection()
+    c = conn.cursor()
+    
+    query = "SELECT * FROM position_snapshots"
+    params = []
+    
+    if start_date and end_date:
+        query += " WHERE date >= ? AND date <= ?"
+        params.extend([start_date, end_date])
+    
+    query += " ORDER BY date DESC, symbol ASC"
+    
+    c.execute(query, params)
+    rows = c.fetchall()
+    conn.close()
+    
+    result = []
+    for row in rows:
+        result.append(dict(row))
+    return result

@@ -3,34 +3,37 @@ import json
 from utils.ai_advisor import call_ai_model
 
 # --- DEFAULT SUB-AGENT PROMPTS ---
-# Minimal fallbacks, actual prompts loaded from config
+# Minimal fallbacks, actual prompts loaded from config via prompt_templates
+# 从 v3.2.0 开始，这些默认提示词从 prompts/defaults/ 目录加载
+# 如需修改，请在提示词中心编辑对应的 Markdown 文件
 
 # 1. QUANT AGENT (数学官) - Focus: Numbers, Volume, Flow, Limits
-QUANT_SYS = "You are a quantitative analysis engine. Analyze the numerical data and provide objective assessments."
+# Fallback: prompts/defaults/fallback_quant_sys.md
+QUANT_SYS = None  # Will be loaded from prompt_templates or use hardcoded fallback
 
 # 2. INTEL AGENT (情报官) - Focus: News, Sentiment, Narrative
-INTEL_SYS = "You are a market intelligence analyst. Analyze news and sentiment data to identify market narratives."
+# Fallback: prompts/defaults/fallback_intel_sys.md
+INTEL_SYS = None  # Will be loaded from prompt_templates or use hardcoded fallback
 
-def run_blue_legion(code, name, price, api_key_qwen, context_data, prompt_templates=None):
+def run_blue_legion(code, name, price, api_key_kimi, context_data, prompt_templates=None, kimi_base_url="https://api.moonshot.cn/v1"):
     """
-    Executes the Blue Legion (MoE) Strategy Generation.
+    Executes the Blue Legion (MoE) Strategy Generation using Kimi as the main model.
     Returns: (final_content, final_reasoning, full_context_log)
+    
+    [OPTIMIZED v3.3.1] Added timeout handling and fallback for sub-agent failures.
     """
     
     # 0. Setup
     logs = []
     prompts = prompt_templates or {}
     
-    # --- PHASE 1: SUB-AGENTS (Parallel-ish) ---
-    # In reality sequential here, but conceptually parallel inputs to Commander
+    # --- PHASE 1: SUB-AGENTS (Sequential with error handling) ---
     
-    # 1.1 Quant Agent
-    # 1.1 Quant Agent
-    quant_model = "qwen-max" # Strongest Reasoning
-    quant_sys = prompts.get("blue_quant_sys", QUANT_SYS)
+    # 1.1 Quant Agent - Now using Kimi
+    quant_model = "kimi-k2.5"
+    quant_sys = prompts.get("blue_quant_sys") or prompts.get("fallback_quant_sys") or "You are a quantitative analysis engine. Analyze the numerical data and provide objective assessments."
     
     # Construct Quant User Prompt from Context
-    # Incorporate Technicals, Flow, Intraday
     quant_data = f"""
     Trading Date: {context_data.get('date', 'N/A')}
     Market Status: {context_data.get('market_status', 'OPEN')}
@@ -48,15 +51,17 @@ def run_blue_legion(code, name, price, api_key_qwen, context_data, prompt_templa
     IMPORTANT: 如果 Market Status 是 CLOSED，你的所有量化分析必须服务于【下一个交易日 ({context_data.get('date', 'N/A')})】的预判。
     """
     
-    q_res, _ = call_ai_model("qwen", api_key_qwen, quant_sys, quant_data, specific_model=quant_model)
+    print(f"[Blue Legion] 正在调用数学官 ({code})...")
+    q_res, _ = call_ai_model("kimi", api_key_kimi, quant_sys, quant_data, specific_model=quant_model, base_url=kimi_base_url)
+    if "Error" in q_res or "Failed" in q_res:
+        print(f"[Blue Legion] 数学官返回错误: {q_res[:100]}...")
+        q_res = f"[数学官分析暂不可用 - {q_res[:200]}]"
     logs.append(f"### [Quant Agent Report ({quant_model})]\n{q_res}")
     
-    # 1.2 Intel Agent
-    # 1.2 Intel Agent
-    intel_model = "qwen-max"
-    intel_sys = prompts.get("blue_intel_sys", INTEL_SYS)
+    # 1.2 Intel Agent - Now using Kimi
+    intel_model = "kimi-k2.5"
+    intel_sys = prompts.get("blue_intel_sys") or prompts.get("fallback_intel_sys") or "You are a market intelligence analyst. Analyze news and sentiment data to identify market narratives."
     
-    # Construct Intel User Prompt
     intel_data = f"""
     Trading Date: {context_data.get('date', 'N/A')}
     Market Status: {context_data.get('market_status', 'OPEN')}
@@ -72,16 +77,20 @@ def run_blue_legion(code, name, price, api_key_qwen, context_data, prompt_templa
     IMPORTANT: 如果 Market Status 是 CLOSED，你的情报总结必须侧重于为【下一个交易日 ({context_data.get('date', 'N/A')})】寻找预期差和博弈逻辑。
     """
     
-    i_res, _ = call_ai_model("qwen", api_key_qwen, intel_sys, intel_data, specific_model=intel_model)
+    print(f"[Blue Legion] 正在调用情报官 ({code})...")
+    i_res, _ = call_ai_model("kimi", api_key_kimi, intel_sys, intel_data, specific_model=intel_model, base_url=kimi_base_url)
+    if "Error" in i_res or "Failed" in i_res:
+        print(f"[Blue Legion] 情报官返回错误: {i_res[:100]}...")
+        i_res = f"[情报分析暂不可用 - {i_res[:200]}]"
     logs.append(f"### [Intel Agent Report ({intel_model})]\n{i_res}")
     
     # --- PHASE 2: COMMANDER (Synthesis) ---
-    cmd_model = "qwen-max" # The Brain
+    cmd_model = "kimi-k2.5" # Kimi as the Brain
     
     # Use the standard "LAG + GTO" System Prompt for the Commander
-    cmd_sys = prompts.get("proposer_system", "") # Logic is consistent, just brain is Qwen
+    cmd_sys = prompts.get("proposer_system") or prompts.get("blue_commander_system") # Logic is consistent, just brain is Kimi
     if not cmd_sys:
-        # Fallback to standard
+        # Fallback to standard (hardcoded as last resort)
         cmd_sys = "你是战区最高指挥官。基于量化官和情报官的报告，制定最终作战计划 (LAG+GTO)。"
         
     # Commander User Prompt
@@ -106,7 +115,7 @@ def run_blue_legion(code, name, price, api_key_qwen, context_data, prompt_templa
     【核心强制指令】：
     1. 当前交易已结束，你签署的【最终执行令 (Final Order)】必须针对【{context_data.get('date', 'N/A')}】生效。
     2. 请在【有效期】字段明确写明执行日期。
-    3. 【禁止】不要提供任何针对今日的盘中操作建议（如“做T”、“日内高抛低吸”），因为市场已关闭。
+    3. 【禁止】不要提供任何针对今日的盘中操作建议（如"做T"、"日内高抛低吸"），因为市场已关闭。
     
     基于以上专家的深度分析，请制定最终交易策略。
     """
@@ -130,27 +139,53 @@ def run_blue_legion(code, name, price, api_key_qwen, context_data, prompt_templa
     except Exception as e:
         cmd_user_prompt = f"Template Error: {e}\n\nContext:\n{cmd_user_context}"
         
-    # Call Commander
-    final_res, _ = call_ai_model("qwen", api_key_qwen, cmd_sys, cmd_user_prompt, specific_model=cmd_model)
+    # Call Commander - Now using Kimi
+    print(f"[Blue Legion] 正在调用主帅综合分析 ({code})...")
+    final_res, _ = call_ai_model("kimi", api_key_kimi, cmd_sys, cmd_user_prompt, specific_model=cmd_model, base_url=kimi_base_url)
     
-    # Qwen doesn't return reasoning, but we can simulate "Reasoning" field with Agent Reports
+    # Check if Commander failed
+    if "Error" in final_res or "Failed" in final_res or "超时" in final_res:
+        print(f"[Blue Legion] 主帅返回错误: {final_res[:100]}...")
+        # Return error with logs for debugging
+        error_msg = f"""
+【策略生成遇到问题】
+
+Kimi API 返回: {final_res}
+
+【子代理执行结果】
+{logs[0][:500]}
+
+{logs[1][:500]}
+
+建议:
+1. 检查 Kimi API Key 是否有效
+2. 稍后重试 (Moonshot API 可能暂时繁忙)
+3. 尝试切换到 "标准" 而非 "深度" 分析模式
+"""
+        return error_msg, "\n\n".join(logs), cmd_user_prompt, logs
+    
+    # Kimi doesn't return reasoning, but we can simulate "Reasoning" field with Agent Reports
     legion_reasoning = "\n\n".join(logs)
     
+    print(f"[Blue Legion] 完成 ({code})")
     return final_res, legion_reasoning, cmd_user_prompt, logs
 
 
 # --- RED LEGION (AUDITOR MOE) ---
-# Minimal fallbacks, actual prompts loaded from config
+# Minimal fallbacks, actual prompts loaded from config via prompt_templates
+# 从 v3.2.0 开始，这些默认提示词从 prompts/defaults/ 目录加载
 
 # 3. RED QUANT AUDITOR (数据审计官) - Focus: Validation, Risk, Discrepancies
-RED_QUANT_SYS = "You are a risk auditor. Review trading plans and verify numerical accuracy and risk management."
+# Fallback: prompts/defaults/fallback_red_quant_sys.md
+RED_QUANT_SYS = None  # Will be loaded from prompt_templates
 
 # 4. RED INTEL AUDITOR (情报审计官) - Focus: Fact Check, Narrative consistency
-RED_INTEL_SYS = "You are a compliance officer. Verify the logic and narrative consistency of trading strategies."
+# Fallback: prompts/defaults/fallback_red_intel_sys.md
+RED_INTEL_SYS = None  # Will be loaded from prompt_templates
 
-def run_red_legion(context_data, draft_content, prompt_templates, api_key, model_type="qwen", model_name="qwen-max", is_final=False, kimi_base_url=None):
+def run_red_legion(context_data, draft_content, prompt_templates, api_key, model_type="deepseek", model_name="deepseek-reasoner", is_final=False, kimi_base_url=None):
     """
-    Executes the Red Legion (MoE) Strategy Audit.
+    Executes the Red Legion (MoE) Strategy Audit using DeepSeek as the auditor.
     Returns: (final_audit_report, full_audit_string)
     """
     code = context_data.get('code')
@@ -170,7 +205,7 @@ def run_red_legion(context_data, draft_content, prompt_templates, api_key, model
     # --- PHASE 1: SUB-AGENTS ---
     
     # 1.1 Red Quant
-    quant_sys = prompts.get("red_quant_auditor_system", RED_QUANT_SYS)
+    quant_sys = prompts.get("red_quant_auditor_system") or prompts.get("fallback_red_quant_sys") or "You are a risk auditor. Review trading plans and verify numerical accuracy and risk management."
     
     quant_data = f"""
     [Strategy to Audit]
@@ -188,7 +223,7 @@ def run_red_legion(context_data, draft_content, prompt_templates, api_key, model
     logs.append(f"### [Red Quant Auditor ({model_name})]\n{q_res}")
     
     # 1.2 Red Intel
-    intel_sys = prompts.get("red_intel_auditor_system", RED_INTEL_SYS)
+    intel_sys = prompts.get("red_intel_auditor_system") or prompts.get("fallback_red_intel_sys") or "You are a compliance officer. Verify the logic and narrative consistency of trading strategies."
     
     intel_data = f"""
     [Strategy to Audit]
@@ -203,8 +238,8 @@ def run_red_legion(context_data, draft_content, prompt_templates, api_key, model
     
     # --- PHASE 2: RED COMMANDER (Verdict) ---
     
-    # Default Red Commander System Prompt
-    cmd_sys = """
+    # Default Red Commander System Prompt (从提示词中心加载)
+    cmd_sys = prompts.get("red_commander_system") or """
     你是红军最高指挥官 (Red Team Commander)。
     基于【数据审计官】和【情报审计官】的报告，对蓝军策略进行终极裁决。
     
@@ -240,4 +275,3 @@ def run_red_legion(context_data, draft_content, prompt_templates, api_key, model
     full_audit_string = f"{final_res}\n\n" + "\n\n".join(logs)
     
     return final_res, full_audit_string
-

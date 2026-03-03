@@ -154,7 +154,7 @@ def render_strategy_section(code: str, name: str, price: float, shares_held: int
             # --- STAGE 2: RED TEAM AUDIT ---
             if ai_strat_log.get('audit'):
                 # [Display Audit Result]
-                with st.expander(f"🔴 {ai_strat_log.get('red_model', 'Kimi')} 风控官审查报告 (Red Team Audit)", expanded=True):
+                with st.expander(f"🔴 {ai_strat_log.get('red_model', 'DeepSeek')} 风控官审查报告 (Red Team Audit)", expanded=True):
                     st.markdown(ai_strat_log['audit'])
                     
                     # --- STAGE 3: REFINEMENT ---
@@ -198,9 +198,7 @@ def render_strategy_section(code: str, name: str, price: float, shares_held: int
                                 if st.button("🚀 确认执行优化 (Run Refinement)", key=f"btn_run_refine_{code}", type="primary"):
                                     # Get Key from registry-ready api_keys dict
                                     b_key = api_keys.get("deepseek_api_key", "")
-                                    if r_data['model'] == "Qwen":
-                                        b_key = api_keys.get("qwen_api_key", "")
-                                    elif r_data['model'] == "Kimi":
+                                    if r_data['model'] == "Kimi":
                                         b_key = api_keys.get("kimi_api_key", "")
                                     
                                     if not b_key:
@@ -300,9 +298,8 @@ def render_strategy_section(code: str, name: str, price: float, shares_held: int
                                  with fc1:
                                      if st.button("🚀 执行终审 (Run Final Verdict)", key=f"btn_run_final_{code}", type="primary"):
                                          # Key Check using centralized api_keys
-                                         r_key = api_keys.get("qwen_api_key", "") # Default or initial assignment
+                                         r_key = api_keys.get("deepseek_api_key", "") # Default: DeepSeek for audit
                                          if fa_data['model'] == "DeepSeek": r_key = api_keys.get("deepseek_api_key", "")
-                                         elif fa_data['model'] == "Qwen": r_key = api_keys.get("qwen_api_key", "")
                                          elif fa_data['model'] == "Kimi": r_key = api_keys.get("kimi_api_key", "")
 
                                          if not r_key: st.error(f"Missing Key for {fa_data['model']}"); st.stop()
@@ -329,7 +326,7 @@ def render_strategy_section(code: str, name: str, price: float, shares_held: int
                                          
                          else:
                              # Display Final Audit
-                             with st.expander(f"⚖️ {ai_strat_log.get('red_model','Kimi')} 终极裁决 (Final Verdict)", expanded=True):
+                             with st.expander(f"⚖️ {ai_strat_log.get('red_model','DeepSeek')} 终极裁决 (Final Verdict)", expanded=True):
                                  st.markdown(ai_strat_log['final_audit'])
                                 
                              # --- STAGE 5: FINAL DECISION (Blue Team) ---
@@ -980,12 +977,10 @@ def render_strategy_section(code: str, name: str, price: float, shares_held: int
 
             # Legacy Key check for UI feedback
             ds_key_chk = api_keys["deepseek_api_key"]
-            qwen_key_chk = api_keys["qwen_api_key"]
             
             # Helper to get key
             def get_key_for_model(m_name):
                 if m_name == "DeepSeek": return ds_key_chk
-                if m_name == "Qwen": return qwen_key_chk
                 if m_name == "Kimi": return api_keys["kimi_api_key"]
                 return ""
 

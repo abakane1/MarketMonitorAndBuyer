@@ -459,8 +459,6 @@ def simulate_day_generator(symbol: str, target_date_str: str, logs: list, real_t
             "position": position,
             "real_position": real_position,
             "pnl_pct": (ai_equity - base_val) / base_val * 100,
-            "real_position": real_position,
-            "pnl_pct": (ai_equity - base_val) / base_val * 100,
             "real_pnl_pct": (real_equity - real_base_val) / real_base_val * 100,
             "trade": trade_happened
         }

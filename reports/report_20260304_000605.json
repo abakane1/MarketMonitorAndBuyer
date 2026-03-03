@@ -1,0 +1,19 @@
+{
+    "timestamp": "20260304_000605",
+    "ai_metrics": {
+        "total_return_pct": 0.01760000000000006,
+        "win_rate": 0.6,
+        "win_loss_ratio": 4.117647058823529,
+        "max_drawdown": 0.0023880597014925373,
+        "sharpe_ratio": 8.533914578017813,
+        "total_trades_days": 5
+    },
+    "human_metrics": {
+        "total_return_pct": -0.0011999999999999789,
+        "win_rate": 0.4,
+        "win_loss_ratio": 1.359375,
+        "max_drawdown": 0.006012024048096192,
+        "sharpe_ratio": 0.2188013706771657,
+        "total_trades_days": 5
+    }
+}

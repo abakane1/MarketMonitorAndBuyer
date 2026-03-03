@@ -3,12 +3,20 @@ import requests
 import json
 from utils.config import get_settings
 
-def summarize_intelligence(api_key, news_items, stock_symbol):
+def summarize_intelligence(api_key, news_items, stock_symbol, prompt_templates=None):
     """
     Summarizes a list of news items into a concise market sentiment briefing.
     """
     if not news_items:
         return ""
+    
+    # 从提示词中心加载系统提示词 (v3.2.0)
+    if prompt_templates is None:
+        try:
+            from utils.prompt_loader import load_all_prompts
+            prompt_templates = load_all_prompts()
+        except Exception:
+            prompt_templates = {}
         
     # Format raw text
     raw_text = ""
@@ -17,8 +25,9 @@ def summarize_intelligence(api_key, news_items, stock_symbol):
         content = news.get("content", news.get("snippet", ""))
         date = news.get("date", "")
         raw_text += f"[{idx+1}] {date} {title}\n{content[:200]}\n\n"
-        
-    system_prompt = (
+    
+    # v3.2.0: 从提示词中心加载，避免硬编码
+    system_prompt = prompt_templates.get("intelligence_processor_system") or (
         "你是一位金融情报分析师。你的任务是从杂乱的新闻流中提取与该股票最相关、最具市场影响力的核心信息。\n"
         "过滤掉无意义的噪音（如自动生成的涨跌播报），重点关注：\n"
         "1. 行业政策利好/利空\n"

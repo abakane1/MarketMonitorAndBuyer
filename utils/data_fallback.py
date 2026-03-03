@@ -16,6 +16,20 @@ import logging
 
 logger = logging.getLogger(__name__)
 
+def validate_spot_data(data: Optional[Dict]) -> bool:
+    """验证行情数据的健康状态"""
+    if not data:
+        return False
+    try:
+        price = float(data.get('最新价', -1))
+        pct = float(data.get('涨跌幅', 0))
+        # 允许涨跌幅放宽到 ±35%（含北交所30%及误差余量）
+        if price <= 0 or abs(pct) > 35:
+            return False
+        return True
+    except:
+        return False
+
 # Sina Finance API (often more reliable)
 def get_stock_spot_sina(symbol: str) -> Optional[Dict]:
     """
@@ -42,7 +56,7 @@ def get_stock_spot_sina(symbol: str) -> Optional[Dict]:
             'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36'
         }
         
-        response = requests.get(url, headers=headers, timeout=10)
+        response = requests.get(url, headers=headers, timeout=3)
         response.encoding = 'gb2312'
         
         # Parse Sina response format
@@ -106,7 +120,7 @@ def get_stock_spot_tencent(symbol: str) -> Optional[Dict]:
             'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36'
         }
         
-        response = requests.get(url, headers=headers, timeout=10)
+        response = requests.get(url, headers=headers, timeout=3)
         response.encoding = 'gb2312'
         
         # Parse Tencent response format
@@ -145,6 +159,60 @@ def get_stock_spot_tencent(symbol: str) -> Optional[Dict]:
         return None
 
 
+def get_stock_spot_eastmoney(symbol: str) -> Optional[Dict]:
+    """
+    Fetch real-time stock data from EastMoney Web API.
+    
+    Args:
+        symbol: Stock code like '600076'
+    """
+    try:
+        # 转换 secid 格式：1.600076（上交所），0.300059（深交所）
+        if symbol.startswith(('6', '5')):
+            secid = f"1.{symbol}"
+        elif symbol.startswith(('0', '3')):
+            secid = f"0.{symbol}"
+        else:
+            return None
+            
+        url = f"http://push2.eastmoney.com/api/qt/stock/get?secid={secid}&fields=f57,f58,f43,f44,f45,f46,f47,f48,f60,f169,f170"
+        headers = {
+            'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36'
+        }
+        
+        response = requests.get(url, headers=headers, timeout=3)
+        data = response.json()
+        
+        if not data or not data.get('data'):
+            return None
+            
+        kf = data['data']
+        # 价格数据由东财返回整数，需除以100获取真实价格；涨跌幅同样需按比例转换
+        
+        price = float(kf.get('f43', 0) or 0) / 100.0 if float(kf.get('f43', 0) or 0) > 0 else 0
+        if price <= 0:
+            return None
+            
+        pre_close = float(kf.get('f60', 0) or 0) / 100.0
+        
+        return {
+            '代码': symbol,
+            '名称': kf.get('f58', ''),
+            '最新价': price,
+            '今开': float(kf.get('f46', 0) or 0) / 100.0,
+            '昨收': pre_close,
+            '最高': float(kf.get('f44', 0) or 0) / 100.0,
+            '最低': float(kf.get('f45', 0) or 0) / 100.0,
+            '成交量': float(kf.get('f47', 0) or 0) * 100, 
+            '成交额': float(kf.get('f48', 0) or 0),
+            '涨跌幅': float(kf.get('f170', 0) or 0) / 100.0,
+            '来源': 'eastmoney'
+        }
+    except Exception as e:
+        logger.warning(f"EastMoney API failed for {symbol}: {e}")
+        return None
+
+
 def get_stock_spot_with_fallback(symbol: str) -> Optional[Dict]:
     """
     Try multiple data sources to get stock spot data.
@@ -176,15 +244,21 @@ def get_stock_spot_with_fallback(symbol: str) -> Optional[Dict]:
     
     # Try Sina API
     sina_data = get_stock_spot_sina(symbol)
-    if sina_data:
+    if validate_spot_data(sina_data):
         logger.info(f"Using Sina API for {symbol}")
         return sina_data
     
     # Try Tencent API
     tencent_data = get_stock_spot_tencent(symbol)
-    if tencent_data:
+    if validate_spot_data(tencent_data):
         logger.info(f"Using Tencent API for {symbol}")
         return tencent_data
+        
+    # Try EastMoney API
+    em_data = get_stock_spot_eastmoney(symbol)
+    if validate_spot_data(em_data):
+        logger.info(f"Using EastMoney API for {symbol}")
+        return em_data
     
     # Fall back to local cache even if stale
     if local_data:

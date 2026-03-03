@@ -51,6 +51,7 @@ def load_realtime_quote(symbol: str) -> dict:
 def save_minute_data(symbol: str):
     """
     Fetches latest minute data and merges with local history.
+    Validates data quality before saving to avoid 'minimal data' (all zeros/very few records).
     """
     init_storage()
     file_path = get_file_path(symbol, 'minute')
@@ -59,7 +60,17 @@ def save_minute_data(symbol: str):
     from utils.data_fetcher import get_stock_minute_data
     new_df = get_stock_minute_data(symbol)
     if new_df.empty:
+        print(f"[save_minute_data] {symbol}: No data fetched from any source")
         return
+    
+    # [DATA QUALITY CHECK] Validate data before saving
+    # Skip if data is "minimal" (fallback data with zeros)
+    if len(new_df) <= 3:
+        # Check if it's fallback data (all zeros or single record)
+        total_volume = new_df['成交量'].sum() if '成交量' in new_df.columns else 0
+        if total_volume == 0:
+            print(f"[save_minute_data] {symbol}: Skipping low-quality data ({len(new_df)} records, volume=0)")
+            return
     
     # Ensure datetime format
     new_df['时间'] = pd.to_datetime(new_df['时间'])
@@ -74,12 +85,14 @@ def save_minute_data(symbol: str):
             combined = combined.drop_duplicates(subset=['时间'], keep='last')
             combined = combined.sort_values('时间')
             combined.to_parquet(file_path)
+            print(f"[save_minute_data] {symbol}: Saved {len(new_df)} new records, total {len(combined)}")
         except Exception as e:
             print(f"Error reading/saving {file_path}: {e}")
             # If error, maybe just overwrite? Safe to backup? for now overwrite
             new_df.to_parquet(file_path)
     else:
         new_df.to_parquet(file_path)
+        print(f"[save_minute_data] {symbol}: Created new file with {len(new_df)} records")
 
 # @st.cache_data(ttl=60)
 def load_minute_data(symbol: str) -> pd.DataFrame:

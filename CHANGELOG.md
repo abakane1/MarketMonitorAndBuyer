@@ -5,6 +5,41 @@ All notable changes to the **MarketMonitorAndBuyer** project will be documented 
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [3.2.0] - 2026-02-28 (Prompt Refactor: Hardcoded Prompts Migration + UI Rebuild)
+
+### Added (新增)
+- **提示词统一管理中心化 (Unified Prompt Management)**:
+  - 创建 `prompts/defaults/` 目录，存放默认 fallback 提示词
+  - 新增 6 个 Markdown 格式提示词文件：
+    - `agents/red_commander_system.md` - 红军最高指挥官设定
+    - `agents/intelligence_processor_system.md` - 金融情报分析师设定
+    - `agents/qwen_agent_system.md` - 金融情报搜集员设定
+    - `defaults/fallback_quant_sys.md` - 量化分析引擎默认提示词
+    - `defaults/fallback_intel_sys.md` - 市场情报分析师默认提示词
+    - `defaults/fallback_red_quant_sys.md` - 风险审计官默认提示词
+    - `defaults/fallback_red_intel_sys.md` - 合规审查官默认提示词
+  - 更新 `utils/prompt_loader.py` 的 `PROMPT_MAPPINGS`，支持新的提示词键名
+
+### Changed (变更)
+- **硬编码提示词迁移 (Hardcoded Prompts Migration)**:
+  - `utils/legion_advisor.py`: 迁移蓝军/红军子 Agent 的硬编码系统提示词
+  - `utils/ai_advisor.py`: 迁移审计、反思、最终决策的默认提示词
+  - `utils/intelligence_processor.py`: 迁移情报分析的硬编码系统提示词
+  - `utils/qwen_agent.py`: 迁移 Qwen 搜索 Agent 的硬编码系统提示词
+- **代码逻辑优化**: 所有提示词优先从 `prompt_templates` 加载，无配置时回退到 Markdown 文件，最后才是代码内硬编码
+- **提示词中心界面重构 (Prompt Center UI Rebuild)**:
+  - 按照实际使用场景重新设计 6 个分类 Tab：策略生成、风控审计、军团智能体、交易原则、工具与情报、模型配置
+  - 每个提示词显示详细的用途说明 (`desc`)、代码调用位置 (`usage`)、分类标签 (`category`)
+  - 新增提示词统计概览：已加载数、已分类数、未分类数、分类覆盖率
+  - 未分类提示词检测和展示，便于维护
+  - 更新 `prompts/INDEX.md` 文档，添加架构图和详细分类说明
+
+### Fixed (修复)
+- **提示词可维护性**: 解决分散在各处的硬编码提示词难以统一管理和版本控制的问题
+- **提示词热更新**: 现在修改 `prompts/` 目录下的 Markdown 文件即可生效，无需重启应用
+
+---
+
 ## [3.1.0] - 2026-02-12 (Stock Selector Refactor & Global Refresh)
 ### Added (新增)
 - **全局一键刷新 (Global Refresh)**:

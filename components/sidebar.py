@@ -201,14 +201,14 @@ def render_sidebar() -> dict:
             key="input_apikey"
         )
         
-        # Qwen (Tongyi Qianwen)
+        # Qwen (Tongyi Qianwen) - Now only for web search
         if "input_qwen" not in st.session_state:
             st.session_state.input_qwen = settings.get("qwen_api_key", "")
             
         qwen_api_key = st.text_input(
-            "Qwen API Key (DashScope)",
+            "Qwen API Key (DashScope) - 仅用于搜索",
             type="password",
-            help="阿里云 DashScope API Key，用于红队审查",
+            help="阿里云 DashScope API Key，仅用于情报搜索（不再用于策略生成或审计）",
             key="input_qwen"
         )
         

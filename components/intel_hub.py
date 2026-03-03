@@ -1,13 +1,14 @@
 # -*- coding: utf-8 -*-
 import streamlit as st
 import time
+import datetime
+import json
+import os
 from utils.intel_manager import get_claims, add_claims, delete_claim, mark_claims_distinct
 from utils.ai_parser import parse_metaso_report, find_duplicate_candidates
 from utils.researcher import ask_metaso_research_loop
-from utils.researcher import ask_metaso_research_loop
 from utils.config import load_config
-from utils.config import load_config
-from utils.data_fetcher import load_cached_news, fetch_and_save_news
+from utils.data_fetcher import load_cached_news, fetch_and_save_news, get_news_cache_path
 from utils.intelligence_processor import summarize_intelligence
 from utils.qwen_agent import search_with_qwen
 
@@ -163,14 +164,28 @@ def render_intel_hub(code: str, name: str, price: float, avg_cost: float, shares
         
         # [NEW] Real-time News Section (EastMoney)
         with st.expander("🌐 实时资讯 (EastMoney/Sina)", expanded=False):
+            # 检查 akshare 可用性
+            from utils.data_fetcher import _akshare_available
+            
+            if not _akshare_available:
+                st.warning("⚠️ **akshare 数据源当前不可用** (可能被东方财富封禁)。\n\n" +
+                          "实时资讯功能已降级为只读模式，显示的是本地缓存的历史新闻。\n" +
+                          "您仍可使用下方「手动情报录入」功能添加最新资讯。")
+            
             n_col1, n_col2 = st.columns([0.3, 0.7])
             with n_col1:
                 if st.button("🔄 刷新资讯", key=f"btn_refresh_news_{code}"):
-                    try:
-                        fetch_and_save_news(code, n=20)
-                        st.toast("✅ 资讯已更新！")
-                    except Exception as e:
-                        st.error(f"资讯抓取失败: {e}")
+                    if not _akshare_available:
+                        st.error("❌ akshare 数据源不可用，无法刷新资讯。\n\n" +
+                                "建议：\n" +
+                                "1. 使用「手动情报录入」添加最新资讯\n" +
+                                "2. 等待 akshare 恢复或联系管理员")
+                    else:
+                        try:
+                            fetch_and_save_news(code, n=20)
+                            st.toast("✅ 资讯已更新！")
+                        except Exception as e:
+                            st.error(f"资讯抓取失败: {e}")
                     time.sleep(0.5)
                     st.rerun()
             with n_col2:
@@ -196,11 +211,56 @@ def render_intel_hub(code: str, name: str, price: float, avg_cost: float, shares
                             except Exception as e:
                                 st.error(f"提炼失败: {e}")
                 
+            # 手动添加新闻链接（当 akshare 不可用时）
+            if not _akshare_available:
+                with st.expander("➕ 手动添加新闻链接", expanded=False):
+                    news_title = st.text_input("新闻标题", key=f"manual_news_title_{code}")
+                    news_url = st.text_input("新闻链接", key=f"manual_news_url_{code}")
+                    news_date = st.date_input("发布日期", value=datetime.date.today(), key=f"manual_news_date_{code}")
+                    
+                    if st.button("💾 保存新闻", key=f"btn_save_manual_news_{code}"):
+                        if news_title.strip():
+                            # 构造新闻格式
+                            news_item = {
+                                "title": news_title.strip(),
+                                "content": "",
+                                "date": news_date.strftime("%Y-%m-%d"),
+                                "source": "手动添加",
+                                "url": news_url.strip() if news_url.strip() else "#"
+                            }
+                            
+                            # 读取现有缓存并追加
+                            from utils.data_fetcher import get_news_cache_path
+                            import json as json_mod
+                            path = get_news_cache_path(code)
+                            existing = []
+                            if os.path.exists(path):
+                                try:
+                                    with open(path, "r", encoding="utf-8") as f:
+                                        existing = json_mod.load(f)
+                                except:
+                                    pass
+                            
+                            existing.insert(0, news_item)  # 新新闻放前面
+                            
+                            try:
+                                with open(path, "w", encoding="utf-8") as f:
+                                    json_mod.dump(existing[:50], f, ensure_ascii=False, indent=2)  # 最多保留50条
+                                st.success("✅ 新闻已保存！")
+                                time.sleep(0.5)
+                                st.rerun()
+                            except Exception as e:
+                                st.error(f"保存失败: {e}")
+                        else:
+                            st.warning("请输入新闻标题")
+            
             try:
                 news_items = load_cached_news(code, n=10)
                 if not news_items:
-                    st.info("暂无最新资讯。")
+                    st.info("暂无最新资讯。" + ("【akshare 数据源不可用，请使用上方「手动添加新闻链接」功能】" if not _akshare_available else ""))
                 else:
+                    if not _akshare_available:
+                        st.caption(f"📋 显示 {len(news_items)} 条缓存新闻（akshare 不可用时无法自动更新）")
                     for news in news_items:
                         n_title = news.get("title", "无标题")
                         n_date = news.get("date", "")

@@ -154,19 +154,21 @@ def render_strategy_lab():
                 day_res = None
                 
                 while state:
-                    if state.get("type") == "need_strategy":
-                        # Auto-reply for multi-day to avoid blocking? 
-                        # Or just generate silently?
-                        sim_time_str = state['time'].strftime("%H:%M:%S")
-                        new_strat = generate_missing_strategy(selected_stock, "Simulated", day_str, sim_time_str, model_type="DeepSeek")
-                        if new_strat:
-                            state = gen.send(new_strat)
-                        else:
-                            state = next(gen, None)
+                    # Note: simulate_day_generator doesn't currently support 'need_strategy' type
+                    # If dynamic strategy generation during simulation is needed, 
+                    # it should be implemented in simulate_day_generator first.
+                    
+                    if state.get("type") in ["tick", "signal", "info", "real_trade"]:
+                        # Normal simulation progress - continue
+                        state = next(gen, None)
                         continue
                     
                     if state.get("status") == "completed":
                         day_res = state
+                        break
+                    
+                    if state.get("status") in ["error", "no_data"]:
+                        st.warning(f"{day_str} 模拟异常: {state.get('reason', 'Unknown')}")
                         break
                     
                     state = next(gen, None)
@@ -379,7 +381,11 @@ def render_strategy_lab():
     with st.spinner(f"正在构建 {selected_date} 的历史回测环境..."):
         # We need the code, not just name.
         # selected_stock in lab is code (from watchlist)
-        ctx = build_historical_context(selected_stock, selected_date)
+        try:
+            ctx = build_historical_context(selected_stock, selected_date)
+        except Exception as e:
+            st.error(f"构建回测环境时出错: {e}")
+            ctx = None
     
     if ctx:
         # Load Keys/Prompts
@@ -458,16 +464,16 @@ def render_strategy_lab():
         
         # [v2.6] 3-Way Battle Mode
         st.subheader(f"⚔️ 三方博弈竞技场 (User vs AI Legion)")
-        st.info("本模式将对比【实盘操作】与两支 AI 战队的表现：\n1. **DeepSeek** (红军/智库): 严谨、保守、风控导向。\n2. **Qwen** (蓝军/军团): 激进、多维度、GTO 导向。")
+        st.info("本模式将对比【实盘操作】与两支 AI 战队的表现：\n1. **DeepSeek** (红军/审计): 严谨、保守、风控导向。\n2. **Kimi** (蓝军/军团): 激进、多维度、GTO 导向。")
         
         # Expert Selection
         c1, c2 = st.columns(2)
         with c1:
             enable_deepseek = st.checkbox("启用 DeepSeek (DeepSeek-V3)", value=True)
         with c2:
-            enable_qwen = st.checkbox("启用 Qwen (Qwen-Max Legion)", value=True)
+            enable_kimi = st.checkbox("启用 Kimi (Kimi-K2.5 Legion)", value=True)
             
-        if not (enable_deepseek or enable_qwen):
+        if not (enable_deepseek or enable_kimi):
             st.error("请至少选择一个 AI 对手")
             return
 
@@ -484,7 +490,7 @@ def render_strategy_lab():
             
             check_models = []
             if enable_deepseek: check_models.append("DeepSeek")
-            if enable_qwen: check_models.append("Qwen")
+            if enable_kimi: check_models.append("Kimi")
             
             from datetime import timedelta, time as dtime
             
@@ -555,7 +561,7 @@ def render_strategy_lab():
         # Parallel Simulation Loop for Selected Models
         active_models = []
         if enable_deepseek: active_models.append("DeepSeek")
-        if enable_qwen: active_models.append("Qwen")
+        if enable_kimi: active_models.append("Kimi")
 
         # Initialize Generators
         generators = {}
@@ -627,19 +633,8 @@ def render_strategy_lab():
                 st_data = states[m]
                 if not st_data: continue
                 
-                # Handle Need Strategy
-                if st_data.get("type") == "need_strategy":
-                    # Auto-generate or prompt?
-                    # We already did "Check & Backfill" at start.
-                    # This might happen for Intraday signals generated dynamically.
-                    with st.spinner(f"🧠 {m}: 盘中策略缺失 ({st_data.get('point')})..."):
-                         sim_time_str = st_data['time'].strftime("%H:%M:%S")
-                         new_strat = generate_missing_strategy(selected_stock, "Simulated", selected_date, sim_time_str, model_type=m)
-                         if new_strat:
-                             states[m] = generators[m].send(new_strat)
-                         else:
-                             states[m] = next(generators[m], None)
-                    continue
+                # Note: simulate_day_generator doesn't currently support 'need_strategy' type with send()
+                # Dynamic strategy generation during simulation would require generator support.
                 
                 # Handle Completion
                 if "status" in st_data and st_data["status"] in ["completed", "no_data", "error"]:
@@ -1056,7 +1051,7 @@ def render_strategy_lab():
                     
                     # Colors: DeepSeek (Red), Qwen (Cyan)
                     if m_name == "DeepSeek": color_map.append("#FF4B4B")
-                    elif m_name == "Qwen": color_map.append("#29B09D")
+                    elif m_name == "Kimi": color_map.append("#29B09D")
                     else: color_map.append(None) # Auto
                 
                 # 3. Final Render

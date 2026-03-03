@@ -3,7 +3,7 @@ import json
 import re
 from datetime import datetime
 
-def search_with_qwen(api_key: str, query: str, model: str = "qwen-max") -> list:
+def search_with_qwen(api_key: str, query: str, model: str = "qwen-max", prompt_templates: dict = None) -> list:
     """
     Calls Qwen (DashScope) with `enable_search=True` to perform a web search.
     Returns a list of intelligence claims (formatted as dicts).
@@ -19,8 +19,16 @@ def search_with_qwen(api_key: str, query: str, model: str = "qwen-max") -> list:
         "Authorization": f"Bearer {api_key}"
     }
     
+    # v3.2.0: 从提示词中心加载系统提示词，避免硬编码
+    if prompt_templates is None:
+        try:
+            from utils.prompt_loader import load_all_prompts
+            prompt_templates = load_all_prompts()
+        except Exception:
+            prompt_templates = {}
+    
     # System Prompt to format output as a list of facts
-    system_prompt = """
+    system_prompt = prompt_templates.get("qwen_agent_system") or """
     你是一个金融情报搜集员。你的任务是利用联网搜索能力，回答用户的查询，并将结果整理为【情报清单】。
     
     要求：

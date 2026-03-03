@@ -114,10 +114,18 @@ def build_historical_context(code: str, target_date_str: str):
     else:
         intra_summary += " 日内走势: 震荡下行 (Mock)"
 
-    # 7. Construct Result
+    # 7. Fetch Stock Name
+    stock_name = 'Unknown'
+    try:
+        from utils.data_fetcher import get_stock_name_by_code_cached
+        stock_name = get_stock_name_by_code_cached(code)
+    except Exception:
+        pass
+    
+    # 8. Construct Result
     context = {
         'code': code,
-        'name': 'Unknown', # Lab should pass name or we fetch from DB
+        'name': stock_name,  # Now properly fetched
         'price': price,
         'pre_close': pre_close,
         'open': open_p,

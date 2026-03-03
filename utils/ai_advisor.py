@@ -386,9 +386,10 @@ def build_advisor_prompt(context_data, research_context="", technical_indicators
     # System Prompt (From Config)
     # Unified Strategy (LAG + GTO for All)
     sys_key = "proposer_system"
-    default_sys = "You are a professional trader. Analyze the provided data and give actionable trading advice."
+    # 从提示词中心加载，提供简洁的 fallback
+    default_sys = prompt_templates.get("proposer_system") or "You are a professional trader. Analyze the provided data and give actionable trading advice."
     
-    system_prompt = prompt_templates.get(sys_key, default_sys)
+    system_prompt = prompt_templates.get(sys_key) or default_sys
     
     return system_prompt, base_prompt
 
@@ -493,8 +494,9 @@ def build_red_team_prompt(context_data, prompt_templates=None, is_final_round=Fa
     """
     if not prompt_templates: prompt_templates = {}
     
-    # Defaults
-    DEFAULT_RED_SYS = """
+    # Defaults - 优先从提示词中心加载，避免硬编码
+    # v3.2.0: 所有默认提示词已迁移到 prompts/ 目录
+    DEFAULT_RED_SYS = prompt_templates.get("reviewer_system") or """
 你是一位拥有 20 年经验的【A股德州扑克 LAG + GTO 交易专家】。
 你现在担任【策略审计师】(Auditor)，你的交易哲学与蓝军（策略师）完全一致：LAG (松凶) + GTO (博弈论最优)。
 
@@ -510,7 +512,7 @@ def build_red_team_prompt(context_data, prompt_templates=None, is_final_round=Fa
     if is_final_round:
         DEFAULT_RED_SYS += "\n【注意】这是**最终轮**审查。如果蓝军已经根据你的前次意见修正了策略，且风险已通过，请直接批准。"
 
-    DEFAULT_RED_USER = """
+    DEFAULT_RED_USER = prompt_templates.get("reviewer_audit") or """
 【审计上下文】
 交易日期: {date}
 标的: {code} ({name})
@@ -573,10 +575,11 @@ def build_red_team_prompt(context_data, prompt_templates=None, is_final_round=Fa
     except Exception as e:
         return "", f"Prompt Format Error: {e}"
 
-def call_kimi_api(api_key, system_prompt, user_prompt, model="kimi-k2.5", base_url="https://api.moonshot.cn/v1"):
+def call_kimi_api(api_key, system_prompt, user_prompt, model="kimi-k2.5", base_url="https://api.moonshot.cn/v1", max_retries=2):
     """
     Executes the API call to Kimi (Moonshot AI).
     Compatible with OpenAI SDK pattern.
+    Added retry logic and increased timeout for better reliability.
     """
     if not api_key:
         return "Error: Missing Kimi API Key"
@@ -602,23 +605,52 @@ def call_kimi_api(api_key, system_prompt, user_prompt, model="kimi-k2.5", base_u
             {"role": "system", "content": system_prompt},
             {"role": "user", "content": user_prompt}
         ],
-        "temperature": 1.0 # kimi-k2.5 requires exactly 1.0
+        "temperature": 1.0, # kimi-k2.5 requires exactly 1.0
+        "max_tokens": 8192  # Limit response size to reduce timeout risk
     }
     
-    try:
-        response = requests.post(url, headers=headers, json=payload, timeout=120)
-        if response.status_code == 200:
-            res_json = response.json()
-            if 'choices' in res_json and len(res_json['choices']) > 0:
-                content = res_json['choices'][0]['message'].get('content', '')
-                return content
-            return f"Kimi API Error: Empty response format {res_json}"
-        else:
-            k_len = len(clean_key)
-            k_pfx = clean_key[:5] if k_len > 5 else clean_key
-            return f"Kimi API Error {response.status_code}: {response.text} (Key: {k_pfx}..., Len: {k_len})"
-    except Exception as e:
-        return f"Kimi Request Failed: {str(e)}"
+    # Retry logic with exponential backoff
+    last_error = None
+    for attempt in range(max_retries + 1):
+        try:
+            # Increased timeout to 180s for Kimi (complex MoE requests need more time)
+            timeout = 180 if attempt == 0 else 120
+            response = requests.post(url, headers=headers, json=payload, timeout=timeout)
+            if response.status_code == 200:
+                res_json = response.json()
+                if 'choices' in res_json and len(res_json['choices']) > 0:
+                    content = res_json['choices'][0]['message'].get('content', '')
+                    return content
+                return f"Kimi API Error: Empty response format {res_json}"
+            else:
+                # If server error (5xx), retry
+                if response.status_code >= 500 and attempt < max_retries:
+                    print(f"Kimi server error {response.status_code}, retrying... (attempt {attempt + 1}/{max_retries + 1})")
+                    import time
+                    time.sleep(2 ** attempt)  # Exponential backoff
+                    continue
+                k_len = len(clean_key)
+                k_pfx = clean_key[:5] if k_len > 5 else clean_key
+                return f"Kimi API Error {response.status_code}: {response.text} (Key: {k_pfx}..., Len: {k_len})"
+        except requests.exceptions.Timeout as e:
+            last_error = e
+            if attempt < max_retries:
+                print(f"Kimi timeout, retrying... (attempt {attempt + 1}/{max_retries + 1})")
+                import time
+                time.sleep(2 ** attempt)  # Exponential backoff
+                continue
+            else:
+                return f"Kimi Request Failed: API超时 (已重试{max_retries}次)。Moonshot API当前可能繁忙，请稍后重试。"
+        except Exception as e:
+            last_error = e
+            if attempt < max_retries:
+                print(f"Kimi error: {e}, retrying... (attempt {attempt + 1}/{max_retries + 1})")
+                import time
+                time.sleep(2 ** attempt)
+                continue
+            return f"Kimi Request Failed: {str(e)}"
+    
+    return f"Kimi Request Failed: 所有重试均失败 - {str(last_error)}"
 
 def call_ai_model(model_name, api_key, system_prompt, user_prompt, specific_model=None, base_url=None):
     """
@@ -664,13 +696,15 @@ def build_refinement_prompt(original_context, original_plan, audit_report, promp
     # 1. Reuse Original System Prompt logic (Role persistence)
     # Ideally should match the Blue Team's original system prompt
     sys_key = "proposer_system"
-    default_sys = "You are a professional trader."
-    system_prompt = prompt_templates.get(sys_key, default_sys)
+    # v3.2.0: 从提示词中心加载，避免硬编码
+    default_sys = prompt_templates.get("proposer_system") or "You are a professional trader."
+    system_prompt = prompt_templates.get(sys_key) or default_sys
     
     # 2. Build Refinement Instruction (User Prompt)
     # Default instruction incorporating "Blue Team Autonomy"
-    default_refine_instr = "Please refine the strategy based on the audit feedback."
-    refine_tpl = prompt_templates.get("refinement_instruction", default_refine_instr)
+    # v3.2.0: 从提示词中心加载
+    default_refine_instr = prompt_templates.get("refinement_instruction") or "Please refine the strategy based on the audit feedback."
+    refine_tpl = prompt_templates.get("refinement_instruction") or default_refine_instr
     
     try:
         user_prompt = refine_tpl.format(audit_report=audit_report)
@@ -736,13 +770,15 @@ def build_final_decision_prompt(aggregated_history: list, prompt_templates=None,
 
     # 3. System Prompt (Reuse Blue Team)
     sys_key = "proposer_system"
-    default_sys = f"You are a professional trader analyzing {target_info}."
-    system_prompt = prompt_templates.get(sys_key, default_sys)
+    # v3.2.0: 从提示词中心加载，避免硬编码
+    default_sys = prompt_templates.get("proposer_system") or f"You are a professional trader analyzing {target_info}."
+    system_prompt = prompt_templates.get(sys_key) or default_sys
     
     # 4. User Prompt (Decision Instruction)
     # Using triple-quoted string to ensure formatting
-    default_instr = f"Please review the strategy history and provide a final trading decision for {target_info}."
-    user_tpl = prompt_templates.get("proposer_final_decision", default_instr)
+    # v3.2.0: 从提示词中心加载
+    default_instr = prompt_templates.get("proposer_final_decision") or f"Please review the strategy history and provide a final trading decision for {target_info}."
+    user_tpl = prompt_templates.get("proposer_final_decision") or default_instr
     
     try:
         # Note: If user_tpl contains other keys, this might need refinement

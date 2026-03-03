@@ -128,20 +128,13 @@ def _render_day_cell(ui_col, date_str, data, is_today):
         border = "2px solid #4CAF50"
     
     # HTML Content
-    html = f"""
-    <div style="
-        border: {border};
-        background-color: {bg_color};
-        padding: 5px;
-        border-radius: 5px;
-        min-height: 80px;
-        text-align: center;
-    ">
-        <div style="font-weight: bold; font-size: 1.1em;">{day_num}</div>
-        <div style="font-size: 1.2em; margin-top: 5px;">{status_emoji}</div>
-        <div style="font-size: 0.8em; color: #666;">
-            {data['description'] if data and data['description'] else ''}
-        </div>
-    </div>
-    """
+    desc_text = data['description'] if data and data.get('description') else ''
+    # 防止 description 中的 HTML 标签破坏布局
+    desc_text = str(desc_text).replace('<', '&lt;').replace('>', '&gt;') if desc_text else ''
+    
+    html = f"""<div style="border: {border}; background-color: {bg_color}; padding: 5px; border-radius: 5px; min-height: 80px; text-align: center;">
+    <div style="font-weight: bold; font-size: 1.1em;">{day_num}</div>
+    <div style="font-size: 1.2em; margin-top: 5px;">{status_emoji}</div>
+    <div style="font-size: 0.8em; color: #666;">{desc_text}</div>
+</div>"""
     ui_col.markdown(html, unsafe_allow_html=True)
