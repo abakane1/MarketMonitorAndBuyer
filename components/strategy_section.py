@@ -7,8 +7,9 @@ from utils.storage import get_volume_profile, get_latest_production_log, save_pr
 from utils.ai_parser import extract_bracket_content
 from utils.config import load_config, get_allocation, set_allocation
 from utils.monitor_logger import log_ai_heartbeat
-from utils.database import db_get_history, db_get_position
+from utils.database import db_get_history, db_get_position, db_save_strategy_execution_log
 from utils.ai_advisor import build_advisor_prompt, call_deepseek_api, build_refinement_prompt
+from utils.ai_parser import extract_bracket_content, parse_strategy_with_fallback
 
 import pandas as pd
 
@@ -546,6 +547,41 @@ def render_strategy_section(code: str, name: str, price: float, shares_held: int
                     # 1. Formatting Full Result
                     full_result = f"{ai_strat_log.get('tag', '')} {ai_strat_log['result']}"
                     
+                    # [Task 13: Execution Tracking] Extract AI decisions
+                    draft_v1 = ai_strat_log.get('draft_v1', ai_strat_log['result'])
+                    v1_parsed = parse_strategy_with_fallback(draft_v1)
+                    v2_parsed = parse_strategy_with_fallback(ai_strat_log['result'])
+                    
+                    try:
+                        ai_price = float(re.search(r"(\d+(\.\d+)?)", str(v1_parsed.get('price', 0))).group(1)) if v1_parsed.get('price') else 0.0
+                    except: ai_price = 0.0
+                    
+                    try:
+                        final_price = float(re.search(r"(\d+(\.\d+)?)", str(v2_parsed.get('price', 0))).group(1)) if v2_parsed.get('price') else 0.0
+                    except: final_price = 0.0
+                    
+                    ai_qty = int(v1_parsed.get('shares', 0) or 0)
+                    final_qty = int(v2_parsed.get('shares', 0) or 0)
+                    ai_action = v1_parsed.get('direction', '观望')
+                    final_action = v2_parsed.get('direction', '观望')
+                    
+                    # Determine if user or red team altered the draft
+                    is_altered = 1 if (ai_action != final_action or final_price != ai_price or final_qty != ai_qty) else 0
+                    strategy_uuid = ai_strat_log.get('timestamp', str(time.time()))
+                    
+                    db_save_strategy_execution_log(
+                        symbol=code,
+                        strategy_id=strategy_uuid,
+                        ai_action=ai_action,
+                        ai_price=ai_price,
+                        ai_qty=ai_qty,
+                        final_action=final_action,
+                        final_price=final_price,
+                        final_qty=final_qty,
+                        is_altered=is_altered,
+                        reasoning=f"Draft v1 -> User Accepted. Prompt used: {ai_strat_log.get('prompt_version', 'default')}"
+                    )
+                    
                     if ai_strat_log.get('audit'):
                         full_result += f"\n\n--- 🔴 Round 1 Audit ---\n{ai_strat_log['audit']}"
                     
@@ -601,6 +637,31 @@ def render_strategy_section(code: str, name: str, price: float, shares_held: int
                     
             with col_disc:
                 if st.button("🗑️ 放弃 (Discard)", key=f"btn_discard_{code}", use_container_width=True):
+                    # [Task 13: Execution Tracking]
+                    draft_v1 = ai_strat_log.get('draft_v1', ai_strat_log['result'])
+                    v1_parsed = parse_strategy_with_fallback(draft_v1)
+                    
+                    try:
+                        ai_price = float(re.search(r"(\d+(\.\d+)?)", str(v1_parsed.get('price', 0))).group(1)) if v1_parsed.get('price') else 0.0
+                    except: ai_price = 0.0
+                    
+                    ai_qty = int(v1_parsed.get('shares', 0) or 0)
+                    ai_action = v1_parsed.get('direction', '观望')
+                    strategy_uuid = ai_strat_log.get('timestamp', str(time.time()))
+                    
+                    db_save_strategy_execution_log(
+                        symbol=code,
+                        strategy_id=strategy_uuid,
+                        ai_action=ai_action,
+                        ai_price=ai_price,
+                        ai_qty=ai_qty,
+                        final_action="放弃",
+                        final_price=0.0,
+                        final_qty=0,
+                        is_altered=1,
+                        reasoning=f"User Discarded. Prompt used: {ai_strat_log.get('prompt_version', 'default')}"
+                    )
+                    
                     # Clear draft
                     del st.session_state[pending_key]
                     st.info("策略已放弃")

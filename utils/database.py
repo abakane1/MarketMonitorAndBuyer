@@ -117,6 +117,23 @@ def init_db():
         details TEXT
     )''')
     
+    # [NEW] Strategy Execution Logs (Task 13: Full Lifecycle Tracking)
+    c.execute('''CREATE TABLE IF NOT EXISTS strategy_execution_logs (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        symbol TEXT,
+        strategy_id TEXT,
+        timestamp TEXT,
+        ai_action TEXT,
+        ai_price REAL,
+        ai_qty INTEGER,
+        final_action TEXT,
+        final_price REAL,
+        final_qty INTEGER,
+        is_altered INTEGER,
+        reasoning TEXT,
+        portfolio_id TEXT DEFAULT 'default'
+    )''')
+    
     # --- Schema Migration: Initialize default portfolio if not exists ---
     try:
         c.execute("SELECT id FROM portfolios WHERE id = 'default'")
@@ -216,6 +233,14 @@ def init_db():
         print("Migrating DB: Adding name column to watchlist table...")
         c.execute("ALTER TABLE watchlist ADD COLUMN name TEXT DEFAULT ''")
         conn.commit()
+
+    # --- Schema Migration: strategy_execution_logs ---
+    try:
+        c.execute("SELECT is_altered FROM strategy_execution_logs LIMIT 1")
+    except sqlite3.OperationalError:
+        # Tables that are totally new can just pass, but if the table was created without a column, alter it.
+        # Actually sqlite `CREATE TABLE IF NOT EXISTS` is enough for a completely new table.
+        pass
 
     conn.commit()
     conn.close()
@@ -611,6 +636,75 @@ def db_get_latest_review_log(symbol: str) -> dict:
             "model": mdl
         }
     return None
+
+# --- Strategy Execution tracking ---
+
+def db_save_strategy_execution_log(
+    symbol: str, 
+    strategy_id: str,
+    ai_action: str, 
+    ai_price: float, 
+    ai_qty: int, 
+    final_action: str, 
+    final_price: float, 
+    final_qty: int,
+    is_altered: int,
+    reasoning: str,
+    portfolio_id: str = 'default'
+):
+    conn = get_db_connection()
+    c = conn.cursor()
+    ts = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+    
+    c.execute("""
+        INSERT INTO strategy_execution_logs 
+        (symbol, strategy_id, timestamp, ai_action, ai_price, ai_qty, final_action, final_price, final_qty, is_altered, reasoning, portfolio_id)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+    """, (symbol, strategy_id, ts, ai_action, ai_price, ai_qty, final_action, final_price, final_qty, is_altered, reasoning, portfolio_id))
+    
+    conn.commit()
+    conn.close()
+
+def db_get_strategy_execution_logs(symbol: str = None, portfolio_id: str = 'default', limit: int = 50) -> list:
+    conn = get_db_connection()
+    c = conn.cursor()
+    
+    if symbol:
+        c.execute("""
+            SELECT * FROM strategy_execution_logs 
+            WHERE symbol = ? AND portfolio_id = ?
+            ORDER BY id DESC 
+            LIMIT ?
+        """, (symbol, portfolio_id, limit))
+    else:
+        c.execute("""
+            SELECT * FROM strategy_execution_logs 
+            WHERE portfolio_id = ?
+            ORDER BY id DESC 
+            LIMIT ?
+        """, (portfolio_id, limit))
+        
+    rows = c.fetchall()
+    conn.close()
+    
+    res = []
+    for r in rows:
+        res.append({
+            "id": r["id"],
+            "symbol": r["symbol"],
+            "strategy_id": r["strategy_id"],
+            "timestamp": r["timestamp"],
+            "ai_action": r["ai_action"],
+            "ai_price": r["ai_price"],
+            "ai_qty": r["ai_qty"],
+            "final_action": r["final_action"],
+            "final_price": r["final_price"],
+            "final_qty": r["final_qty"],
+            "is_altered": bool(r["is_altered"]),
+            "reasoning": r["reasoning"],
+            "portfolio_id": r["portfolio_id"]
+        })
+    return res
 
 # --- History ---
 

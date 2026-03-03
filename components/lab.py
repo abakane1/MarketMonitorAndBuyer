@@ -23,6 +23,42 @@ def render_strategy_lab():
     if not selected_stock:
         return
         
+    # === [Task 13: Execution Tracking Panel] ===
+    from utils.database import db_get_strategy_execution_logs
+    exec_logs = db_get_strategy_execution_logs(selected_stock, limit=50)
+    
+    if exec_logs:
+        with st.expander("📜 AI 策略执行追踪与干预记录 (Execution Deviation)", expanded=False):
+            st.caption("记录 AI 原始策略建议与用户最终执行（或红军干预）之间的偏差，用于量化系统采纳率。")
+            total_logs = len(exec_logs)
+            altered_logs = sum(1 for log in exec_logs if log['is_altered'])
+            adherence_rate = (total_logs - altered_logs) / total_logs * 100 if total_logs > 0 else 0
+            
+            c1, c2, c3 = st.columns(3)
+            c1.metric("📌 策略生成/评估总数", total_logs)
+            c2.metric("🤺 用户/红军干预数", altered_logs)
+            c3.metric("🎯 无干预执行率", f"{adherence_rate:.1f}%")
+            
+            df_exec = pd.DataFrame(exec_logs)
+            # Enhance display
+            df_exec['干预状态'] = df_exec['is_altered'].apply(lambda x: "🚨 被干预" if x else "✅ 无修改")
+            df_exec = df_exec.rename(columns={
+                'timestamp': '时间',
+                'ai_action': 'AI 操作',
+                'ai_price': 'AI 价格',
+                'ai_qty': 'AI 数量',
+                'final_action': '最终操作',
+                'final_price': '最终价格',
+                'final_qty': '最终数量',
+                'reasoning': '流转备注'
+            })
+            st.dataframe(
+                df_exec[['时间', 'AI 操作', 'AI 价格', 'AI 数量', '最终操作', '最终价格', '最终数量', '干预状态', '流转备注']], 
+                use_container_width=True, 
+                hide_index=True
+            )
+    st.markdown("---")
+
     # 2. Select Date
     # Get all logs to find available dates
     all_logs = db_get_strategy_logs(selected_stock, limit=1000)
