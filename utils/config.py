@@ -556,6 +556,7 @@ def update_position(code, shares, price, action="buy", custom_date: str = None):
     Updates position based on action.
     action: 'buy' (calculate weighted avg), 'sell' (reduce shares), 'override' (overwrite)
     PERSISTENCE: SQLite DB ONLY.
+    Returns: (bool, str) - (Success Status, Message)
     """
     # 1. Add History Record First
     # Determine type names
@@ -573,22 +574,17 @@ def update_position(code, shares, price, action="buy", custom_date: str = None):
         timestamp = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
 
     # Write to History DB
-    db_add_history(code, timestamp, action, price, shares, note)
+    success, msg = db_add_history(code, timestamp, action, price, shares, note)
+    if not success:
+        return False, msg
     
     # 2. Recalculate State from History (Single Source of Truth)
-    # This prevents drift between History and State
     recalculate_position_from_history(code)
     
     # Get new state for checking watchlist addition
-    # current = db_get_position(code) 
-    # new_shares = current['shares']
-    # But below logic needs new_shares
-    
-    # Let's re-fetch to ensure we have correct new_shares for watchlist logic
     updated_pos = db_get_position(code)
     new_shares = updated_pos['shares']
 
-    # 2. No syncing to user_config.json (Deprecated)
     try:
         # Check if code is in DB watchlist, if not add it
         from utils.database import db_get_watchlist, db_add_watchlist
@@ -597,6 +593,8 @@ def update_position(code, shares, price, action="buy", custom_date: str = None):
              db_add_watchlist(code)
     except Exception as e:
         print(f"Error syncing watchlist: {e}")
+        
+    return True, msg
 
 def recalculate_position_from_history(code: str):
     """

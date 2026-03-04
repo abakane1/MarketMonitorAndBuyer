@@ -183,23 +183,18 @@ def render_stock_dashboard(code: str, name: str, total_capital: float, risk_pct:
         
         if st.button("记录交易", key=f"submit_trade_{code}", type="primary"):
             if trade_action == "买入":
-                update_position(code, trade_shares, trade_price, "buy", custom_date=custom_ts)
-                info_msg = "买入记录已更新！"
-                if custom_ts: info_msg += f" (补录时间: {custom_ts})"
-                st.success(info_msg)
+                success, msg = update_position(code, trade_shares, trade_price, "buy", custom_date=custom_ts)
             elif trade_action == "卖出":
-                update_position(code, trade_shares, trade_price, "sell", custom_date=custom_ts)
-                info_msg = "卖出记录已更新！"
-                if custom_ts: info_msg += f" (补录时间: {custom_ts})"
-                st.success(info_msg)
+                success, msg = update_position(code, trade_shares, trade_price, "sell", custom_date=custom_ts)
             else:
-                update_position(code, trade_shares, trade_price, "override", custom_date=custom_ts)
-                info_msg = "持仓已强制修正！"
-                if custom_ts: info_msg += f" (补录时间: {custom_ts})"
-                st.success(info_msg)
+                success, msg = update_position(code, trade_shares, trade_price, "override", custom_date=custom_ts)
             
-            time.sleep(1)
-            st.rerun()
+            if success:
+                st.success(f"{trade_action}记录已更新！ {msg}")
+                time.sleep(1)
+                st.rerun()
+            else:
+                st.error(f"记录失败: {msg}")
         
         st.markdown("---")
         st.caption("📜 交易记录 (History)")
