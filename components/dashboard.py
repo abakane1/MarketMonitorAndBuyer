@@ -12,8 +12,101 @@ from utils.config import get_position, update_position, get_history, delete_tran
 
 from components.strategy_section import render_strategy_section
 from components.intel_hub import render_intel_hub
+from utils.asset_classifier import is_etf
 
-def render_stock_dashboard(code: str, name: str, total_capital: float, risk_pct: float, proximity_pct: float):
+def render_market_and_watchlist_overview(selected_labels: list):
+    """
+    渲染全市场核心指数实时预览及自选股聚合看板。
+    """
+    st.markdown("### 📊 当天总览 (Market & Watchlist Overview)")
+    
+    # 1. 核心指数 (Row 1)
+    idx_cols = st.columns(3)
+    indices = [
+        {"name": "上证指数", "symbol": "000001"},
+        {"name": "深证成指", "symbol": "399001"},
+        {"name": "创业板指", "symbol": "399006"}
+    ]
+    
+    for i, idx in enumerate(indices):
+        info = get_stock_realtime_info(idx["symbol"])
+        if info:
+            price = info.get('price', 0)
+            change = info.get('pct_chg', 0)
+            idx_cols[i].metric(idx["name"], f"{price:.2f}", delta=f"{change:.2f}%")
+        else:
+            idx_cols[i].metric(idx["name"], "数据获取中...")
+
+    st.divider()
+
+    # 2. 自选股聚合列表 (Row 2)
+    if not selected_labels:
+        st.info("尚未选择自选股。")
+        return
+
+    st.markdown("##### 🔍 自选股动态行情")
+    
+    watchlist_data = []
+    for label in selected_labels:
+        code = label.split(" | ")[0]
+        name = label.split(" | ")[1]
+        
+        info = get_stock_realtime_info(code)
+        if info:
+            # 聚合基础数据
+            pos_data = get_position(code)
+            shares = pos_data.get('shares', 0)
+            
+            watchlist_data.append({
+                "代码": code,
+                "名称": name,
+                "最新价": info.get('price', 0),
+                "涨跌幅": f"{info.get('pct_chg', 0):.2f}%",
+                "主力净入": f"{info.get('main_net_inflow', 0):.2f}万" if 'main_net_inflow' in info else "-",
+                "成交额": f"{info.get('amount', 0)/100000000:.2f}亿" if 'amount' in info else "-",
+                "持仓(股)": shares,
+                "浮动盈亏": f"{(info.get('price', 0) - pos_data.get('cost', 0)) * shares:.2f}" if shares > 0 else "-"
+            })
+    
+    if watchlist_data:
+        df_overview = pd.DataFrame(watchlist_data)
+        st.dataframe(
+            df_overview,
+            column_config={
+                "代码": st.column_config.TextColumn("代码", width="small"),
+                "涨跌幅": st.column_config.TextColumn("涨跌幅", help="实时涨跌幅"),
+            },
+            hide_index=True,
+            use_container_width=True
+        )
+
+    # 3. 统计分布 (Optional)
+    st.divider()
+    if watchlist_data:
+        c1, c2 = st.columns([1.5, 1])
+        with c1:
+            st.markdown("##### 📈 自选股涨跌比例")
+            # 简单计算比例
+            up_count = sum(1 for d in watchlist_data if float(d["涨跌幅"].replace('%','')) > 0)
+            down_count = sum(1 for d in watchlist_data if float(d["涨跌幅"].replace('%','')) < 0)
+            flat_count = len(watchlist_data) - up_count - down_count
+            
+            fig = go.Figure(data=[go.Pie(
+                labels=['上涨', '下跌', '走平'], 
+                values=[up_count, down_count, flat_count],
+                hole=.4,
+                marker_colors=['#f85149', '#3fb950', '#8b949e']
+            )])
+            fig.update_layout(height=300, margin=dict(l=10, r=10, t=10, b=10))
+            st.plotly_chart(fig, use_container_width=True)
+        
+        with c2:
+            st.markdown("##### 💡 操盘提醒")
+            # 找出涨跌最剧烈的
+            sorted_by_change = sorted(watchlist_data, key=lambda x: float(x["涨跌幅"].replace('%','')), reverse=True)
+            if sorted_by_change:
+                st.write(f"🔥 今日最强: **{sorted_by_change[0]['名称']}** ({sorted_by_change[0]['涨跌幅']})")
+                st.write(f"❄️ 今日最弱: **{sorted_by_change[-1]['名称']}** ({sorted_by_change[-1]['涨跌幅']})")
     """
     渲染单个股票的完整仪表盘。
     """
