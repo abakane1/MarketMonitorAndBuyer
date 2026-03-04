@@ -71,25 +71,25 @@ def render_daily_strategy_overview(selected_labels: list):
         })
     
     if strategy_data:
-        df_strat = pd.DataFrame(strategy_data)
-        
-        # 定义加色函数
-        def color_bias(val):
-            if "看多" in val or "买入" in val: color = "#f85149" # 红色
-            elif "看空" in val or "卖出" in val: color = "#3fb950" # 绿色
-            elif "观望" in val or "持有" in val: color = "#8b949e" # 灰色
-            else: color = None
-            return f'color: {color}; font-weight: bold' if color else ''
+        st.markdown("---")
+        # 改用卡片布局分块显示，以解决表格显示不全问题
+        for d in strategy_data:
+            # 根据倾向确定颜色和图标
+            res = d["研判倾向"]
+            if any(k in res for k in ["看多", "买入", "抄底"]): 
+                color, icon = "red", "🚀"
+            elif any(k in res for k in ["看空", "卖出", "减仓"]): 
+                color, icon = "green", "🛡️"
+            else: 
+                color, icon = "gray", "⚖️"
 
-        st.dataframe(
-            df_strat.style.applymap(color_bias, subset=['研判倾向']),
-            column_config={
-                "核心逻辑概要": st.column_config.TextColumn("核心逻辑概要", width="large"),
-                "最新价": st.column_config.NumberColumn("价格", format="%.2f"),
-            },
-            hide_index=True,
-            use_container_width=True
-        )
+            # 使用 Expander 作为卡片，默认展开
+            with st.expander(f"{icon} **{d['股票']}** | 【{res}】 | 现价: {d['最新价']:.2f}", expanded=True):
+                c_main, c_time = st.columns([4, 1])
+                with c_main:
+                    st.markdown(f"**策略逻辑**: {d['核心逻辑概要']}")
+                with c_time:
+                    st.caption(f"🕒 {d['更新时间']}")
 
     # 3. 策略倾向统计
     st.divider()
