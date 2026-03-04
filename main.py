@@ -583,12 +583,12 @@ elif app_mode == "复盘与预判":
             st.caption(f"最后更新时间: {datetime.now().strftime('%H:%M:%S')}")
             
             # Switch to Tabs for Stocks
-            tab_titles = ["📈 当天总览"] + [f"{label.split(' | ')[1]} ({label.split(' | ')[0]})" for label in selected_labels]
+            tab_titles = ["📝 当日策略"] + [f"{label.split(' | ')[1]} ({label.split(' | ')[0]})" for label in selected_labels]
             stock_tabs = st.tabs(tab_titles)
             
             with stock_tabs[0]:
-                from components.dashboard import render_market_and_watchlist_overview
-                render_market_and_watchlist_overview(selected_labels)
+                from components.dashboard import render_daily_strategy_overview
+                render_daily_strategy_overview(selected_labels)
             
             for idx, label in enumerate(selected_labels):
                 code = label.split(" | ")[0]

@@ -14,99 +14,114 @@ from components.strategy_section import render_strategy_section
 from components.intel_hub import render_intel_hub
 from utils.asset_classifier import is_etf
 
-def render_market_and_watchlist_overview(selected_labels: list):
-    """
-    渲染全市场核心指数实时预览及自选股聚合看板。
-    """
-    st.markdown("### 📊 当天总览 (Market & Watchlist Overview)")
-    
-    # 1. 核心指数 (Row 1)
-    idx_cols = st.columns(3)
-    indices = [
-        {"name": "上证指数", "symbol": "000001"},
-        {"name": "深证成指", "symbol": "399001"},
-        {"name": "创业板指", "symbol": "399006"}
-    ]
-    
-    for i, idx in enumerate(indices):
-        info = get_stock_realtime_info(idx["symbol"])
-        if info:
-            price = info.get('price', 0)
-            change = info.get('pct_chg', 0)
-            idx_cols[i].metric(idx["name"], f"{price:.2f}", delta=f"{change:.2f}%")
-        else:
-            idx_cols[i].metric(idx["name"], "数据获取中...")
+from utils.database import db_get_review_logs
 
-    st.divider()
-
-    # 2. 自选股聚合列表 (Row 2)
+def render_daily_strategy_overview(selected_labels: list):
+    """
+    渲染自选股当日 AI 策略研判聚合看板。
+    """
+    st.markdown("### 📝 当日策略总览 (Daily Strategy Overview)")
+    
     if not selected_labels:
         st.info("尚未选择自选股。")
         return
 
-    st.markdown("##### 🔍 自选股动态行情")
+    # 1. 指数简报 (精简版)
+    idx_cols = st.columns(3)
+    indices = [
+        {"name": "上证", "symbol": "000001"},
+        {"name": "深证", "symbol": "399001"},
+        {"name": "创业", "symbol": "399006"}
+    ]
+    for i, idx in enumerate(indices):
+        info = get_stock_realtime_info(idx["symbol"])
+        if info:
+            price, change = info.get('price', 0), info.get('pct_chg', 0)
+            idx_cols[i].caption(f"{idx['name']}: **{price:.2f}** ({change:+.2f}%)")
+
+    st.divider()
+
+    # 2. 策略看板核心表格
+    st.markdown("##### 🎯 聚合研判建议")
     
-    watchlist_data = []
+    strategy_data = []
     for label in selected_labels:
         code = label.split(" | ")[0]
         name = label.split(" | ")[1]
         
+        # 获取最新研判
+        reviews = db_get_review_logs(code, limit=1)
+        latest_review = reviews[0] if reviews else {}
+        
         info = get_stock_realtime_info(code)
-        if info:
-            # 聚合基础数据
-            pos_data = get_position(code)
-            shares = pos_data.get('shares', 0)
-            
-            watchlist_data.append({
-                "代码": code,
-                "名称": name,
-                "最新价": info.get('price', 0),
-                "涨跌幅": f"{info.get('pct_chg', 0):.2f}%",
-                "主力净入": f"{info.get('main_net_inflow', 0):.2f}万" if 'main_net_inflow' in info else "-",
-                "成交额": f"{info.get('amount', 0)/100000000:.2f}亿" if 'amount' in info else "-",
-                "持仓(股)": shares,
-                "浮动盈亏": f"{(info.get('price', 0) - pos_data.get('cost', 0)) * shares:.2f}" if shares > 0 else "-"
-            })
+        price = info.get('price', 0) if info else 0
+        
+        result = latest_review.get("result", "未研判")
+        reasoning = latest_review.get("reasoning", "暂无最新策略记录")
+        
+        # 提取核心理由 (前40个字)
+        summary = reasoning[:40] + "..." if len(reasoning) > 40 else reasoning
+        
+        strategy_data.append({
+            "股票": f"{name} ({code})",
+            "最新价": price,
+            "研判倾向": result,
+            "核心逻辑概要": summary,
+            "更新时间": latest_review.get("timestamp", "-")
+        })
     
-    if watchlist_data:
-        df_overview = pd.DataFrame(watchlist_data)
+    if strategy_data:
+        df_strat = pd.DataFrame(strategy_data)
+        
+        # 定义加色函数
+        def color_bias(val):
+            if "看多" in val or "买入" in val: color = "#f85149" # 红色
+            elif "看空" in val or "卖出" in val: color = "#3fb950" # 绿色
+            elif "观望" in val or "持有" in val: color = "#8b949e" # 灰色
+            else: color = None
+            return f'color: {color}; font-weight: bold' if color else ''
+
         st.dataframe(
-            df_overview,
+            df_strat.style.applymap(color_bias, subset=['研判倾向']),
             column_config={
-                "代码": st.column_config.TextColumn("代码", width="small"),
-                "涨跌幅": st.column_config.TextColumn("涨跌幅", help="实时涨跌幅"),
+                "核心逻辑概要": st.column_config.TextColumn("核心逻辑概要", width="large"),
+                "最新价": st.column_config.NumberColumn("价格", format="%.2f"),
             },
             hide_index=True,
             use_container_width=True
         )
 
-    # 3. 统计分布 (Optional)
+    # 3. 策略倾向统计
     st.divider()
-    if watchlist_data:
-        c1, c2 = st.columns([1.5, 1])
-        with c1:
-            st.markdown("##### 📈 自选股涨跌比例")
-            # 简单计算比例
-            up_count = sum(1 for d in watchlist_data if float(d["涨跌幅"].replace('%','')) > 0)
-            down_count = sum(1 for d in watchlist_data if float(d["涨跌幅"].replace('%','')) < 0)
-            flat_count = len(watchlist_data) - up_count - down_count
+    if strategy_data:
+        bias_counts = {"看多/抄底": 0, "看空/减仓": 0, "观望/持有": 0, "其他": 0}
+        for d in strategy_data:
+            res = d["研判倾向"]
+            if any(k in res for k in ["看多", "买入", "抄底"]): bias_counts["看多/抄底"] += 1
+            elif any(k in res for k in ["看空", "卖出", "减仓"]): bias_counts["看空/减仓"] += 1
+            elif any(k in res for k in ["观望", "持有", "不动"]): bias_counts["观望/持有"] += 1
+            else: bias_counts["其他"] += 1
             
+        c1, c2 = st.columns([1, 1.5])
+        with c1:
+            st.markdown("##### 🧭 策略倾向分布")
             fig = go.Figure(data=[go.Pie(
-                labels=['上涨', '下跌', '走平'], 
-                values=[up_count, down_count, flat_count],
+                labels=list(bias_counts.keys()), 
+                values=list(bias_counts.values()),
                 hole=.4,
-                marker_colors=['#f85149', '#3fb950', '#8b949e']
+                marker_colors=['#f85149', '#3fb950', '#8b949e', '#30363d']
             )])
-            fig.update_layout(height=300, margin=dict(l=10, r=10, t=10, b=10))
+            fig.update_layout(height=250, margin=dict(l=0, r=0, t=0, b=0), showlegend=False)
             st.plotly_chart(fig, use_container_width=True)
-        
+            
         with c2:
-            st.markdown("##### 💡 操盘提醒")
-            # 找出涨跌最剧烈的
-            sorted_by_change = sorted(watchlist_data, key=lambda x: float(x["涨跌幅"].replace('%','')), reverse=True)
-            if sorted_by_change:
-                st.write(f"🔥 今日最强: **{sorted_by_change[0]['名称']}** ({sorted_by_change[0]['涨跌幅']})")
-                st.write(f"❄️ 今日最弱: **{sorted_by_change[-1]['名称']}** ({sorted_by_change[-1]['涨跌幅']})")
+            st.markdown("##### 💡 关键操作指引")
+            bulls = [d["股票"] for d in strategy_data if any(k in d["研判倾向"] for k in ["看多", "买入"])]
+            bears = [d["股票"] for d in strategy_data if any(k in d["研判倾向"] for k in ["看空", "卖出"])]
+            
+            if bulls: st.write(f"🚩 **重点进攻标的**: {', '.join(bulls[:3])}")
+            if bears: st.write(f"🛡️ **防御/减仓预警**: {', '.join(bears[:3])}")
+            if not bulls and not bears: st.info("今日策略倾向整体均衡，建议分批分步操作。")
 
 def render_stock_dashboard(code: str, name: str, total_capital: float, risk_pct: float, proximity_pct: float):
     """
