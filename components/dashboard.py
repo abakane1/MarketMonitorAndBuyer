@@ -107,6 +107,8 @@ def render_market_and_watchlist_overview(selected_labels: list):
             if sorted_by_change:
                 st.write(f"🔥 今日最强: **{sorted_by_change[0]['名称']}** ({sorted_by_change[0]['涨跌幅']})")
                 st.write(f"❄️ 今日最弱: **{sorted_by_change[-1]['名称']}** ({sorted_by_change[-1]['涨跌幅']})")
+
+def render_stock_dashboard(code: str, name: str, total_capital: float, risk_pct: float, proximity_pct: float):
     """
     渲染单个股票的完整仪表盘。
     """
