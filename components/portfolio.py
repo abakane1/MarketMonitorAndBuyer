@@ -243,7 +243,7 @@ def _get_stock_name(symbol: str) -> str:
     return symbol
 
 
-def _calculate_portfolio_metrics(positions: list, all_pnl_data: dict, current_portfolio: str):
+def _calculate_portfolio_metrics(positions: list, all_pnl_data: dict, current_portfolio: str = "default"):
     """计算组合指标。"""
     metrics = {
         'total_market_value': 0.0,
