@@ -692,10 +692,10 @@ def _render_kline_with_trades():
         return
         
     # 2. 获取该股票的日线数据和交易历史
-    from utils.data_fetcher import get_stock_daily_data
+    from utils.data_fetcher import get_stock_daily_history
     
     with st.spinner(f"正在加载 {selected_symbol} 的历史行情..."):
-        daily_df = get_stock_daily_data(selected_symbol, days=90)
+        daily_df = get_stock_daily_history(selected_symbol, days=90)
         
     if daily_df.empty:
         st.warning(f"无法获取 {selected_symbol} 的近期 K 线数据。")
