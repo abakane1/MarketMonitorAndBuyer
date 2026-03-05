@@ -23,29 +23,51 @@ def get_db_connection():
     return conn
 
 def get_today_strategies():
-    """获取今日策略"""
+    """获取今日策略 - 优先从review_logs获取(系统内生成)，备选strategy_logs"""
     conn = get_db_connection()
     cursor = conn.cursor()
     
     today = datetime.now().strftime('%Y-%m-%d')
+    strategies = []
+    
+    # 首先尝试从review_logs表获取(系统内生成的策略)
     cursor.execute('''
         SELECT symbol, timestamp, result 
-        FROM strategy_logs 
-        WHERE date(timestamp) = ? AND tag = '【盘前策略】'
+        FROM review_logs 
+        WHERE date(timestamp) = ?
         ORDER BY timestamp DESC
     ''', (today,))
     
     rows = cursor.fetchall()
+    
+    if rows:
+        print(f"从 review_logs 表获取到 {len(rows)} 条策略(系统内生成)")
+        for row in rows:
+            strategies.append({
+                'symbol': row['symbol'],
+                'time': row['timestamp'][11:19],
+                'result': row['result']
+            })
+    else:
+        # 备选：从strategy_logs表获取(外部脚本生成)
+        print("review_logs 表无记录，尝试从 strategy_logs 表获取...")
+        cursor.execute('''
+            SELECT symbol, timestamp, result 
+            FROM strategy_logs 
+            WHERE date(timestamp) = ? AND tag = '【盘前策略】'
+            ORDER BY timestamp DESC
+        ''', (today,))
+        
+        rows = cursor.fetchall()
+        print(f"从 strategy_logs 表获取到 {len(rows)} 条策略(外部脚本生成)")
+        for row in rows:
+            strategies.append({
+                'symbol': row['symbol'],
+                'time': row['timestamp'][11:19],
+                'result': row['result']
+            })
+    
     conn.close()
-    
-    strategies = []
-    for row in rows:
-        strategies.append({
-            'symbol': row['symbol'],
-            'time': row['timestamp'][11:19],
-            'result': row['result']
-        })
-    
     return strategies
 
 def format_strategy_message(strategies):
