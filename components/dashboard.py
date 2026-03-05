@@ -72,24 +72,45 @@ def render_daily_strategy_overview(selected_labels: list):
     
     if strategy_data:
         st.markdown("---")
-        # 改用卡片布局分块显示，以解决表格显示不全问题
-        for d in strategy_data:
-            # 根据倾向确定颜色和图标
-            res = d["研判倾向"]
-            if any(k in res for k in ["看多", "买入", "抄底"]): 
-                color, icon = "red", "🚀"
-            elif any(k in res for k in ["看空", "卖出", "减仓"]): 
-                color, icon = "green", "🛡️"
-            else: 
-                color, icon = "gray", "⚖️"
+        
+        # 分组逻辑
+        bulls = [d for d in strategy_data if any(k in d["研判倾向"] for k in ["看多", "买入", "抄底"])]
+        bears = [d for d in strategy_data if any(k in d["研判倾向"] for k in ["看空", "卖出", "减仓"])]
+        others = [d for d in strategy_data if d not in bulls and d not in bears]
+        
+        tab_bull, tab_bear, tab_other = st.tabs([
+            f"🚀 进攻标的 ({len(bulls)})", 
+            f"🛡️ 防御标的 ({len(bears)})", 
+            f"⚖️ 持续观望 ({len(others)})"
+        ])
+        
+        def render_cards(data_list, default_expanded=False):
+            if not data_list:
+                st.caption("暂无相关研判")
+                return
+            for d in data_list:
+                res = d["研判倾向"]
+                if any(k in res for k in ["看多", "买入", "抄底"]): 
+                    color, icon = "red", "🚀"
+                elif any(k in res for k in ["看空", "卖出", "减仓"]): 
+                    color, icon = "green", "🛡️"
+                else: 
+                    color, icon = "gray", "⚖️"
+                
+                # 进攻标的默认展开，其他分类默认闭合
+                with st.expander(f"{icon} **{d['股票']}** | 【{res}】 | 现价: {d['最新价']:.2f}", expanded=default_expanded):
+                    c_main, c_time = st.columns([4, 1])
+                    with c_main:
+                        st.markdown(f"**策略逻辑**: {d['核心逻辑概要']}")
+                    with c_time:
+                        st.caption(f"🕒 {d['更新时间']}")
 
-            # 使用 Expander 作为卡片，默认展开
-            with st.expander(f"{icon} **{d['股票']}** | 【{res}】 | 现价: {d['最新价']:.2f}", expanded=True):
-                c_main, c_time = st.columns([4, 1])
-                with c_main:
-                    st.markdown(f"**策略逻辑**: {d['核心逻辑概要']}")
-                with c_time:
-                    st.caption(f"🕒 {d['更新时间']}")
+        with tab_bull:
+            render_cards(bulls, default_expanded=True)
+        with tab_bear:
+            render_cards(bears, default_expanded=False)
+        with tab_other:
+            render_cards(others, default_expanded=False)
 
     # 3. 策略倾向统计
     st.divider()

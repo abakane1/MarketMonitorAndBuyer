@@ -549,26 +549,6 @@ def render_strategy_section(code: str, name: str, price: float, shares_held: int
                     
                     # [Task 13: Execution Tracking] Extract AI decisions
                     draft_v1 = ai_strat_log.get('draft_v1', ai_strat_log['result'])
-                    v1_parsed = parse_strategy_with_fallback(draft_v1)
-                    v2_parsed = parse_strategy_with_fallback(ai_strat_log['result'])
-                    
-                    try:
-                        ai_price = float(re.search(r"(\d+(\.\d+)?)", str(v1_parsed.get('price', 0))).group(1)) if v1_parsed.get('price') else 0.0
-                    except: ai_price = 0.0
-                    
-                    try:
-                        final_price = float(re.search(r"(\d+(\.\d+)?)", str(v2_parsed.get('price', 0))).group(1)) if v2_parsed.get('price') else 0.0
-                    except: final_price = 0.0
-                    
-                    ai_qty = int(v1_parsed.get('shares', 0) or 0)
-                    final_qty = int(v2_parsed.get('shares', 0) or 0)
-                    ai_action = v1_parsed.get('direction', '观望')
-                    final_action = v2_parsed.get('direction', '观望')
-                    
-                    # Determine if user or red team altered the draft
-                    is_altered = 1 if (ai_action != final_action or final_price != ai_price or final_qty != ai_qty) else 0
-                    strategy_uuid = ai_strat_log.get('timestamp', str(time.time()))
-                    
                     db_save_strategy_execution_log(
                         symbol=code,
                         strategy_id=strategy_uuid,
@@ -639,7 +619,8 @@ def render_strategy_section(code: str, name: str, price: float, shares_held: int
                 if st.button("🗑️ 放弃 (Discard)", key=f"btn_discard_{code}", use_container_width=True):
                     # [Task 13: Execution Tracking]
                     draft_v1 = ai_strat_log.get('draft_v1', ai_strat_log['result'])
-                    v1_parsed = parse_strategy_with_fallback(draft_v1)
+                    # [Task 13: Execution Tracking]
+                    draft_v1 = ai_strat_log.get('draft_v1', ai_strat_log['result'])
                     
                     try:
                         ai_price = float(re.search(r"(\d+(\.\d+)?)", str(v1_parsed.get('price', 0))).group(1)) if v1_parsed.get('price') else 0.0
@@ -686,7 +667,6 @@ def render_strategy_section(code: str, name: str, price: float, shares_held: int
             
             # --- Simple Parser (Scenario Aware) ---
             # Use the robust parser from utils.ai_parser
-            from utils.ai_parser import parse_strategy_with_fallback
             parsed_res = parse_strategy_with_fallback(content)
             
             ai_signal = parsed_res.get("direction", "N/A")
@@ -751,8 +731,6 @@ def render_strategy_section(code: str, name: str, price: float, shares_held: int
         else:
             st.info("👋 暂无 AI 独立策略记录。")
 
-        st.markdown("---")
-        # Control Buttons
         st.markdown("---")
         # Control Buttons
         # from utils.time_utils import is_trading_time, get_target_date_for_strategy, get_market_session
