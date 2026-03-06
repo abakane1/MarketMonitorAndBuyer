@@ -110,46 +110,142 @@ def run_auto_strategy_generation():
                 position=position,
                 history=history,
                 fund_flow=fund_flow,
-                deepseek_api_key=deepseek_key,
-                qwen_api_key=qwen_key,
+                deepseek_api_key=qwen_key,  # 蓝军=Kimi
+                qwen_api_key=deepseek_key,   # 红军=DeepSeek
                 intel_hub_data=""
             )
             
             final_order = result.get('final_order', '无策略生成')
-            reasoning = result.get('reasoning', '')
-            audit_report = result.get('audit_report', '')
             
-            # 构建完整结果
-            full_result = final_order
-            if audit_report:
-                full_result += f"\n\n【审计报告】\n{audit_report}"
+            # 构建完整的策略结果（包含所有步骤）
+            full_result = f"""# 🎯 最终执行令 (Final Order)
+{final_order}
+
+---
+
+# 📜 完整工作流记录
+
+## 🟦 Step 1: 蓝军初稿 (Kimi)
+{result.get('draft', {}).get('content', 'N/A')}
+
+---
+
+## 🟥 Step 2: 红军初审 (DeepSeek-R1)
+{result.get('audit', {}).get('content', 'N/A')}
+
+---
+
+## 🟦 Step 3: 蓝军优化 (Kimi)
+{result.get('refined', {}).get('content', 'N/A')}
+
+---
+
+## 🟥 Step 4: 红军终审 (DeepSeek-R1)
+**裁决**: {result.get('verdict', {}).get('decision', 'N/A')}
+
+{result.get('verdict', {}).get('content', 'N/A')}
+
+---
+
+## 🟦 Step 5: 最终执行令 (Kimi)
+{result.get('final', {}).get('content', 'N/A')}
+"""
+            
+            # 提取推理过程
+            reasoning = result.get('final', {}).get('reasoning', '')
+            if not reasoning:
+                reasoning = result.get('draft', {}).get('reasoning', '')
+            
+            # 构建完整的提示词历史
+            draft = result.get('draft', {})
+            audit = result.get('audit', {})
+            refined = result.get('refined', {})
+            verdict = result.get('verdict', {})
+            final = result.get('final', {})
+            
+            full_prompt_log = f"""# 🧠 提示词历史 (Prompts History)
+
+## Step 1: 蓝军初稿
+### System
+{draft.get('system_prompt', 'N/A')[:500]}...
+
+### User  
+{draft.get('user_prompt', 'N/A')[:500]}...
+
+---
+
+## Step 2: 红军初审
+### System
+{audit.get('system_prompt', 'N/A')[:500]}...
+
+### User
+{audit.get('user_prompt', 'N/A')[:500]}...
+
+---
+
+## Step 3: 蓝军优化
+### System
+{refined.get('system_prompt', 'N/A')[:500]}...
+
+### User
+{refined.get('user_prompt', 'N/A')[:500]}...
+
+---
+
+## Step 4: 红军终审
+### System
+{verdict.get('system_prompt', 'N/A')[:500]}...
+
+### User
+{verdict.get('user_prompt', 'N/A')[:500]}...
+
+---
+
+## Step 5: 最终执行令
+### System
+{final.get('system_prompt', 'N/A')[:500]}...
+
+### User
+{final.get('user_prompt', 'N/A')[:500]}...
+"""
             
             # 4. 保存到review_logs表(系统内可见)
-            print("4. 💾 保存到系统数据库(review_logs)...")
+            print("4. 💾 保存完整工作流到系统数据库(review_logs)...")
             from utils.storage import save_production_log
             
             timestamp = datetime.now().strftime('%Y-%m-%d %H:%M:%S')
             
-            # 构建提示词记录
-            prompt_log = f"全自动生成 - 标的:{symbol} 价格:{info.get('price')} 持仓:{position.get('shares',0)}股"
+            # 构建details包含完整的prompts_history
+            prompts_history = {
+                'draft_sys': draft.get('system_prompt', ''),
+                'draft_user': draft.get('user_prompt', ''),
+                'audit1_sys': audit.get('system_prompt', ''),
+                'audit1_user': audit.get('user_prompt', ''),
+                'refine_sys': refined.get('system_prompt', ''),
+                'refine_user': refined.get('user_prompt', ''),
+                'final_sys': verdict.get('system_prompt', ''),
+                'final_user': verdict.get('user_prompt', '')
+            }
             
             save_production_log(
                 symbol=symbol,
-                prompt=prompt_log,
+                prompt=full_prompt_log,
                 result=full_result,
                 reasoning=reasoning if reasoning else "5步MoE工作流自动生成",
-                model="Kimi-DeepSeek-MoE",
+                model="Kimi-DeepSeek-MoE",  # 蓝军=Kimi, 红军=DeepSeek
                 details=json.dumps({
                     'auto_generated': True,
-                    'blue_team': 'Kimi',
-                    'red_team': 'DeepSeek',
+                    'blue_team': 'Kimi',  # 修正: 蓝军是Kimi
+                    'red_team': 'DeepSeek',  # 修正: 红军是DeepSeek
                     'steps': 5,
                     'price': info.get('price'),
-                    'shares': position.get('shares', 0)
+                    'shares': position.get('shares', 0),
+                    'prompts_history': prompts_history,
+                    'metadata': result.get('metadata', {})
                 }, ensure_ascii=False)
             )
             
-            print(f"   ✅ 已保存到review_logs表")
+            print(f"   ✅ 已保存完整工作流到review_logs表 ({len(full_result)} 字符)")
             
             results.append({
                 'symbol': symbol,
