@@ -18,6 +18,7 @@ from typing import Dict, Any, Optional, Tuple, Union
 from utils.ai_advisor import (
     call_deepseek_api,
     call_qwen_api,
+    call_kimi_api,
     build_advisor_prompt,
     build_red_team_prompt,
     build_refinement_prompt,
@@ -117,7 +118,7 @@ def step2_red_audit(
     symbol: str,
     info: Dict,
     blue_draft: Dict,
-    qwen_api_key: str,
+    kimi_api_key: str,
     prompt_templates: Optional[Dict] = None
 ) -> Dict[str, Any]:
     """
@@ -141,8 +142,8 @@ def step2_red_audit(
         is_final_round=False
     )
     
-    # 调用 Qwen-Max
-    content = call_qwen_api(qwen_api_key, sys_prompt, user_prompt, model="qwen-max")
+    # 使用 Kimi 进行审计 (Role swap per user preference)
+    content, reasoning = call_kimi_api(kimi_api_key, sys_prompt, user_prompt)
     
     print(f"   ✅ 审计报告完成 ({len(content)} 字符)")
     
@@ -199,7 +200,7 @@ def step4_red_verdict(
     symbol: str,
     info: Dict,
     blue_refinement: Dict,
-    qwen_api_key: str,
+    kimi_api_key: str,
     prompt_templates: Optional[Dict] = None
 ) -> Dict[str, Any]:
     """
@@ -223,8 +224,8 @@ def step4_red_verdict(
         is_final_round=True  # 这是最终轮
     )
     
-    # 调用 Qwen-Max
-    content = call_qwen_api(qwen_api_key, sys_prompt, user_prompt, model="qwen-max")
+    # 使用 Kimi 进行最终审计
+    content, reasoning = call_kimi_api(kimi_api_key, sys_prompt, user_prompt)
     
     # 解析裁决结果
     decision = "待定"
@@ -312,7 +313,8 @@ def run_five_step_workflow(
     history: list,
     fund_flow: Dict,
     deepseek_api_key: str,
-    qwen_api_key: str,
+    kimi_api_key: str,
+    qwen_api_key: Optional[str] = None,
     intel_hub_data: Union[str, Dict] = "",
     prompt_templates: Optional[Dict] = None
 ) -> Dict[str, Any]:
@@ -370,7 +372,7 @@ def run_five_step_workflow(
             symbol=symbol,
             info=info,
             blue_draft=results['draft'],
-            qwen_api_key=qwen_api_key,
+            kimi_api_key=kimi_api_key,
             prompt_templates=prompt_templates
         )
         workflow_history.append(results['audit'])
@@ -391,7 +393,7 @@ def run_five_step_workflow(
             symbol=symbol,
             info=info,
             blue_refinement=results['refined'],
-            qwen_api_key=qwen_api_key,
+            kimi_api_key=kimi_api_key,
             prompt_templates=prompt_templates
         )
         workflow_history.append(results['verdict'])
@@ -418,7 +420,7 @@ def run_five_step_workflow(
             'steps_completed': 5,
             'models_used': {
                 'blue_team': 'DeepSeek-R1 (reasoner)',
-                'red_team': 'Qwen-Max'
+                'red_team': 'Kimi (Code Mode)'
             }
         }
         

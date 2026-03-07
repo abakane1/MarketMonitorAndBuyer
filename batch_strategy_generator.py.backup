@@ -73,19 +73,14 @@ def run_batch_analysis():
         settings = config.get('settings', {})
         
         deepseek_key = settings.get('deepseek_api_key')
-        kimi_key = settings.get('kimi_api_key')
-        qwen_key = settings.get('qwen_api_key')
+        qwen_key = settings.get('qwen_api_key') or settings.get('kimi_api_key')
         
         if not deepseek_key:
             print("❌ 缺少DeepSeek API密钥")
             return False
-        if not kimi_key:
-            if qwen_key:
-                print("⚠️ Warning: kimi_api_key is empty, falling back to qwen_api_key")
-                kimi_key = qwen_key
-            else:
-                print("❌ 缺少 Kimi API 密钥")
-                return False
+        if not qwen_key:
+            print("❌ 缺少Qwen/Kimi API密钥")
+            return False
             
         print("✅ API密钥加载成功")
     except Exception as e:
@@ -130,7 +125,6 @@ def run_batch_analysis():
                 history=history,
                 fund_flow=fund_flow,
                 deepseek_api_key=deepseek_key,
-                kimi_api_key=kimi_key,
                 qwen_api_key=qwen_key,
                 intel_hub_data=""
             )

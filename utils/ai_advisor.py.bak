@@ -575,14 +575,14 @@ def build_red_team_prompt(context_data, prompt_templates=None, is_final_round=Fa
     except Exception as e:
         return "", f"Prompt Format Error: {e}"
 
-def call_kimi_api(api_key, system_prompt, user_prompt, model="kimi-k2.5", base_url="https://api.moonshot.cn/v1", max_retries=2):
+def call_kimi_api(api_key, system_prompt, user_prompt, model="moonshot-v1-code-128k", base_url="https://api.moonshot.cn/v1", max_retries=2):
     """
     Executes the API call to Kimi (Moonshot AI).
     Compatible with OpenAI SDK pattern.
     Added retry logic and increased timeout for better reliability.
     """
     if not api_key:
-        return "Error: Missing Kimi API Key", ""
+        return "Error: Missing Kimi API Key"
 
     clean_key = api_key.strip()
     # Correctly join the base_url with the path
@@ -619,12 +619,9 @@ def call_kimi_api(api_key, system_prompt, user_prompt, model="kimi-k2.5", base_u
             if response.status_code == 200:
                 res_json = response.json()
                 if 'choices' in res_json and len(res_json['choices']) > 0:
-                    message = res_json['choices'][0].get('message', {})
-                    content = message.get('content', '')
-                    # Kimi 2.5 potentially has reasoning, let's try to grab it if exists
-                    reasoning = message.get('reasoning_content', '') or message.get('think', '') or ""
-                    return content, reasoning
-                return f"Kimi API Error: Empty response format {res_json}", ""
+                    content = res_json['choices'][0]['message'].get('content', '')
+                    return content
+                return f"Kimi API Error: Empty response format {res_json}"
             else:
                 # If server error (5xx), retry
                 if response.status_code >= 500 and attempt < max_retries:
@@ -634,7 +631,7 @@ def call_kimi_api(api_key, system_prompt, user_prompt, model="kimi-k2.5", base_u
                     continue
                 k_len = len(clean_key)
                 k_pfx = clean_key[:5] if k_len > 5 else clean_key
-                return f"Kimi API Error {response.status_code}: {response.text} (Key: {k_pfx}..., Len: {k_len})", ""
+                return f"Kimi API Error {response.status_code}: {response.text} (Key: {k_pfx}..., Len: {k_len})"
         except requests.exceptions.Timeout as e:
             last_error = e
             if attempt < max_retries:
@@ -643,7 +640,7 @@ def call_kimi_api(api_key, system_prompt, user_prompt, model="kimi-k2.5", base_u
                 time.sleep(2 ** attempt)  # Exponential backoff
                 continue
             else:
-                return f"Kimi Request Failed: API超时 (已重试{max_retries}次)。Moonshot API当前可能繁忙，请稍后重试。", ""
+                return f"Kimi Request Failed: API超时 (已重试{max_retries}次)。Moonshot API当前可能繁忙，请稍后重试。"
         except Exception as e:
             last_error = e
             if attempt < max_retries:
@@ -651,9 +648,9 @@ def call_kimi_api(api_key, system_prompt, user_prompt, model="kimi-k2.5", base_u
                 import time
                 time.sleep(2 ** attempt)
                 continue
-            return f"Kimi Request Failed: {str(e)}", ""
+            return f"Kimi Request Failed: {str(e)}"
     
-    return f"Kimi Request Failed: 所有重试均失败 - {str(last_error)}", ""
+    return f"Kimi Request Failed: 所有重试均失败 - {str(last_error)}"
 
 def call_ai_model(model_name, api_key, system_prompt, user_prompt, specific_model=None, base_url=None):
     """
@@ -669,7 +666,7 @@ def call_ai_model(model_name, api_key, system_prompt, user_prompt, specific_mode
         content = call_qwen_api(api_key, system_prompt, user_prompt, model=target_model)
         return content, ""
     elif model_name == "kimi":
-        target_model = specific_model if specific_model else "kimi-k2.5"
+        target_model = specific_model if specific_model else "moonshot-v1-code-128k"
         # If base_url is not provided, use the one from call_kimi_api default (or we could fetch from config here)
         if base_url:
             content = call_kimi_api(api_key, system_prompt, user_prompt, model=target_model, base_url=base_url)
