@@ -295,7 +295,7 @@ def render_sidebar() -> dict:
             st.session_state.input_kimi = settings.get("kimi_api_key", "")
             
         kimi_api_key = st.text_input(
-            "Kimi API Key (Moonshot)",
+            "Kimi API Key (Kimi 2.5 / Code API)",
             type="password",
             help="Moonshot AI API Key，用于红队审查",
             key="input_kimi"
