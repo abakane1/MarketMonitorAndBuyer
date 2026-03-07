@@ -13,7 +13,7 @@ from datetime import datetime
 sys.path.insert(0, '/Users/zuliangzhao/MarketMonitorAndBuyer')
 
 # 持仓股票列表 (更新为实际持仓)
-HOLDINGS = ['588000', '588200', '563230', '588710', '588750']
+HOLDINGS = ['588200']
 
 def get_db_connection():
     """获取数据库连接"""
@@ -75,17 +75,14 @@ def run_batch_analysis():
         deepseek_key = settings.get('deepseek_api_key')
         kimi_key = settings.get('kimi_api_key')
         qwen_key = settings.get('qwen_api_key')
+        kimi_base_url = settings.get('kimi_base_url', 'https://api.moonshot.cn/v1')
         
         if not deepseek_key:
             print("❌ 缺少DeepSeek API密钥")
             return False
         if not kimi_key:
-            if qwen_key:
-                print("⚠️ Warning: kimi_api_key is empty, falling back to qwen_api_key")
-                kimi_key = qwen_key
-            else:
-                print("❌ 缺少 Kimi API 密钥")
-                return False
+            print("❌ 缺少 Kimi API 密钥 (运行五步工作流必需)")
+            return False
             
         print("✅ API密钥加载成功")
     except Exception as e:
@@ -132,6 +129,7 @@ def run_batch_analysis():
                 deepseek_api_key=deepseek_key,
                 kimi_api_key=kimi_key,
                 qwen_api_key=qwen_key,
+                kimi_base_url=kimi_base_url,
                 intel_hub_data=""
             )
             

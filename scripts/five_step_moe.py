@@ -119,6 +119,7 @@ def step2_red_audit(
     info: Dict,
     blue_draft: Dict,
     kimi_api_key: str,
+    kimi_base_url: str = "https://api.moonshot.cn/v1",
     prompt_templates: Optional[Dict] = None
 ) -> Dict[str, Any]:
     """
@@ -143,7 +144,7 @@ def step2_red_audit(
     )
     
     # 使用 Kimi 进行审计 (Role swap per user preference)
-    content, reasoning = call_kimi_api(kimi_api_key, sys_prompt, user_prompt)
+    content, reasoning = call_kimi_api(kimi_api_key, sys_prompt, user_prompt, base_url=kimi_base_url)
     
     print(f"   ✅ 审计报告完成 ({len(content)} 字符)")
     
@@ -201,6 +202,7 @@ def step4_red_verdict(
     info: Dict,
     blue_refinement: Dict,
     kimi_api_key: str,
+    kimi_base_url: str = "https://api.moonshot.cn/v1",
     prompt_templates: Optional[Dict] = None
 ) -> Dict[str, Any]:
     """
@@ -225,7 +227,7 @@ def step4_red_verdict(
     )
     
     # 使用 Kimi 进行最终审计
-    content, reasoning = call_kimi_api(kimi_api_key, sys_prompt, user_prompt)
+    content, reasoning = call_kimi_api(kimi_api_key, sys_prompt, user_prompt, base_url=kimi_base_url)
     
     # 解析裁决结果
     decision = "待定"
@@ -315,6 +317,7 @@ def run_five_step_workflow(
     deepseek_api_key: str,
     kimi_api_key: str,
     qwen_api_key: Optional[str] = None,
+    kimi_base_url: str = "https://api.moonshot.cn/v1",
     intel_hub_data: Union[str, Dict] = "",
     prompt_templates: Optional[Dict] = None
 ) -> Dict[str, Any]:
@@ -373,6 +376,7 @@ def run_five_step_workflow(
             info=info,
             blue_draft=results['draft'],
             kimi_api_key=kimi_api_key,
+            kimi_base_url=kimi_base_url,
             prompt_templates=prompt_templates
         )
         workflow_history.append(results['audit'])
@@ -394,6 +398,7 @@ def run_five_step_workflow(
             info=info,
             blue_refinement=results['refined'],
             kimi_api_key=kimi_api_key,
+            kimi_base_url=kimi_base_url,
             prompt_templates=prompt_templates
         )
         workflow_history.append(results['verdict'])
