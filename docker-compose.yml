@@ -3,13 +3,59 @@ version: '3.8'
 services:
   market-monitor:
     build: .
-    image: market-monitor-buyer:latest
-    container_name: market_monitor
+    container_name: market-monitor-and-buyer
+    restart: unless-stopped
     ports:
       - "8501:8501"
     volumes:
-      - ./user_data.db:/app/user_data.db
-      - ./user_config.json:/app/user_config.json
-    restart: unless-stopped
+      # 数据持久化
+      - ./data:/app/data
+      - ./logs:/app/logs
+      - ./stock_data:/app/stock_data
+      # 配置文件
+      - ./.streamlit:/app/.streamlit
+      - ./.secret.key:/app/.secret.key
+      # 策略队列和关注列表
+      - ./strategy_queue.json:/app/strategy_queue.json
+      - ./watchlist.json:/app/watchlist.json
     environment:
       - TZ=Asia/Shanghai
+      - PYTHONUNBUFFERED=1
+    healthcheck:
+      test: ["CMD", "curl", "--fail", "http://localhost:8501/_stcore/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 40s
+    networks:
+      - market-network
+
+  # 可选：定时任务服务（生成每日策略）
+  strategy-scheduler:
+    build: .
+    container_name: market-strategy-scheduler
+    restart: unless-stopped
+    volumes:
+      - ./data:/app/data
+      - ./logs:/app/logs
+      - ./stock_data:/app/stock_data
+      - ./.secret.key:/app/.secret.key
+      - ./strategy_queue.json:/app/strategy_queue.json
+      - ./watchlist.json:/app/watchlist.json
+    environment:
+      - TZ=Asia/Shanghai
+    command: python auto_strategy_generator.py
+    depends_on:
+      - market-monitor
+    networks:
+      - market-network
+    profiles:
+      - scheduler
+
+networks:
+  market-network:
+    driver: bridge
+
+volumes:
+  data:
+  logs:
