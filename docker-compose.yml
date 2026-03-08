@@ -1,9 +1,12 @@
-version: '3.8'
-
 services:
   market-monitor:
-    build: .
+    build:
+      context: .
+      dockerfile: Dockerfile
+      cache_from:
+        - market-monitor:latest
     container_name: market-monitor-and-buyer
+    image: market-monitor:latest
     restart: unless-stopped
     ports:
       - "8501:8501"
@@ -27,35 +30,7 @@ services:
       timeout: 10s
       retries: 3
       start_period: 40s
-    networks:
-      - market-network
-
-  # 可选：定时任务服务（生成每日策略）
-  strategy-scheduler:
-    build: .
-    container_name: market-strategy-scheduler
-    restart: unless-stopped
-    volumes:
-      - ./data:/app/data
-      - ./logs:/app/logs
-      - ./stock_data:/app/stock_data
-      - ./.secret.key:/app/.secret.key
-      - ./strategy_queue.json:/app/strategy_queue.json
-      - ./watchlist.json:/app/watchlist.json
-    environment:
-      - TZ=Asia/Shanghai
-    command: python auto_strategy_generator.py
-    depends_on:
-      - market-monitor
-    networks:
-      - market-network
-    profiles:
-      - scheduler
 
 networks:
-  market-network:
-    driver: bridge
-
-volumes:
-  data:
-  logs:
+  default:
+    name: market-network

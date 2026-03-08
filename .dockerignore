@@ -1,0 +1,75 @@
+# Git
+.git
+.gitignore
+
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+build/
+develop-eggs/
+dist/
+downloads/
+eggs/
+.eggs/
+lib/
+lib64/
+parts/
+sdist/
+var/
+wheels/
+*.egg-info/
+.installed.cfg
+*.egg
+
+# Virtual environments
+venv/
+ENV/
+env/
+.venv
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Logs
+*.log
+logs/
+
+# Data (将在运行时挂载)
+data/
+stock_data/
+*.db
+*.sqlite
+
+# Docker
+Dockerfile
+docker-compose.yml
+docker-deploy.sh
+.dockerignore
+
+# Testing
+.pytest_cache/
+.coverage
+htmlcov/
+test_*.py
+*_test.py
+
+# Documentation
+*.md
+!README.md
+CHANGELOG.md
+
+# Backup
+*.bak
+*.backup
+backup/
