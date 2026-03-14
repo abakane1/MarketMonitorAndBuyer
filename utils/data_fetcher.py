@@ -705,11 +705,11 @@ def get_stock_realtime_info(symbol: str) -> Optional[Dict]:
             
     # 3. Try Fallback to Minute Data (Updated via Sidebar/Backtest)
     # If snapshot is missing but we have minute data, use it.
-    # Calculate pre_close from today's first candle's open price and change_pct
+    # [FIX v4.1.0] 优先从日线数据获取准确的昨日收盘价，而非计算得出
     if not data:
          try:
             from utils.storage import load_minute_data
-            from datetime import datetime
+            from datetime import datetime, timedelta
             import pandas as pd
             
             min_df = load_minute_data(symbol)
@@ -720,23 +720,33 @@ def get_stock_realtime_info(symbol: str) -> Optional[Dict]:
                 
                 if not today_df.empty:
                     latest = today_df.iloc[-1]
-                    first = today_df.iloc[0]
                     
-                    # Calculate pre_close from first candle of today
-                    # change_pct = (open - pre_close) / pre_close * 100
-                    # pre_close = open / (1 + change_pct/100)
-                    open_price = first.get('开盘', 0)
-                    change_pct = first.get('涨跌幅', 0)
-                    if open_price > 0 and pd.notna(change_pct):
-                        pre_close = open_price / (1 + change_pct/100)
-                    else:
-                        pre_close = open_price  # Fallback
+                    # [FIX v4.1.0] 优先从日线历史获取准确的昨日收盘价
+                    pre_close = None
+                    try:
+                        # 尝试获取日线历史数据
+                        daily_df = get_stock_daily_history(symbol, days=5)
+                        if daily_df is not None and not daily_df.empty and len(daily_df) >= 2:
+                            # 取倒数第二行的收盘价作为昨日收盘价
+                            pre_close = float(daily_df.iloc[-2]['收盘'])
+                    except Exception as e:
+                        logger.warning(f"Failed to get daily history for pre_close ({symbol}): {e}")
+                    
+                    # 如果日线获取失败，使用分钟数据的第一根K线计算(作为fallback)
+                    if pre_close is None or pre_close <= 0:
+                        first = today_df.iloc[0]
+                        open_price = first.get('开盘', 0)
+                        change_pct = first.get('涨跌幅', 0)
+                        if open_price > 0 and pd.notna(change_pct):
+                            pre_close = open_price / (1 + change_pct/100)
+                        else:
+                            pre_close = open_price
                     
                     data = {
                         '代码': symbol,
                         '名称': latest.get('股票名称', 'Unknown'),
                         '最新价': latest.get('收盘', 0),
-                        '昨收': round(pre_close, 3),
+                        '昨收': round(pre_close, 3) if pre_close else 0,
                         '今开': latest.get('开盘', 0),
                         '最高': latest.get('最高', 0),
                         '最低': latest.get('最低', 0),

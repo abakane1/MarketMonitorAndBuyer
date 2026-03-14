@@ -1,145 +1,233 @@
-import pandas as pd
-import numpy as np
-import os
+#!/usr/bin/env python3
+# -*- coding: utf-8 -*-
+"""
+回测框架入口 (Backtest Framework)
+
+v4.2.0 核心脚本
+功能:
+1. 标准化回测输入
+2. 人机交易对比
+3. 生成对比报告
+
+Author: AI Programmer
+Date: 2026-03-14
+"""
+
+import sys
 import json
-from datetime import datetime
+import logging
+import argparse
+from pathlib import Path
+from datetime import datetime, timedelta
+from typing import Dict, List, Optional
 
-class PerformanceAnalyzer:
-    """
-    量化绩效分析核心骨架 (P0阶段支撑模块)。
-    为未来的回测及真实交易流水评估提供底层算法库。
-    """
-    def __init__(self, initial_capital=100000.0):
-        self.initial_capital = initial_capital
-        
-    def calculate_metrics(self, daily_pnl: list) -> dict:
+sys.path.insert(0, str(Path(__file__).parent.parent))
+
+import pandas as pd
+from capability_platform.backtest.engine import BacktestEngine, BacktestConfig
+from capability_platform.backtest.metrics import calculate_metrics, compare_human_vs_system
+from utils.data_fetcher import get_stock_daily_history
+
+logger = logging.getLogger(__name__)
+
+
+class BacktestFramework:
+    """回测框架"""
+    
+    def __init__(self):
+        self.results = []
+    
+    def load_strategy(self, strategy_file: str) -> callable:
+        """加载策略"""
+        # 简化实现，实际应动态加载策略模块
+        from capability_platform.backtest.engine import example_strategy
+        return example_strategy
+    
+    def run_backtest(self, symbol: str, start_date: str, end_date: str,
+                    strategy_fn: callable,
+                    initial_capital: float = 100000) -> Dict:
         """
-        根据每日盈亏序列计算核心量化指标
-        daily_pnl: [{'date': '2023-01-01', 'pnl': 100}, ...]
+        运行回测
+        
+        Args:
+            symbol: 标的代码
+            start_date: 开始日期 (YYYY-MM-DD)
+            end_date: 结束日期 (YYYY-MM-DD)
+            strategy_fn: 策略函数
+            initial_capital: 初始资金
+            
+        Returns:
+            回测结果
         """
-        if not daily_pnl:
-            return {
-                "total_return_pct": 0.0,
-                "win_rate": 0.0,
-                "win_loss_ratio": 0.0,
-                "max_drawdown": 0.0,
-                "sharpe_ratio": 0.0,
-                "total_trades_days": 0
-            }
-            
-        df = pd.DataFrame(daily_pnl)
-        df['date'] = pd.to_datetime(df['date'])
-        df = df.sort_values('date')
+        logger.info(f"开始回测: {symbol} ({start_date} ~ {end_date})")
         
-        # 1. 胜率计算
-        winning_days = len(df[df['pnl'] > 0])
-        total_days = len(df)
-        win_rate = winning_days / total_days if total_days > 0 else 0
+        # 1. 获取历史数据
+        try:
+            price_data = get_stock_daily_history(symbol, days=365)
+            if price_data.empty:
+                return {'success': False, 'error': '无法获取历史数据'}
+        except Exception as e:
+            return {'success': False, 'error': f'获取数据失败: {e}'}
         
-        # 2. 盈亏比计算 (Profit & Loss Ratio)
-        avg_profit = df[df['pnl'] > 0]['pnl'].mean() if winning_days > 0 else 0
-        losing_days = len(df[df['pnl'] < 0])
-        avg_loss = abs(df[df['pnl'] < 0]['pnl'].mean()) if losing_days > 0 else 0
-        pl_ratio = avg_profit / avg_loss if avg_loss > 0 else (999.0 if avg_profit > 0 else 0.0)
+        # 2. 过滤日期范围
+        price_data['日期'] = pd.to_datetime(price_data['日期'])
+        start_dt = pd.to_datetime(start_date)
+        end_dt = pd.to_datetime(end_date)
         
-        # 3. 最大回撤计算 (Max Drawdown)
-        df['cumulative_pnl'] = df['pnl'].cumsum()
-        df['equity'] = self.initial_capital + df['cumulative_pnl']
-        df['peak'] = df['equity'].cummax()
-        df['drawdown'] = (df['peak'] - df['equity']) / df['peak']
-        max_drawdown = df['drawdown'].max()
+        price_data = price_data[(price_data['日期'] >= start_dt) & 
+                               (price_data['日期'] <= end_dt)]
         
-        # 4. 夏普比率计算 (Sharpe Ratio), 假设 252 个交易日，无风险利率 3%
-        daily_returns = df['equity'].pct_change().dropna()
-        if len(daily_returns) > 1:
-            mean_return = daily_returns.mean()
-            std_return = daily_returns.std()
-            sharpe_ratio = (mean_return * 252 - 0.03) / (std_return * np.sqrt(252)) if std_return > 0 else 0.0
-        else:
-            sharpe_ratio = 0.0
-            
+        if price_data.empty:
+            return {'success': False, 'error': '指定日期范围内无数据'}
+        
+        logger.info(f"数据条数: {len(price_data)}")
+        
+        # 3. 配置回测
+        config = BacktestConfig(
+            symbol=symbol,
+            start_date=start_dt,
+            end_date=end_dt,
+            initial_capital=initial_capital,
+            commission_rate=0.0003,
+            slippage=0.001
+        )
+        
+        # 4. 运行回测
+        engine = BacktestEngine(config)
+        result = engine.run(strategy_fn, price_data)
+        
         return {
-            "total_return_pct": (df['equity'].iloc[-1] / self.initial_capital) - 1,
-            "win_rate": win_rate,
-            "win_loss_ratio": pl_ratio,
-            "max_drawdown": max_drawdown,
-            "sharpe_ratio": sharpe_ratio,
-            "total_trades_days": total_days
+            'success': True,
+            'symbol': symbol,
+            'period': f"{start_date} ~ {end_date}",
+            'trades': len(result.trades),
+            'metrics': result.metrics,
+            'summary': result.summary()
         }
-
-    def generate_report(self, ai_metrics: dict, human_metrics: dict, output_dir: str = "reports"):
+    
+    def run_comparison(self, symbol: str, start_date: str, end_date: str,
+                      human_trades: List[Dict],
+                      strategy_fn: callable) -> Dict:
         """
-        生成人机对照 Markdown 报告并保存为 JSON/MD
-        """
-        # 获取与当前脚本相对路径平齐的 reports 文件夹
-        base_dir = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-        target_dir = os.path.join(base_dir, output_dir)
+        人机交易对比
         
-        if not os.path.exists(target_dir):
-            os.makedirs(target_dir)
+        Args:
+            symbol: 标的代码
+            start_date: 开始日期
+            end_date: 结束日期
+            human_trades: 人工交易记录
+            strategy_fn: 系统策略
             
-        timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
-        
-        # Generate Markdown Data
-        md_content = f"""# 📈 A股量化盯盘系统 - 策略绩效评估报告
-
-**生成时间**: {datetime.now().strftime("%Y-%m-%d %H:%M:%S")}
-**模型配置**: DeepSeek/Kimi 等AI策略执行记录对照人类基准
-
----
-
-## 📊 核心量化指标对抗 (AI vs 人类)
-
-| 测评维度 | 🤖 AI自动化策略 | 🧑 模拟/人类基准组 | 当期优胜 |
-|:---|:---:|:---:|:---:|
-| **累计净收益率** | **{ai_metrics.get('total_return_pct', 0)*100:.2f}%** | {human_metrics.get('total_return_pct', 0)*100:.2f}% | {'🤖 AI' if ai_metrics.get('total_return_pct', 0) > human_metrics.get('total_return_pct', 0) else '🧑 人类'} |
-| **交易胜率 (Win Rate)** | **{ai_metrics.get('win_rate', 0)*100:.2f}%** | {human_metrics.get('win_rate', 0)*100:.2f}% | {'🤖' if ai_metrics.get('win_rate', 0) > human_metrics.get('win_rate', 0) else '🧑'} |
-| **盈亏比 (P/L Ratio)** | **{ai_metrics.get('win_loss_ratio', 0):.2f}** | {human_metrics.get('win_loss_ratio', 0):.2f} | {'🤖' if ai_metrics.get('win_loss_ratio', 0) > human_metrics.get('win_loss_ratio', 0) else '🧑'} |
-| **最大回撤 (Max Drawdown)** | **{ai_metrics.get('max_drawdown', 0)*100:.2f}%** | {human_metrics.get('max_drawdown', 0)*100:.2f}% | {'🤖' if ai_metrics.get('max_drawdown', 0) < human_metrics.get('max_drawdown', 1) else '🧑'} |
-| **夏普比率 (Sharpe Ratio)** | **{ai_metrics.get('sharpe_ratio', 0):.2f}** | {human_metrics.get('sharpe_ratio', 0):.2f} | {'🤖' if ai_metrics.get('sharpe_ratio', 0) > human_metrics.get('sharpe_ratio', 0) else '🧑'} |
-
-> ℹ️ *风险提示: [最大回撤]代表极端亏损水平，该数值越低说明防御能力越强。[夏普比率]衡量承受单位风险获得的超额回报，越高说明风险性价比越好。*
-
----
+        Returns:
+            对比结果
         """
-        # 保存 Markdown
-        md_path = os.path.join(target_dir, f"report_{timestamp}.md")
-        with open(md_path, 'w', encoding='utf-8') as f:
-            f.write(md_content)
+        # 运行系统回测
+        system_result = self.run_backtest(symbol, start_date, end_date, strategy_fn)
+        
+        if not system_result['success']:
+            return system_result
+        
+        # 对比结果
+        comparison = {
+            'symbol': symbol,
+            'period': f"{start_date} ~ {end_date}",
+            'human': {
+                'trades_count': len(human_trades),
+                'description': '人工交易记录'
+            },
+            'system': system_result,
+            'conclusion': '系统策略回测完成，请对比人工交易记录'
+        }
+        
+        return comparison
+    
+    def generate_report(self, result: Dict, format: str = 'text') -> str:
+        """生成报告"""
+        if format == 'json':
+            return json.dumps(result, ensure_ascii=False, indent=2)
+        
+        elif format == 'md':
+            lines = [
+                f"# 回测报告: {result.get('symbol', 'Unknown')}",
+                "",
+                f"**回测期间**: {result.get('period', 'N/A')}",
+                f"**交易次数**: {result.get('trades', 0)}",
+                "",
+                "## 绩效指标",
+            ]
             
-        # 保存 JSON 进行机器归档
-        json_path = os.path.join(target_dir, f"report_{timestamp}.json")
-        with open(json_path, 'w', encoding='utf-8') as f:
-            json.dump({
-                "timestamp": timestamp,
-                "ai_metrics": ai_metrics,
-                "human_metrics": human_metrics
-            }, f, ensure_ascii=False, indent=4)
+            metrics = result.get('metrics', {})
+            for key, value in metrics.items():
+                if isinstance(value, float):
+                    display_value = f"{value:.2%}" if 'return' in key or 'rate' in key else f"{value:.4f}"
+                else:
+                    display_value = str(value)
+                lines.append(f"- **{key}**: {display_value}")
             
-        return md_path, json_path
+            return "\n".join(lines)
+        
+        else:  # text
+            return result.get('summary', str(result))
+
+
+def main():
+    """命令行入口"""
+    parser = argparse.ArgumentParser(description="回测框架")
+    parser.add_argument("symbol", help="标的代码")
+    parser.add_argument("--start", required=True, help="开始日期 (YYYY-MM-DD)")
+    parser.add_argument("--end", required=True, help="结束日期 (YYYY-MM-DD)")
+    parser.add_argument("--capital", type=float, default=100000, help="初始资金")
+    parser.add_argument("--strategy", default=None, help="策略文件路径")
+    parser.add_argument("--format", choices=['text', 'json', 'md'], default='text',
+                       help="输出格式")
+    parser.add_argument("--output", help="输出文件路径")
+    parser.add_argument("--compare", help="人工交易记录JSON文件 (用于对比)")
+    
+    args = parser.parse_args()
+    
+    # 初始化框架
+    framework = BacktestFramework()
+    
+    # 加载策略
+    if args.strategy:
+        strategy_fn = framework.load_strategy(args.strategy)
+    else:
+        from capability_platform.backtest.engine import example_strategy
+        strategy_fn = example_strategy
+    
+    # 运行回测或对比
+    if args.compare:
+        # 加载人工交易记录
+        with open(args.compare, 'r') as f:
+            human_trades = json.load(f)
+        
+        result = framework.run_comparison(
+            args.symbol, args.start, args.end,
+            human_trades, strategy_fn
+        )
+    else:
+        result = framework.run_backtest(
+            args.symbol, args.start, args.end,
+            strategy_fn, args.capital
+        )
+    
+    # 生成报告
+    report = framework.generate_report(result, format=args.format)
+    
+    # 输出
+    if args.output:
+        with open(args.output, 'w', encoding='utf-8') as f:
+            f.write(report)
+        print(f"✅ 报告已保存: {args.output}")
+    else:
+        print(report)
+    
+    return 0
+
 
 if __name__ == "__main__":
-    # 模拟沙盘数据演示 (Smoke Test)
-    analyzer = PerformanceAnalyzer(initial_capital=500000)
-    
-    test_ai_pnl = [
-        {'date': '2023-11-01', 'pnl': 2500},
-        {'date': '2023-11-02', 'pnl': -1200},
-        {'date': '2023-11-03', 'pnl': 3800},
-        {'date': '2023-11-04', 'pnl': -500},
-        {'date': '2023-11-05', 'pnl': 4200}
-    ]
-    test_human_pnl = [
-        {'date': '2023-11-01', 'pnl': -1000},
-        {'date': '2023-11-02', 'pnl': -3000},
-        {'date': '2023-11-03', 'pnl': 5000},
-        {'date': '2023-11-04', 'pnl': -2400},
-        {'date': '2023-11-05', 'pnl': 800}
-    ]
-    
-    print("正在执行演算对比...")
-    ai_m = analyzer.calculate_metrics(test_ai_pnl)
-    hu_m = analyzer.calculate_metrics(test_human_pnl)
-    md_file, json_file = analyzer.generate_report(ai_m, hu_m)
-    
-    print(f"✅ 生成回测分析报告成功:\n - {md_file}\n - {json_file}")
+    logging.basicConfig(
+        level=logging.INFO,
+        format='%(asctime)s - %(name)s - %(levelname)s - %(message)s'
+    )
+    sys.exit(main())

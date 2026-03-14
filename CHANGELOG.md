@@ -1,5 +1,306 @@
 # Changelog
 
+## [4.1.0] - 2026-03-14 (Week 1 & 2 完成)
+
+> 📍 开发路线图: `docs/v4.1_ROADMAP.md`  
+> 📊 项目状态: `docs/v4.1_STATUS.md`
+
+### 🎯 Overview
+v4.1 Week 1 & 2 完成，底层加固和AI功能模块全部上线。
+
+---
+
+### ✅ Week 2 已完成 (AI重装上阵)
+
+#### 1. 🧠 LLM智能关联 (Intelligence Hub 2.0 Phase 2)
+- **新增脚本**: `scripts/intel_analyzer.py`
+  - 调用DeepSeek API自动分析情报内容
+  - 智能关联ETF代码和置信度(50%+)
+  - 判断利好/利空/中性情感
+  - 保存到 `intelligence_stocks` 关联表
+- **测试示例**:
+  ```
+  输入: "中芯国际业绩超预期，芯片板块利好"
+  输出:
+    • 588200: 置信度95%, 情感bullish
+    • 588750: 置信度95%, 情感bullish
+    • 588710: 置信度70%, 情感bullish
+  ```
+
+#### 2. 📦 自动归档系统 (Intelligence Hub 2.0 Phase 3)
+- **新增脚本**: `scripts/intel_archive.py`
+  - 归档6个月前的历史情报
+  - LLM自动压缩摘要(100字以内)
+  - 清理过期数据，节省存储
+- **命令**: `python scripts/intel_archive.py --dry-run`
+
+#### 3. 💾 本地缓存降级 (Data Fallback Protocol Phase 2)
+- **新增脚本**: `scripts/market_snapshot.py`
+  - 每日收盘后保存自选股快照
+  - 极端网络中断时提供静态查询
+  - 支持历史快照管理
+
+#### 4. ⚔️ 双专家风控矩阵 (Dual-Expert Phase 1)
+- **新增模块**: `capability_platform/risk/dual_expert_decision.py`
+  - 红蓝决策矩阵编码实现
+  - 风险评分>7分自动拦截交易
+  - 可配置风控阈值
+- **决策规则**:
+  ```
+  Blue买入 + Red<4分  → ✅ 强力买入
+  Blue买入 + Red 4-7分 → ⚠️ 谨慎买入
+  Blue买入 + Red>7分  → 🛑 拒绝买入
+  ```
+
+### 📁 Week 2 新增文件
+```
+scripts/
+├── intel_analyzer.py           # LLM智能分析
+├── intel_archive.py            # 自动归档系统
+└── market_snapshot.py          # 市场离线快照
+
+capability_platform/risk/
+└── dual_expert_decision.py     # 双专家决策引擎
+```
+
+---
+
+### ✅ Week 1 已完成 (底层加固)
+
+#### 1. 🗄️ 数据库结构升级 (Intelligence Hub 2.0 Phase 1)
+- **新增字段**:
+  - `is_archived` - 归档标记
+  - `summary` - 压缩摘要
+  - `confidence` - 置信度
+  - `sentiment` - 情感标签 (bullish/bearish/neutral)
+- **新增表**:
+  - `intelligence_stocks` - 情报-ETF多对多关联表
+  - `etf_keywords` - ETF关键词配置表
+- **默认ETF配置**: 588200, 588710, 588750 已预置
+- **索引优化**: 新增4个复合索引加速查询
+
+#### 2. 🛡️ 数据源健康监控 (Data Fallback Protocol Phase 1)
+- **新增模块**: `utils/data_health_monitor.py`
+  - 自动检测 Sina/Tencent/AKShare 数据源健康状态
+  - 记录成功率、响应时间、连续失败次数
+  - 智能推荐最佳数据源
+- **新增脚本**: `scripts/monitor_data_health.py`
+  - 命令行健康检查工具
+  - 异常时自动告警
+- **健康日志**: `logs/data_health.json`
+
+#### 3. 🔧 Bug修复
+- **昨日收盘价错误**: `get_stock_realtime_info()` 现在优先从日线历史获取真实昨收
+
+### 📁 Week 1 新增文件
+```
+migration_tool/
+└── migrate_v4.1_intelligence.sql   # 数据库迁移脚本
+
+utils/
+└── data_health_monitor.py          # 数据源健康监控
+
+scripts/
+└── monitor_data_health.py          # 健康检查命令行工具
+```
+
+---
+
+## [4.1.0] - 2026-03-14 (v4.1 全部完成)
+
+> 📍 开发路线图: `docs/v4.1_ROADMAP.md`  
+> 📊 项目状态: `docs/v4.1_STATUS.md`
+
+### 🎯 Overview
+**v4.1 全部开发完成！** Week 1/2/3 所有功能模块已上线。
+
+### ✅ Week 3 已完成 (体验与风控)
+
+#### 1. 📊 ETF专属情报页面 (Intelligence Hub 2.0 Phase 4)
+- **新增组件**: `components/intel_timeline.py`
+  - ETF专属情报展示页面
+  - 情报时间轴可视化
+  - 情感标签可视化 (🟢利好/🔴利空/⚪中性)
+  - 支持按时间、情感筛选
+- **功能特性**:
+  - 实时行情联动
+  - 已归档情报摘要展示
+  - 响应式UI设计
+
+#### 2. 🔌 AI接口统一 (Dual-Expert Phase 2)
+- **新增模块**: `utils/ai_interface.py`
+  - 统一Web界面和命令行的AI调用
+  - 消除skill与人工操作差异
+  - 提供一致的API调用体验
+- **便捷封装**:
+  - `StrategyGenerator` - 策略生成
+  - `RiskAuditor` - 风险审计
+  - `UnifiedAIInterface` - 统一调用
+
+#### 3. 📈 批量风控分析 (Dual-Expert Phase 2)
+- **新增脚本**: `scripts/batch_risk_audit.py`
+  - 批量对多个标的进行红蓝双专家分析
+  - 输出结构化风控报告 (text/json/md)
+  - 支持自选股列表批量分析
+- **使用示例**:
+  ```bash
+  python scripts/batch_risk_audit.py 588200 588710 --format md
+  python scripts/batch_risk_audit.py --watchlist --format json
+  ```
+
+### 📁 Week 3 新增文件
+```
+components/
+├── intel_timeline.py           # ETF情报时间轴
+
+utils/
+└── ai_interface.py             # 统一AI接口
+
+scripts/
+└── batch_risk_audit.py         # 批量风控分析
+```
+
+### 🎉 v4.1 完整功能清单
+
+| 模块 | 功能 | 状态 |
+|------|------|------|
+| **数据库升级** | 冷热分离、关联表、ETF配置 | ✅ Week 1 |
+| **健康监控** | Sina/Tencent可用性检测 | ✅ Week 1 |
+| **LLM智能关联** | DeepSeek自动分析→ETF关联 | ✅ Week 2 |
+| **自动归档** | 6个月前情报压缩归档 | ✅ Week 2 |
+| **离线快照** | 极端网络中断静态查询 | ✅ Week 2 |
+| **双专家风控** | 风险>7分自动拦截 | ✅ Week 2 |
+| **ETF情报页** | 专属情报时间轴UI | ✅ Week 3 |
+| **AI接口统一** | Web与命令行一致 | ✅ Week 3 |
+| **批量风控** | 多标的同时分析 | ✅ Week 3 |
+
+---
+
+## [4.2.0] - 2026-03-14 (回测框架 + 绩效归因 + v4.1优化)
+
+> 📍 开发路线图: `docs/v4.2_ROADMAP.md`
+
+### 🎯 Overview
+v4.2 核心功能开发完成！包含回测框架、绩效归因分析、v4.1集成测试。
+
+### ✅ v4.2 核心功能
+
+#### 1. 🔄 回测框架建设 (P0)
+- **回测引擎** (`capability_platform/backtest/engine.py`)
+  - 分钟级/日级行情回测
+  - 策略执行模拟
+  - 交易记录生成
+  - 权益曲线追踪
+  
+- **绩效指标** (`capability_platform/backtest/metrics.py`)
+  - 收益类: 累计收益率、年化收益率、超额收益
+  - 风险类: 最大回撤、波动率、夏普比率、卡玛比率
+  - 交易类: 胜率、盈亏比、平均持仓周期
+  
+- **交易模拟器** (`capability_platform/backtest/simulator.py`)
+  - 滑点模拟 (高斯分布)
+  - 手续费计算
+  - 部分成交模拟
+  - 市场冲击模型
+
+- **回测入口** (`scripts/backtest_framework.py`)
+  - 标准化回测流程
+  - 人机交易对比
+  - 多格式报告输出
+
+#### 2. 📊 绩效归因分析 (P1)
+- **Brinson归因** (`capability_platform/analytics/brinson_attribution.py`)
+  - 资产配置收益 (Allocation Effect)
+  - 个股选择收益 (Selection Effect)
+  - 交互收益 (Interaction Effect)
+  - 行业贡献分解
+
+- **归因入口** (`scripts/performance_attribution.py`)
+  - 组合 vs 基准对比
+  - 多格式报告 (text/json/md)
+
+#### 3. 🧪 v4.1集成测试 (优化)
+- **集成测试** (`tests/integration/test_v4.1_features.py`)
+  - 数据库结构验证 (14/15通过)
+  - 模块协同测试
+  - 双专家决策矩阵验证
+
+### 📁 v4.2新增文件
+```
+capability_platform/
+├── backtest/
+│   ├── __init__.py
+│   ├── engine.py              # 回测引擎
+│   ├── metrics.py             # 绩效指标
+│   └── simulator.py           # 交易模拟器
+├── analytics/
+│   └── brinson_attribution.py # Brinson归因
+
+scripts/
+├── backtest_framework.py      # 回测入口
+└── performance_attribution.py # 归因分析
+
+tests/integration/
+└── test_v4.1_features.py      # v4.1集成测试
+```
+
+### 🚀 快速开始
+```bash
+# 回测测试
+python capability_platform/backtest/engine.py
+
+# 归因分析测试
+python scripts/performance_attribution.py
+
+# 集成测试
+python tests/integration/test_v4.1_features.py
+
+# 运行回测
+python scripts/backtest_framework.py 588200 --start 2024-01-01 --end 2024-03-01
+```
+
+---
+
+## [4.1.x] - 2026-03 (v4.1中版本开发中)
+
+> 📍 开发路线图: `docs/v4.1_ROADMAP.md`
+
+### 🎯 Overview
+推进v4.1中版本三大核心模块开发，解决情报系统膨胀、数据源不稳定、风控拦截系统化问题。
+
+### 🏗️ 三大核心模块开发计划
+
+#### 1. 🧠 投研情报系统涅槃重构 (Intelligence Hub 2.0)
+- ✅ **Phase 1**: 数据库结构升级 (已完成)
+- 🔄 **Phase 2**: LLM深度语义关联 (Week 2)
+- 🔄 **Phase 3**: 自动归档系统 (Week 2)
+- 🔄 **Phase 4**: ETF专属页 (Week 3)
+
+#### 2. 🛡️ 数据基石与底层容灾网 (Data Fallback Protocol)
+- ✅ **Phase 1**: 多源调度器 + 健康监控 (已完成)
+- 🔄 **Phase 2**: 本地缓存降级策略 (Week 2)
+
+#### 3. ⚔️ 双子星智能阵列演进 (Dual-Expert Architecture)
+- 🔄 **Phase 1**: 红蓝决策矩阵上链 (Week 2)
+- 🔄 **Phase 2**: AI接口统一 (Week 3)
+
+### 📅 剩余开发阶段
+- **Week 2**: Phase 2 - AI重装上阵 (智能关联 + 自动归档)
+- **Week 3**: Phase 3 - 体验与风控 (专属页 + 风控拦截)
+- **Week 4**: 集成测试与文档更新
+
+### 📁 规划中模块
+```
+scripts/intel_archive.py          # 情报自动归档
+scripts/intel_analyzer.py         # LLM智能分析
+scripts/market_snapshot.py        # 市场离线快照
+components/intel_timeline.py      # 情报时间轴组件
+capability_platform/risk/dual_expert_decision.py  # 双专家决策
+```
+
+---
+
+
 All notable changes to the **MarketMonitorAndBuyer** project will be documented in this file.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),

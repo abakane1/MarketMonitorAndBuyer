@@ -37,7 +37,9 @@
 pip install -r requirements.txt
 
 # 2. 启动应用
-./start.sh
+./scripts/start.sh
+# 或
+python main.py
 ```
 
 ### 初始化配置
@@ -50,15 +52,23 @@ pip install -r requirements.txt
 4. 开含 `⚡ Auto-Drive` 体验军团作战。
 
 ## 项目结构
-- `main.py`: 主程序 UI 入口。
-- `components/`: UI 组件拆分 (策略区、仪表盘、实验室)。
-- `utils/legion_advisor.py`: 蓝军军团 (MoE) 核心逻辑。
-- `utils/ai_advisor.py`: AI 接口封装 (DeepSeek/Qwen 动态调度)。
-- `utils/intel_manager.py`: 智能情报 RAG 系统。
-- `utils/prompt_loader.py`: **[v2.8.0]** Markdown 提示词加载器。
-- `utils/data_fallback.py`: **[v2.8.0]** 备用数据源 (Sina/Tencent)。
-- `prompts/`: **[v2.8.0]** Markdown 格式的 AI 提示词。
-- `stock_data/`: 本地行情缓存 (Parquet)。
+```
+├── main.py                 # 主程序入口
+├── components/             # UI 组件 (策略区、仪表盘、实验室)
+├── utils/                  # 工具函数
+│   ├── legion_advisor.py   # 蓝军军团 (MoE) 核心逻辑
+│   ├── ai_advisor.py       # AI 接口封装
+│   ├── intel_manager.py    # 智能情报 RAG 系统
+│   ├── prompt_loader.py    # Markdown 提示词加载器
+│   └── data_fallback.py    # 备用数据源 (Sina/Tencent)
+├── scripts/                # 脚本工具 (启动/停止/部署)
+├── prompts/                # Markdown 格式 AI 提示词
+├── stock_data/             # 本地行情缓存
+├── docs/                   # 项目文档
+│   ├── v4.1_ROADMAP.md     # v4.1 开发路线图
+│   └── v4.1_STATUS.md      # 项目状态
+└── PROJECT_STRUCTURE.md    # 完整目录说明
+```
 
 ## 开发协议 (Development Protocol)
 

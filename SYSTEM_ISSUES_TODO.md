@@ -52,6 +52,71 @@
 
 ## 📝 当前问题列表
 
+### 📊 get_stock_realtime_info() 返回的昨日收盘价错误 ✅已修复
+
+**状态**: ✅ 已解决  
+**发现时间**: 2026-03-11 21:14  
+**解决时间**: 2026-03-14  
+**发现者**: Feishu群聊操作技能  
+**优先级**: 🟡 中  
+**修复版本**: v4.1.0
+
+### 问题描述
+调用 `get_stock_realtime_info()` 获取588200数据时，返回的 pre_close 值错误：
+- 函数返回：pre_close: 2.569
+- 正确值应为：pre_close: 2.579（昨日收盘价）
+
+这导致涨跌幅计算错误（-0.04% vs 实际-1.47%）。
+
+### 复现步骤
+```python
+from utils.data_fetcher import get_stock_realtime_info
+result = get_stock_realtime_info('588200')
+# 返回: {"price": 2.541, "pre_close": 2.569, ...}
+```
+
+### 错误信息
+```
+get_stock_realtime_info() 返回:
+- price: 2.541
+- pre_close: 2.569 (错误)
+
+get_stock_daily_history() 正确数据:
+- 2026-03-10 收盘: 2.579
+- 2026-03-11 收盘: 2.541
+```
+
+### 相关文件
+- `utils/data_fetcher.py` - `get_stock_realtime_info()` 函数
+
+### 影响范围
+- 实时数据获取
+- 涨跌幅计算
+
+### 修复内容
+**问题根因**: 原代码使用今天第一根分钟K线的开盘价和涨跌幅来**计算**昨收，存在误差。
+
+**修复方案**: 
+1. 优先调用 `get_stock_daily_history()` 获取真实的昨日收盘价
+2. 仅当日线数据获取失败时，才使用分钟数据计算作为fallback
+3. 添加异常处理，确保数据一致性
+
+**修改文件**: `utils/data_fetcher.py` 第709-760行
+
+**验证方式**:
+```python
+from utils.data_fetcher import get_stock_realtime_info, get_stock_daily_history
+result = get_stock_realtime_info('588200')
+daily = get_stock_daily_history('588200', days=2)
+print(f"实时数据昨收: {result['昨收']}")
+print(f"日线数据昨收: {daily.iloc[-2]['收盘']}")
+# 两者应该一致
+```
+
+---
+
+## 📝 历史已解决问题
+
 ### dashboard.py & trade_manager.py 调用数据库函数参数错误 (portfolio_id) ✅已修复
 
 **状态**: ✅ 已解决  

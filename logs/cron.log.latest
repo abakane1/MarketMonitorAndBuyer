@@ -1,0 +1,797 @@
+📅 2026-03-06 08:30:01
+开始发送每日策略...
+从 review_logs 表获取到 3 条策略(系统内生成)
+找到 3 条今日策略
+消息长度: 345 字符
+消息预览:
+--------------------------------------------------
+📊 2026-03-06 盘前策略汇总\n\n🔹 **588710** (00:18:14)\n   [决策] 执行 | [标的] 588710 | 【场景演练与挂单指令 (Scenario-based Orders)】\n\n🔹 **588200** (00:11:11)\n   [决策] 执行 | [标的] 588200 | 【场景演练与挂单指令 (Scenario-based Orders)】\n\n🔹 **588750** (00:05:17)\n   **【场景演练与挂单指令】** | **场景 A: 最优撤退 (价格冲击1.728)** | - [方向] 卖出\n\n---\n💡 详细策略请查看系统数据库或运行 `batch_strategy_generator.py`
+--------------------------------------------------
+执行命令: openclaw message send --channel feishu --target chat:oc_672bd1289d4d80d80d5fe1b3e82550f6 --message 📊 2026-03-06 盘前策略汇总\n\n🔹 **588710** (00:18:14)\n   [决策] 执行 | [标的] 588710 | 【场景演练与挂单指令 (Scenario-based Orders)】\n\n🔹 **588200** (00:11:11)\n   [决策] 执行 | [标的] 588200 | 【场景演练与挂单指令 (Scenario-based Orders)】\n\n🔹 **588750** (00:05:17)\n   **【场景演练与挂单指令】** | **场景 A: 最优撤退 (价格冲击1.728)** | - [方向] 卖出\n\n---\n💡 详细策略请查看系统数据库或运行 `batch_strategy_generator.py`
+❌ 执行异常: [Errno 2] No such file or directory: 'openclaw'
+❌ 操作失败
+2026-03-06 15:30:00.513 WARNING streamlit.runtime.caching.cache_data_api: No runtime found, using MemoryCacheStorageManager
+2026-03-06 15:30:01,220 - utils.data_fetcher - INFO - akshare 模块加载成功
+2026-03-06 15:30:01,247 - utils.data_fetcher - INFO - efinance 加载成功
+2026-03-06 15:30:01,248 - utils.data_fetcher - INFO - 备用数据源 (Sina/Tencent) 加载成功
+2026-03-06 15:30:01.248 WARNING streamlit.runtime.caching.cache_data_api: No runtime found, using MemoryCacheStorageManager
+2026-03-06 15:30:01.249 WARNING streamlit.runtime.caching.cache_data_api: No runtime found, using MemoryCacheStorageManager
+2026-03-06 15:30:01.250 WARNING streamlit.runtime.caching.cache_data_api: No runtime found, using MemoryCacheStorageManager
+2026-03-06 15:30:01.250 WARNING streamlit.runtime.caching.cache_data_api: No runtime found, using MemoryCacheStorageManager
+2026-03-06 15:30:01.250 WARNING streamlit.runtime.caching.cache_data_api: No runtime found, using MemoryCacheStorageManager
+/Users/zuliangzhao/MarketMonitorAndBuyer/venv/lib/python3.14/site-packages/google/genai/types.py:43: DeprecationWarning: '_UnionGenericAlias' is deprecated and slated for removal in Python 3.17
+  VersionedUnionType = Union[builtin_types.UnionType, _UnionGenericAlias]
+======================================================================
+🤖 全自动策略生成系统 (Auto-Drive Mode)
+⏰ 运行时间: 2026-03-06 15:30:00
+======================================================================
+[Prompt Loader] Loaded 28 prompts from markdown files
+✅ API密钥加载成功
+   蓝军(主模型): Kimi/Qwen
+   红军(审计): DeepSeek
+
+📋 获取关注列表...
+   找到 5 只ETF: 588000, 563230, 588750, 588200, 588710
+
+======================================================================
+📊 生成策略: 588000
+======================================================================
+1. 📥 获取实时数据...
+   ✅ 588000 @ 1.482
+2. 📊 获取持仓和历史...
+   ✅ 持仓: 17200股 @ 成本0.337
+3. 🤖 运行5步MoE工作流...
+   Step 1/5: 蓝军(Kimi)生成初始草案...
+   Step 2/5: 红军(DeepSeek)初审...
+   Step 3/5: 蓝军(Kimi)反思优化...
+   Step 4/5: 红军(DeepSeek)终审...
+   Step 5/5: 蓝军签署执行令...
+======================================================================
+🚀 启动五步 MoE 分析工作流
+   标的: 588000 (588000)
+   当前价: 1.482
+======================================================================
+
+🟦 STEP 1/5: 蓝军主帅生成初始策略草案...
+   模型: DeepSeek-R1 (reasoner)
+   ✅ 草案生成完成 (168 字符)
+
+🟥 STEP 2/5: 红军审计师进行风险审查...
+   模型: Qwen-Max
+DEBUG: Qwen Status: 401
+DEBUG: Qwen Error: {"error":{"message":"Incorrect API key provided. For details, see: https://help.aliyun.com/zh/model-studio/error-code#apikey-error","type":"invalid_request_error","param":null,"code":"invalid_api_key"},"request_id":"64663c4d-f986-9c67-b074-3702f0c00cd1"}
+   ✅ 审计报告完成 (274 字符)
+
+🟦 STEP 3/5: 蓝军主帅反思并优化策略...
+   模型: DeepSeek-R1 (reasoner)
+   ✅ 优化策略完成 (168 字符)
+
+🟥 STEP 4/5: 红军进行最终裁决...
+   模型: Qwen-Max
+DEBUG: Qwen Status: 401
+DEBUG: Qwen Error: {"error":{"message":"Incorrect API key provided. For details, see: https://help.aliyun.com/zh/model-studio/error-code#apikey-error","type":"invalid_request_error","param":null,"code":"invalid_api_key"},"request_id":"ab2d9829-a160-91b1-be21-cfd65614c049"}
+   ✅ 最终裁决: 待定
+
+🟦 STEP 5/5: 蓝军主帅生成最终执行令...
+   模型: DeepSeek-R1 (reasoner)
+   ✅ 执行令生成完成 (168 字符)
+
+======================================================================
+✅ 五步 MoE 工作流完成! 总耗时: 1.0 秒
+======================================================================
+4. 💾 保存完整工作流到系统数据库(review_logs)...
+   ✅ 已保存完整工作流到review_logs表 (1445 字符)
+
+======================================================================
+📊 生成策略: 563230
+======================================================================
+1. 📥 获取实时数据...
+   ✅ 563230 @ 1.579
+2. 📊 获取持仓和历史...
+   ✅ 持仓: 5000股 @ 成本1.196
+3. 🤖 运行5步MoE工作流...
+   Step 1/5: 蓝军(Kimi)生成初始草案...
+   Step 2/5: 红军(DeepSeek)初审...
+   Step 3/5: 蓝军(Kimi)反思优化...
+   Step 4/5: 红军(DeepSeek)终审...
+   Step 5/5: 蓝军签署执行令...
+======================================================================
+🚀 启动五步 MoE 分析工作流
+   标的: 563230 (563230)
+   当前价: 1.579
+======================================================================
+
+🟦 STEP 1/5: 蓝军主帅生成初始策略草案...
+   模型: DeepSeek-R1 (reasoner)
+   ✅ 草案生成完成 (168 字符)
+
+🟥 STEP 2/5: 红军审计师进行风险审查...
+   模型: Qwen-Max
+DEBUG: Qwen Status: 401
+DEBUG: Qwen Error: {"error":{"message":"Incorrect API key provided. For details, see: https://help.aliyun.com/zh/model-studio/error-code#apikey-error","type":"invalid_request_error","param":null,"code":"invalid_api_key"},"request_id":"20bfd5bb-dead-9a15-b4d8-be47e2fa8521"}
+   ✅ 审计报告完成 (274 字符)
+
+🟦 STEP 3/5: 蓝军主帅反思并优化策略...
+   模型: DeepSeek-R1 (reasoner)
+   ✅ 优化策略完成 (168 字符)
+
+🟥 STEP 4/5: 红军进行最终裁决...
+   模型: Qwen-Max
+DEBUG: Qwen Status: 401
+DEBUG: Qwen Error: {"error":{"message":"Incorrect API key provided. For details, see: https://help.aliyun.com/zh/model-studio/error-code#apikey-error","type":"invalid_request_error","param":null,"code":"invalid_api_key"},"request_id":"15366d6a-7d2a-9121-88a1-99612c131ccf"}
+   ✅ 最终裁决: 待定
+
+🟦 STEP 5/5: 蓝军主帅生成最终执行令...
+   模型: DeepSeek-R1 (reasoner)
+   ✅ 执行令生成完成 (168 字符)
+
+======================================================================
+✅ 五步 MoE 工作流完成! 总耗时: 1.1 秒
+======================================================================
+4. 💾 保存完整工作流到系统数据库(review_logs)...
+   ✅ 已保存完整工作流到review_logs表 (1445 字符)
+
+======================================================================
+📊 生成策略: 588750
+======================================================================
+1. 📥 获取实时数据...
+   ✅ 588750 @ 1.707
+2. 📊 获取持仓和历史...
+   ✅ 持仓: 82300股 @ 成本1.802
+3. 🤖 运行5步MoE工作流...
+   Step 1/5: 蓝军(Kimi)生成初始草案...
+   Step 2/5: 红军(DeepSeek)初审...
+   Step 3/5: 蓝军(Kimi)反思优化...
+   Step 4/5: 红军(DeepSeek)终审...
+   Step 5/5: 蓝军签署执行令...
+======================================================================
+🚀 启动五步 MoE 分析工作流
+   标的: 588750 (588750)
+   当前价: 1.707
+======================================================================
+
+🟦 STEP 1/5: 蓝军主帅生成初始策略草案...
+   模型: DeepSeek-R1 (reasoner)
+   ✅ 草案生成完成 (168 字符)
+
+🟥 STEP 2/5: 红军审计师进行风险审查...
+   模型: Qwen-Max
+DEBUG: Qwen Status: 401
+DEBUG: Qwen Error: {"error":{"message":"Incorrect API key provided. For details, see: https://help.aliyun.com/zh/model-studio/error-code#apikey-error","type":"invalid_request_error","param":null,"code":"invalid_api_key"},"request_id":"908cc0f2-5f23-974a-a83c-5445fe48d863"}
+   ✅ 审计报告完成 (274 字符)
+
+🟦 STEP 3/5: 蓝军主帅反思并优化策略...
+   模型: DeepSeek-R1 (reasoner)
+   ✅ 优化策略完成 (168 字符)
+
+🟥 STEP 4/5: 红军进行最终裁决...
+   模型: Qwen-Max
+DEBUG: Qwen Status: 401
+DEBUG: Qwen Error: {"error":{"message":"Incorrect API key provided. For details, see: https://help.aliyun.com/zh/model-studio/error-code#apikey-error","type":"invalid_request_error","param":null,"code":"invalid_api_key"},"request_id":"c69e06ea-5563-90fb-a87b-f0425971ec4a"}
+   ✅ 最终裁决: 待定
+
+🟦 STEP 5/5: 蓝军主帅生成最终执行令...
+   模型: DeepSeek-R1 (reasoner)
+   ✅ 执行令生成完成 (168 字符)
+
+======================================================================
+✅ 五步 MoE 工作流完成! 总耗时: 1.0 秒
+======================================================================
+4. 💾 保存完整工作流到系统数据库(review_logs)...
+   ✅ 已保存完整工作流到review_logs表 (1445 字符)
+
+======================================================================
+📊 生成策略: 588200
+======================================================================
+1. 📥 获取实时数据...
+   ✅ 588200 @ 2.562
+2. 📊 获取持仓和历史...
+   ✅ 持仓: 67400股 @ 成本2.317
+3. 🤖 运行5步MoE工作流...
+   Step 1/5: 蓝军(Kimi)生成初始草案...
+   Step 2/5: 红军(DeepSeek)初审...
+   Step 3/5: 蓝军(Kimi)反思优化...
+   Step 4/5: 红军(DeepSeek)终审...
+   Step 5/5: 蓝军签署执行令...
+======================================================================
+🚀 启动五步 MoE 分析工作流
+   标的: 588200 (588200)
+   当前价: 2.562
+======================================================================
+
+🟦 STEP 1/5: 蓝军主帅生成初始策略草案...
+   模型: DeepSeek-R1 (reasoner)
+   ✅ 草案生成完成 (168 字符)
+
+🟥 STEP 2/5: 红军审计师进行风险审查...
+   模型: Qwen-Max
+DEBUG: Qwen Status: 401
+DEBUG: Qwen Error: {"error":{"message":"Incorrect API key provided. For details, see: https://help.aliyun.com/zh/model-studio/error-code#apikey-error","type":"invalid_request_error","param":null,"code":"invalid_api_key"},"request_id":"6777eb33-2338-9dd8-8d6a-a0068e247688"}
+   ✅ 审计报告完成 (274 字符)
+
+🟦 STEP 3/5: 蓝军主帅反思并优化策略...
+   模型: DeepSeek-R1 (reasoner)
+   ✅ 优化策略完成 (168 字符)
+
+🟥 STEP 4/5: 红军进行最终裁决...
+   模型: Qwen-Max
+DEBUG: Qwen Status: 401
+DEBUG: Qwen Error: {"error":{"message":"Incorrect API key provided. For details, see: https://help.aliyun.com/zh/model-studio/error-code#apikey-error","type":"invalid_request_error","param":null,"code":"invalid_api_key"},"request_id":"ceb5aec3-a86b-92d7-8834-51e140722a37"}
+   ✅ 最终裁决: 待定
+
+🟦 STEP 5/5: 蓝军主帅生成最终执行令...
+   模型: DeepSeek-R1 (reasoner)
+   ✅ 执行令生成完成 (168 字符)
+
+======================================================================
+✅ 五步 MoE 工作流完成! 总耗时: 1.1 秒
+======================================================================
+4. 💾 保存完整工作流到系统数据库(review_logs)...
+   ✅ 已保存完整工作流到review_logs表 (1445 字符)
+
+======================================================================
+📊 生成策略: 588710
+======================================================================
+1. 📥 获取实时数据...
+   ✅ 588710 @ 1.787
+2. 📊 获取持仓和历史...
+   ✅ 持仓: 110000股 @ 成本1.885
+3. 🤖 运行5步MoE工作流...
+   Step 1/5: 蓝军(Kimi)生成初始草案...
+   Step 2/5: 红军(DeepSeek)初审...
+   Step 3/5: 蓝军(Kimi)反思优化...
+   Step 4/5: 红军(DeepSeek)终审...
+   Step 5/5: 蓝军签署执行令...
+======================================================================
+🚀 启动五步 MoE 分析工作流
+   标的: 588710 (588710)
+   当前价: 1.787
+======================================================================
+
+🟦 STEP 1/5: 蓝军主帅生成初始策略草案...
+   模型: DeepSeek-R1 (reasoner)
+   ✅ 草案生成完成 (168 字符)
+
+🟥 STEP 2/5: 红军审计师进行风险审查...
+   模型: Qwen-Max
+DEBUG: Qwen Status: 401
+DEBUG: Qwen Error: {"error":{"message":"Incorrect API key provided. For details, see: https://help.aliyun.com/zh/model-studio/error-code#apikey-error","type":"invalid_request_error","param":null,"code":"invalid_api_key"},"request_id":"9b1dfb1f-7945-99db-bdaf-621d34435aa6"}
+   ✅ 审计报告完成 (274 字符)
+
+🟦 STEP 3/5: 蓝军主帅反思并优化策略...
+   模型: DeepSeek-R1 (reasoner)
+   ✅ 优化策略完成 (168 字符)
+
+🟥 STEP 4/5: 红军进行最终裁决...
+   模型: Qwen-Max
+DEBUG: Qwen Status: 401
+DEBUG: Qwen Error: {"error":{"message":"Incorrect API key provided. For details, see: https://help.aliyun.com/zh/model-studio/error-code#apikey-error","type":"invalid_request_error","param":null,"code":"invalid_api_key"},"request_id":"f4ae7ef7-9f20-964e-8bd9-f254dea3d308"}
+   ✅ 最终裁决: 待定
+
+🟦 STEP 5/5: 蓝军主帅生成最终执行令...
+   模型: DeepSeek-R1 (reasoner)
+   ✅ 执行令生成完成 (168 字符)
+
+======================================================================
+✅ 五步 MoE 工作流完成! 总耗时: 1.0 秒
+======================================================================
+4. 💾 保存完整工作流到系统数据库(review_logs)...
+   ✅ 已保存完整工作流到review_logs表 (1445 字符)
+
+======================================================================
+📊 生成摘要
+======================================================================
+✅ 成功: 5/5
+   ✅ 588000
+   ✅ 563230
+   ✅ 588750
+   ✅ 588200
+   ✅ 588710
+
+======================================================================
+🎉 全自动策略生成完成！
+📱 明早08:30自动推送到飞书群
+======================================================================
+📅 2026-03-09 08:30:00
+开始发送每日策略...
+review_logs 表无记录，尝试从 strategy_logs 表获取...
+从 strategy_logs 表获取到 0 条策略(外部脚本生成)
+找到 0 条今日策略
+❌ 今日无策略，发送提示消息
+执行命令: openclaw message send --channel feishu --target chat:oc_672bd1289d4d80d80d5fe1b3e82550f6 --message 📭 今日尚无盘前策略，请先运行策略生成脚本。
+❌ 执行异常: [Errno 2] No such file or directory: 'openclaw'
+❌ 操作失败
+2026-03-09 15:30:01.562 WARNING streamlit.runtime.caching.cache_data_api: No runtime found, using MemoryCacheStorageManager
+2026-03-09 15:30:02,676 - utils.data_fetcher - INFO - akshare 模块加载成功
+2026-03-09 15:30:02,714 - utils.data_fetcher - INFO - efinance 加载成功
+2026-03-09 15:30:02,715 - utils.data_fetcher - INFO - 备用数据源 (Sina/Tencent) 加载成功
+2026-03-09 15:30:02.715 WARNING streamlit.runtime.caching.cache_data_api: No runtime found, using MemoryCacheStorageManager
+2026-03-09 15:30:02.716 WARNING streamlit.runtime.caching.cache_data_api: No runtime found, using MemoryCacheStorageManager
+2026-03-09 15:30:02.718 WARNING streamlit.runtime.caching.cache_data_api: No runtime found, using MemoryCacheStorageManager
+2026-03-09 15:30:02.718 WARNING streamlit.runtime.caching.cache_data_api: No runtime found, using MemoryCacheStorageManager
+2026-03-09 15:30:02.718 WARNING streamlit.runtime.caching.cache_data_api: No runtime found, using MemoryCacheStorageManager
+/Users/zuliangzhao/MarketMonitorAndBuyer/venv/lib/python3.14/site-packages/google/genai/types.py:43: DeprecationWarning: '_UnionGenericAlias' is deprecated and slated for removal in Python 3.17
+  VersionedUnionType = Union[builtin_types.UnionType, _UnionGenericAlias]
+Traceback (most recent call last):
+  File "/Users/zuliangzhao/MarketMonitorAndBuyer/auto_strategy_generator.py", line 107, in run_auto_strategy_generation
+    result = run_five_step_workflow(
+        symbol=symbol,
+    ...<6 lines>...
+        intel_hub_data=""
+    )
+TypeError: run_five_step_workflow() missing 1 required positional argument: 'kimi_api_key'
+Traceback (most recent call last):
+  File "/Users/zuliangzhao/MarketMonitorAndBuyer/auto_strategy_generator.py", line 107, in run_auto_strategy_generation
+    result = run_five_step_workflow(
+        symbol=symbol,
+    ...<6 lines>...
+        intel_hub_data=""
+    )
+TypeError: run_five_step_workflow() missing 1 required positional argument: 'kimi_api_key'
+Traceback (most recent call last):
+  File "/Users/zuliangzhao/MarketMonitorAndBuyer/auto_strategy_generator.py", line 107, in run_auto_strategy_generation
+    result = run_five_step_workflow(
+        symbol=symbol,
+    ...<6 lines>...
+        intel_hub_data=""
+    )
+TypeError: run_five_step_workflow() missing 1 required positional argument: 'kimi_api_key'
+Traceback (most recent call last):
+  File "/Users/zuliangzhao/MarketMonitorAndBuyer/auto_strategy_generator.py", line 107, in run_auto_strategy_generation
+    result = run_five_step_workflow(
+        symbol=symbol,
+    ...<6 lines>...
+        intel_hub_data=""
+    )
+TypeError: run_five_step_workflow() missing 1 required positional argument: 'kimi_api_key'
+Traceback (most recent call last):
+  File "/Users/zuliangzhao/MarketMonitorAndBuyer/auto_strategy_generator.py", line 107, in run_auto_strategy_generation
+    result = run_five_step_workflow(
+        symbol=symbol,
+    ...<6 lines>...
+        intel_hub_data=""
+    )
+TypeError: run_five_step_workflow() missing 1 required positional argument: 'kimi_api_key'
+======================================================================
+🤖 全自动策略生成系统 (Auto-Drive Mode)
+⏰ 运行时间: 2026-03-09 15:30:01
+======================================================================
+[Prompt Loader] Loaded 28 prompts from markdown files
+✅ API密钥加载成功
+   蓝军(主模型): Kimi/Qwen
+   红军(审计): DeepSeek
+
+📋 获取关注列表...
+   找到 5 只ETF: 588000, 563230, 588750, 588200, 588710
+
+======================================================================
+📊 生成策略: 588000
+======================================================================
+1. 📥 获取实时数据...
+   ✅ 588000 @ 1.465
+2. 📊 获取持仓和历史...
+   ✅ 持仓: 17200股 @ 成本0.337
+3. 🤖 运行5步MoE工作流...
+   Step 1/5: 蓝军(Kimi)生成初始草案...
+   Step 2/5: 红军(DeepSeek)初审...
+   Step 3/5: 蓝军(Kimi)反思优化...
+   Step 4/5: 红军(DeepSeek)终审...
+   Step 5/5: 蓝军签署执行令...
+   ❌ 生成失败: run_five_step_workflow() missing 1 required positional argument: 'kimi_api_key'
+
+======================================================================
+📊 生成策略: 563230
+======================================================================
+1. 📥 获取实时数据...
+   ✅ 563230 @ 1.567
+2. 📊 获取持仓和历史...
+   ✅ 持仓: 5000股 @ 成本1.196
+3. 🤖 运行5步MoE工作流...
+   Step 1/5: 蓝军(Kimi)生成初始草案...
+   Step 2/5: 红军(DeepSeek)初审...
+   Step 3/5: 蓝军(Kimi)反思优化...
+   Step 4/5: 红军(DeepSeek)终审...
+   Step 5/5: 蓝军签署执行令...
+   ❌ 生成失败: run_five_step_workflow() missing 1 required positional argument: 'kimi_api_key'
+
+======================================================================
+📊 生成策略: 588750
+======================================================================
+1. 📥 获取实时数据...
+   ✅ 588750 @ 1.676
+2. 📊 获取持仓和历史...
+   ✅ 持仓: 82300股 @ 成本1.802
+3. 🤖 运行5步MoE工作流...
+   Step 1/5: 蓝军(Kimi)生成初始草案...
+   Step 2/5: 红军(DeepSeek)初审...
+   Step 3/5: 蓝军(Kimi)反思优化...
+   Step 4/5: 红军(DeepSeek)终审...
+   Step 5/5: 蓝军签署执行令...
+   ❌ 生成失败: run_five_step_workflow() missing 1 required positional argument: 'kimi_api_key'
+
+======================================================================
+📊 生成策略: 588200
+======================================================================
+1. 📥 获取实时数据...
+   ✅ 588200 @ 2.513
+2. 📊 获取持仓和历史...
+   ✅ 持仓: 67300股 @ 成本2.307
+3. 🤖 运行5步MoE工作流...
+   Step 1/5: 蓝军(Kimi)生成初始草案...
+   Step 2/5: 红军(DeepSeek)初审...
+   Step 3/5: 蓝军(Kimi)反思优化...
+   Step 4/5: 红军(DeepSeek)终审...
+   Step 5/5: 蓝军签署执行令...
+   ❌ 生成失败: run_five_step_workflow() missing 1 required positional argument: 'kimi_api_key'
+
+======================================================================
+📊 生成策略: 588710
+======================================================================
+1. 📥 获取实时数据...
+   ✅ 588710 @ 1.715
+2. 📊 获取持仓和历史...
+   ✅ 持仓: 110000股 @ 成本1.885
+3. 🤖 运行5步MoE工作流...
+   Step 1/5: 蓝军(Kimi)生成初始草案...
+   Step 2/5: 红军(DeepSeek)初审...
+   Step 3/5: 蓝军(Kimi)反思优化...
+   Step 4/5: 红军(DeepSeek)终审...
+   Step 5/5: 蓝军签署执行令...
+   ❌ 生成失败: run_five_step_workflow() missing 1 required positional argument: 'kimi_api_key'
+
+======================================================================
+📊 生成摘要
+======================================================================
+✅ 成功: 0/5
+   ❌ 588000
+   ❌ 563230
+   ❌ 588750
+   ❌ 588200
+   ❌ 588710
+
+======================================================================
+🎉 全自动策略生成完成！
+📱 明早08:30自动推送到飞书群
+======================================================================
+📅 2026-03-10 08:30:00
+开始发送每日策略...
+review_logs 表无记录，尝试从 strategy_logs 表获取...
+从 strategy_logs 表获取到 0 条策略(外部脚本生成)
+找到 0 条今日策略
+❌ 今日无策略，发送提示消息
+执行命令: openclaw message send --channel feishu --target chat:oc_672bd1289d4d80d80d5fe1b3e82550f6 --message 📭 今日尚无盘前策略，请先运行策略生成脚本。
+❌ 执行异常: [Errno 2] No such file or directory: 'openclaw'
+❌ 操作失败
+2026-03-10 15:30:01.192 WARNING streamlit.runtime.caching.cache_data_api: No runtime found, using MemoryCacheStorageManager
+2026-03-10 15:30:02,358 - utils.data_fetcher - INFO - akshare 模块加载成功
+2026-03-10 15:30:02,396 - utils.data_fetcher - INFO - efinance 加载成功
+2026-03-10 15:30:02,397 - utils.data_fetcher - INFO - 备用数据源 (Sina/Tencent) 加载成功
+2026-03-10 15:30:02.397 WARNING streamlit.runtime.caching.cache_data_api: No runtime found, using MemoryCacheStorageManager
+2026-03-10 15:30:02.399 WARNING streamlit.runtime.caching.cache_data_api: No runtime found, using MemoryCacheStorageManager
+2026-03-10 15:30:02.400 WARNING streamlit.runtime.caching.cache_data_api: No runtime found, using MemoryCacheStorageManager
+2026-03-10 15:30:02.400 WARNING streamlit.runtime.caching.cache_data_api: No runtime found, using MemoryCacheStorageManager
+2026-03-10 15:30:02.400 WARNING streamlit.runtime.caching.cache_data_api: No runtime found, using MemoryCacheStorageManager
+2026-03-10 15:30:02,506 - utils.data_fetcher - WARNING - Failed to patch name for 588000: 'NoneType' object does not support item assignment
+2026-03-10 15:30:02,507 - utils.data_fetcher - WARNING - Failed to load minute data for 588000: 'NoneType' object does not support item assignment
+/Users/zuliangzhao/Projects/MarketMonitorAndBuyer/venv/lib/python3.14/site-packages/google/genai/types.py:43: DeprecationWarning: '_UnionGenericAlias' is deprecated and slated for removal in Python 3.17
+  VersionedUnionType = Union[builtin_types.UnionType, _UnionGenericAlias]
+Traceback (most recent call last):
+  File "/Users/zuliangzhao/Projects/MarketMonitorAndBuyer/auto_strategy_generator.py", line 107, in run_auto_strategy_generation
+    result = run_five_step_workflow(
+        symbol=symbol,
+    ...<6 lines>...
+        intel_hub_data=""
+    )
+TypeError: run_five_step_workflow() missing 1 required positional argument: 'kimi_api_key'
+2026-03-10 15:30:03,724 - utils.data_fetcher - WARNING - Failed to patch name for 563230: 'NoneType' object does not support item assignment
+2026-03-10 15:30:03,724 - utils.data_fetcher - WARNING - Failed to load minute data for 563230: 'NoneType' object does not support item assignment
+Traceback (most recent call last):
+  File "/Users/zuliangzhao/Projects/MarketMonitorAndBuyer/auto_strategy_generator.py", line 107, in run_auto_strategy_generation
+    result = run_five_step_workflow(
+        symbol=symbol,
+    ...<6 lines>...
+        intel_hub_data=""
+    )
+TypeError: run_five_step_workflow() missing 1 required positional argument: 'kimi_api_key'
+2026-03-10 15:30:04,016 - utils.data_fetcher - WARNING - Failed to patch name for 588750: 'NoneType' object does not support item assignment
+2026-03-10 15:30:04,016 - utils.data_fetcher - WARNING - Failed to load minute data for 588750: 'NoneType' object does not support item assignment
+Traceback (most recent call last):
+  File "/Users/zuliangzhao/Projects/MarketMonitorAndBuyer/auto_strategy_generator.py", line 107, in run_auto_strategy_generation
+    result = run_five_step_workflow(
+        symbol=symbol,
+    ...<6 lines>...
+        intel_hub_data=""
+    )
+TypeError: run_five_step_workflow() missing 1 required positional argument: 'kimi_api_key'
+2026-03-10 15:30:04,318 - utils.data_fetcher - WARNING - Failed to patch name for 588200: 'NoneType' object does not support item assignment
+2026-03-10 15:30:04,318 - utils.data_fetcher - WARNING - Failed to load minute data for 588200: 'NoneType' object does not support item assignment
+Traceback (most recent call last):
+  File "/Users/zuliangzhao/Projects/MarketMonitorAndBuyer/auto_strategy_generator.py", line 107, in run_auto_strategy_generation
+    result = run_five_step_workflow(
+        symbol=symbol,
+    ...<6 lines>...
+        intel_hub_data=""
+    )
+TypeError: run_five_step_workflow() missing 1 required positional argument: 'kimi_api_key'
+2026-03-10 15:30:04,629 - utils.data_fetcher - WARNING - Failed to patch name for 588710: 'NoneType' object does not support item assignment
+2026-03-10 15:30:04,629 - utils.data_fetcher - WARNING - Failed to load minute data for 588710: 'NoneType' object does not support item assignment
+Traceback (most recent call last):
+  File "/Users/zuliangzhao/Projects/MarketMonitorAndBuyer/auto_strategy_generator.py", line 107, in run_auto_strategy_generation
+    result = run_five_step_workflow(
+        symbol=symbol,
+    ...<6 lines>...
+        intel_hub_data=""
+    )
+TypeError: run_five_step_workflow() missing 1 required positional argument: 'kimi_api_key'
+======================================================================
+🤖 全自动策略生成系统 (Auto-Drive Mode)
+⏰ 运行时间: 2026-03-10 15:30:00
+======================================================================
+[Prompt Loader] Loaded 28 prompts from markdown files
+✅ API密钥加载成功
+   蓝军(主模型): Kimi/Qwen
+   红军(审计): DeepSeek
+
+📋 获取关注列表...
+   找到 5 只ETF: 588000, 563230, 588750, 588200, 588710
+
+======================================================================
+📊 生成策略: 588000
+======================================================================
+1. 📥 获取实时数据...
+   ✅ 科创50ETF @ 1.495
+2. 📊 获取持仓和历史...
+   ✅ 持仓: 17200股 @ 成本0.337
+3. 🤖 运行5步MoE工作流...
+   Step 1/5: 蓝军(Kimi)生成初始草案...
+   Step 2/5: 红军(DeepSeek)初审...
+   Step 3/5: 蓝军(Kimi)反思优化...
+   Step 4/5: 红军(DeepSeek)终审...
+   Step 5/5: 蓝军签署执行令...
+   ❌ 生成失败: run_five_step_workflow() missing 1 required positional argument: 'kimi_api_key'
+
+======================================================================
+📊 生成策略: 563230
+======================================================================
+1. 📥 获取实时数据...
+   ✅ 卫星ETF @ 1.597
+2. 📊 获取持仓和历史...
+   ✅ 持仓: 5000股 @ 成本1.196
+3. 🤖 运行5步MoE工作流...
+   Step 1/5: 蓝军(Kimi)生成初始草案...
+   Step 2/5: 红军(DeepSeek)初审...
+   Step 3/5: 蓝军(Kimi)反思优化...
+   Step 4/5: 红军(DeepSeek)终审...
+   Step 5/5: 蓝军签署执行令...
+   ❌ 生成失败: run_five_step_workflow() missing 1 required positional argument: 'kimi_api_key'
+
+======================================================================
+📊 生成策略: 588750
+======================================================================
+1. 📥 获取实时数据...
+   ✅ 科创芯片ETF汇添富 @ 1.719
+2. 📊 获取持仓和历史...
+   ✅ 持仓: 70000股 @ 成本1.800
+3. 🤖 运行5步MoE工作流...
+   Step 1/5: 蓝军(Kimi)生成初始草案...
+   Step 2/5: 红军(DeepSeek)初审...
+   Step 3/5: 蓝军(Kimi)反思优化...
+   Step 4/5: 红军(DeepSeek)终审...
+   Step 5/5: 蓝军签署执行令...
+   ❌ 生成失败: run_five_step_workflow() missing 1 required positional argument: 'kimi_api_key'
+
+======================================================================
+📊 生成策略: 588200
+======================================================================
+1. 📥 获取实时数据...
+   ✅ 科创芯片ETF @ 2.579
+2. 📊 获取持仓和历史...
+   ✅ 持仓: 47000股 @ 成本2.307
+3. 🤖 运行5步MoE工作流...
+   Step 1/5: 蓝军(Kimi)生成初始草案...
+   Step 2/5: 红军(DeepSeek)初审...
+   Step 3/5: 蓝军(Kimi)反思优化...
+   Step 4/5: 红军(DeepSeek)终审...
+   Step 5/5: 蓝军签署执行令...
+   ❌ 生成失败: run_five_step_workflow() missing 1 required positional argument: 'kimi_api_key'
+
+======================================================================
+📊 生成策略: 588710
+======================================================================
+1. 📥 获取实时数据...
+   ✅ 科创半导体设备ETF @ 1.75
+2. 📊 获取持仓和历史...
+   ✅ 持仓: 110100股 @ 成本1.860
+3. 🤖 运行5步MoE工作流...
+   Step 1/5: 蓝军(Kimi)生成初始草案...
+   Step 2/5: 红军(DeepSeek)初审...
+   Step 3/5: 蓝军(Kimi)反思优化...
+   Step 4/5: 红军(DeepSeek)终审...
+   Step 5/5: 蓝军签署执行令...
+   ❌ 生成失败: run_five_step_workflow() missing 1 required positional argument: 'kimi_api_key'
+
+======================================================================
+📊 生成摘要
+======================================================================
+✅ 成功: 0/5
+   ❌ 588000
+   ❌ 563230
+   ❌ 588750
+   ❌ 588200
+   ❌ 588710
+
+======================================================================
+🎉 全自动策略生成完成！
+📱 明早08:30自动推送到飞书群
+======================================================================
+📅 2026-03-11 08:30:00
+开始发送每日策略...
+review_logs 表无记录，尝试从 strategy_logs 表获取...
+从 strategy_logs 表获取到 0 条策略(外部脚本生成)
+找到 0 条今日策略
+❌ 今日无策略，发送提示消息
+执行命令: openclaw message send --channel feishu --target chat:oc_672bd1289d4d80d80d5fe1b3e82550f6 --message 📭 今日尚无盘前策略，请先运行策略生成脚本。
+❌ 执行异常: [Errno 2] No such file or directory: 'openclaw'
+❌ 操作失败
+2026-03-11 15:30:01.062 WARNING streamlit.runtime.caching.cache_data_api: No runtime found, using MemoryCacheStorageManager
+2026-03-11 15:30:02,248 - utils.data_fetcher - INFO - akshare 模块加载成功
+2026-03-11 15:30:02,284 - utils.data_fetcher - INFO - efinance 加载成功
+2026-03-11 15:30:02,285 - utils.data_fetcher - INFO - 备用数据源 (Sina/Tencent) 加载成功
+2026-03-11 15:30:02.286 WARNING streamlit.runtime.caching.cache_data_api: No runtime found, using MemoryCacheStorageManager
+2026-03-11 15:30:02.287 WARNING streamlit.runtime.caching.cache_data_api: No runtime found, using MemoryCacheStorageManager
+2026-03-11 15:30:02.288 WARNING streamlit.runtime.caching.cache_data_api: No runtime found, using MemoryCacheStorageManager
+2026-03-11 15:30:02.288 WARNING streamlit.runtime.caching.cache_data_api: No runtime found, using MemoryCacheStorageManager
+2026-03-11 15:30:02.288 WARNING streamlit.runtime.caching.cache_data_api: No runtime found, using MemoryCacheStorageManager
+2026-03-11 15:30:02,419 - utils.data_fetcher - WARNING - Failed to patch name for 588000: 'NoneType' object does not support item assignment
+2026-03-11 15:30:02,420 - utils.data_fetcher - WARNING - Failed to load minute data for 588000: 'NoneType' object does not support item assignment
+/Users/zuliangzhao/Projects/MarketMonitorAndBuyer/venv/lib/python3.14/site-packages/google/genai/types.py:43: DeprecationWarning: '_UnionGenericAlias' is deprecated and slated for removal in Python 3.17
+  VersionedUnionType = Union[builtin_types.UnionType, _UnionGenericAlias]
+Traceback (most recent call last):
+  File "/Users/zuliangzhao/Projects/MarketMonitorAndBuyer/auto_strategy_generator.py", line 107, in run_auto_strategy_generation
+    result = run_five_step_workflow(
+        symbol=symbol,
+    ...<6 lines>...
+        intel_hub_data=""
+    )
+TypeError: run_five_step_workflow() missing 1 required positional argument: 'kimi_api_key'
+2026-03-11 15:30:03,608 - utils.data_fetcher - WARNING - Failed to patch name for 563230: 'NoneType' object does not support item assignment
+2026-03-11 15:30:03,608 - utils.data_fetcher - WARNING - Failed to load minute data for 563230: 'NoneType' object does not support item assignment
+Traceback (most recent call last):
+  File "/Users/zuliangzhao/Projects/MarketMonitorAndBuyer/auto_strategy_generator.py", line 107, in run_auto_strategy_generation
+    result = run_five_step_workflow(
+        symbol=symbol,
+    ...<6 lines>...
+        intel_hub_data=""
+    )
+TypeError: run_five_step_workflow() missing 1 required positional argument: 'kimi_api_key'
+2026-03-11 15:30:03,883 - utils.data_fetcher - WARNING - Failed to patch name for 588750: 'NoneType' object does not support item assignment
+2026-03-11 15:30:03,883 - utils.data_fetcher - WARNING - Failed to load minute data for 588750: 'NoneType' object does not support item assignment
+Traceback (most recent call last):
+  File "/Users/zuliangzhao/Projects/MarketMonitorAndBuyer/auto_strategy_generator.py", line 107, in run_auto_strategy_generation
+    result = run_five_step_workflow(
+        symbol=symbol,
+    ...<6 lines>...
+        intel_hub_data=""
+    )
+TypeError: run_five_step_workflow() missing 1 required positional argument: 'kimi_api_key'
+2026-03-11 15:30:04,257 - utils.data_fetcher - WARNING - Failed to patch name for 588200: 'NoneType' object does not support item assignment
+2026-03-11 15:30:04,257 - utils.data_fetcher - WARNING - Failed to load minute data for 588200: 'NoneType' object does not support item assignment
+Traceback (most recent call last):
+  File "/Users/zuliangzhao/Projects/MarketMonitorAndBuyer/auto_strategy_generator.py", line 107, in run_auto_strategy_generation
+    result = run_five_step_workflow(
+        symbol=symbol,
+    ...<6 lines>...
+        intel_hub_data=""
+    )
+TypeError: run_five_step_workflow() missing 1 required positional argument: 'kimi_api_key'
+2026-03-11 15:30:04,561 - utils.data_fetcher - WARNING - Failed to patch name for 588710: 'NoneType' object does not support item assignment
+2026-03-11 15:30:04,561 - utils.data_fetcher - WARNING - Failed to load minute data for 588710: 'NoneType' object does not support item assignment
+Traceback (most recent call last):
+  File "/Users/zuliangzhao/Projects/MarketMonitorAndBuyer/auto_strategy_generator.py", line 107, in run_auto_strategy_generation
+    result = run_five_step_workflow(
+        symbol=symbol,
+    ...<6 lines>...
+        intel_hub_data=""
+    )
+TypeError: run_five_step_workflow() missing 1 required positional argument: 'kimi_api_key'
+======================================================================
+🤖 全自动策略生成系统 (Auto-Drive Mode)
+⏰ 运行时间: 2026-03-11 15:30:00
+======================================================================
+[Prompt Loader] Loaded 28 prompts from markdown files
+✅ API密钥加载成功
+   蓝军(主模型): Kimi/Qwen
+   红军(审计): DeepSeek
+
+📋 获取关注列表...
+   找到 5 只ETF: 588000, 563230, 588750, 588200, 588710
+
+======================================================================
+📊 生成策略: 588000
+======================================================================
+1. 📥 获取实时数据...
+   ✅ 科创50ETF @ 1.477
+2. 📊 获取持仓和历史...
+   ✅ 持仓: 17200股 @ 成本0.337
+3. 🤖 运行5步MoE工作流...
+   Step 1/5: 蓝军(Kimi)生成初始草案...
+   Step 2/5: 红军(DeepSeek)初审...
+   Step 3/5: 蓝军(Kimi)反思优化...
+   Step 4/5: 红军(DeepSeek)终审...
+   Step 5/5: 蓝军签署执行令...
+   ❌ 生成失败: run_five_step_workflow() missing 1 required positional argument: 'kimi_api_key'
+
+======================================================================
+📊 生成策略: 563230
+======================================================================
+1. 📥 获取实时数据...
+   ✅ 卫星ETF @ 1.57
+2. 📊 获取持仓和历史...
+   ✅ 持仓: 5000股 @ 成本1.196
+3. 🤖 运行5步MoE工作流...
+   Step 1/5: 蓝军(Kimi)生成初始草案...
+   Step 2/5: 红军(DeepSeek)初审...
+   Step 3/5: 蓝军(Kimi)反思优化...
+   Step 4/5: 红军(DeepSeek)终审...
+   Step 5/5: 蓝军签署执行令...
+   ❌ 生成失败: run_five_step_workflow() missing 1 required positional argument: 'kimi_api_key'
+
+======================================================================
+📊 生成策略: 588750
+======================================================================
+1. 📥 获取实时数据...
+   ✅ 科创芯片ETF汇添富 @ 1.695
+2. 📊 获取持仓和历史...
+   ✅ 持仓: 70000股 @ 成本1.800
+3. 🤖 运行5步MoE工作流...
+   Step 1/5: 蓝军(Kimi)生成初始草案...
+   Step 2/5: 红军(DeepSeek)初审...
+   Step 3/5: 蓝军(Kimi)反思优化...
+   Step 4/5: 红军(DeepSeek)终审...
+   Step 5/5: 蓝军签署执行令...
+   ❌ 生成失败: run_five_step_workflow() missing 1 required positional argument: 'kimi_api_key'
+
+======================================================================
+📊 生成策略: 588200
+======================================================================
+1. 📥 获取实时数据...
+   ✅ 科创芯片ETF @ 2.541
+2. 📊 获取持仓和历史...
+   ✅ 持仓: 47000股 @ 成本2.307
+3. 🤖 运行5步MoE工作流...
+   Step 1/5: 蓝军(Kimi)生成初始草案...
+   Step 2/5: 红军(DeepSeek)初审...
+   Step 3/5: 蓝军(Kimi)反思优化...
+   Step 4/5: 红军(DeepSeek)终审...
+   Step 5/5: 蓝军签署执行令...
+   ❌ 生成失败: run_five_step_workflow() missing 1 required positional argument: 'kimi_api_key'
+
+======================================================================
+📊 生成策略: 588710
+======================================================================
+1. 📥 获取实时数据...
+   ✅ 科创半导体设备ETF @ 1.731
+2. 📊 获取持仓和历史...
+   ✅ 持仓: 110100股 @ 成本1.860
+3. 🤖 运行5步MoE工作流...
+   Step 1/5: 蓝军(Kimi)生成初始草案...
+   Step 2/5: 红军(DeepSeek)初审...
+   Step 3/5: 蓝军(Kimi)反思优化...
+   Step 4/5: 红军(DeepSeek)终审...
+   Step 5/5: 蓝军签署执行令...
+   ❌ 生成失败: run_five_step_workflow() missing 1 required positional argument: 'kimi_api_key'
+
+======================================================================
+📊 生成摘要
+======================================================================
+✅ 成功: 0/5
+   ❌ 588000
+   ❌ 563230
+   ❌ 588750
+   ❌ 588200
+   ❌ 588710
+
+======================================================================
+🎉 全自动策略生成完成！
+📱 明早08:30自动推送到飞书群
+======================================================================

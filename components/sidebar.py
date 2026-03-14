@@ -28,7 +28,7 @@ def render_sidebar() -> dict:
     """
     # 导航
     st.sidebar.title("🎮 功能导航")
-    app_mode = st.sidebar.radio("选择页面", ["复盘与预判", "操盘记录", "提示词中心", "策略实验室", "交易日历"], index=0)
+    app_mode = st.sidebar.radio("选择页面", ["复盘与预判", "情报中心", "操盘记录", "提示词中心", "策略实验室", "交易日历"], index=0)
     
     st.sidebar.markdown("---")
     

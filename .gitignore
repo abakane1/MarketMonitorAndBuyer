@@ -1,12 +1,47 @@
+# Python
 venv/
 __pycache__/
 *.pyc
+*.pyo
+*.egg-info/
+
+# IDE
 .DS_Store
 .idea/
 .vscode/
+*.swp
+*.swo
+*~
+
+# Data (large files)
 stock_data/
-user_config.json
-data/intelligence.json
 *.db
 *.parquet
+*.parquet.gz
+
+# Logs (keep latest in logs/)
 *.log
+cron.log
+strategy_gen.log
+
+# Secrets
+user_config.json
+.secret.key
+*.key
+
+# Runtime files
+.streamlit/
+.pytest_cache/
+.coverage
+
+# Temp files
+tmp/
+temp/
+*.tmp
+*.bak
+*.backup
+
+# Archive
+archive/
+old/
+backup/

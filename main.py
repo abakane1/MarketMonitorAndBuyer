@@ -83,6 +83,10 @@ if app_mode == "策略实验室":
     from components.lab import render_strategy_lab
     render_strategy_lab()
 
+elif app_mode == "情报中心":
+    from components.intel_timeline import render_intel_hub_page
+    render_intel_hub_page()
+
 elif app_mode == "操盘记录":
     from components.portfolio import render_portfolio_dashboard
     render_portfolio_dashboard()

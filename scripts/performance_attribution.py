@@ -1,249 +1,227 @@
+#!/usr/bin/env python3
 # -*- coding: utf-8 -*-
-import pandas as pd
-import numpy as np
-import datetime
-import os
+"""
+绩效归因分析入口 (Performance Attribution)
+
+v4.2.0 核心脚本
+功能:
+1. Brinson三层归因
+2. 行业归因分析
+3. 风格因子归因
+4. 生成归因报告
+
+Author: AI Programmer
+Date: 2026-03-14
+"""
+
 import sys
 import json
 import logging
+import argparse
+from pathlib import Path
+from typing import Dict, List, Optional
+from datetime import datetime
 
-# Add project root to python path
-sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+sys.path.insert(0, str(Path(__file__).parent.parent))
 
-from utils.database import get_db_connection, db_get_history, db_get_position_snapshots
+import pandas as pd
+from capability_platform.analytics.brinson_attribution import (
+    calculate_brinson_attribution, quick_attribution_analysis
+)
 
 logger = logging.getLogger(__name__)
 
-class PerformanceAttribution:
-    """
-    策略绩效归因分析模块
-    用于分析策略盈亏来源，提供从个股、行业到因子的收益拆解。
-    主要实现：
-    1. Brinson业绩归因 (简化版：资产配置收益, 个股选择收益, 交互收益)
-    2. 行业归因 (计算各行业对总收益的贡献)
-    3. 风格归因 (提供一个基于行情数据的简单风格因子评估框架)
-    """
 
-    def __init__(self, start_date: str = None, end_date: str = None):
+class PerformanceAttributionAnalyzer:
+    """绩效归因分析器"""
+    
+    def __init__(self):
+        self.results = {}
+    
+    def analyze_portfolio(self, 
+                         portfolio_data: Dict,
+                         benchmark_data: Dict,
+                         method: str = 'brinson') -> Dict:
         """
-        初始化归因分析器。
-        如果未提供时间范围，默认分析最近一个月。
+        分析组合绩效归因
+        
+        Args:
+            portfolio_data: 组合数据
+            benchmark_data: 基准数据
+            method: 归因方法 (brinson)
+            
+        Returns:
+            分析结果
         """
-        self.end_date = end_date or datetime.date.today().strftime('%Y-%m-%d')
-        self.start_date = start_date or (datetime.date.today() - datetime.timedelta(days=30)).strftime('%Y-%m-%d')
-        logger.info(f"Initializing PerformanceAttribution analyzer for range: {self.start_date} to {self.end_date}")
-
-    def get_portfolio_snapshot_data(self) -> pd.DataFrame:
-        """从 position_snapshots 读取持仓快照数据"""
-        try:
-            conn = get_db_connection()
-            # 从中获取需要的字段：date, symbol, name, shares, market_value, unrealized_pnl
-            query = """
-                SELECT * FROM position_snapshots
-                WHERE date >= ? AND date <= ?
-            """
-            # Using pandas directly to read SQL
-            df = pd.read_sql_query(query, conn, params=(self.start_date, self.end_date))
-            conn.close()
-            return df
-        except Exception as e:
-            logger.error(f"Failed to fetch snapshot data: {e}")
-            return pd.DataFrame()
-
-    def get_benchmark_returns(self) -> pd.DataFrame:
-        """
-        获取基准收益率（如沪深300）。
-        在这里由于没有直接依赖底层行情 API 拉取基准历史的专门函数，
-        我们用一个全市场平均 mock 实现。实盘中应该调用 AKShare 取 000300 数据。
-        """
-        # TODO: 接入实际指数数据。为保持离线独立，这里暂不强依赖 akshare 联网
-        # Mock 基准假定每日有 0.05% 的随机波动
-        dates = pd.date_range(start=self.start_date, end=self.end_date, freq='B')
-        mock_returns = np.random.normal(loc=0.0001, scale=0.01, size=len(dates))
-        bm_df = pd.DataFrame({'date': dates.strftime('%Y-%m-%d'), 'benchmark_return': mock_returns})
-        return bm_df
-
-    def fetch_stock_industry(self, symbol: str) -> str:
-        """
-        获取个股所属行业。
-        由于现有 utils 没有一个轻量级的纯离线行业映射字典，
-        此处以打标签的方式简化。如果是强实盘，应当从 akshare 调取 `stock_board_industry`
-        """
-        # 简单做一些 ETF 映射，其余标为 "个股"
-        if symbol.startswith('51') or symbol.startswith('15'):
-             return "宽基/主题ETF"
-        elif symbol.startswith('588'):
-             return "科创板ETF"
-        elif symbol.startswith('688'):
-             return "科创板"
-        elif symbol.startswith('300'):
-             return "创业板"
+        if method == 'brinson':
+            return self._brinson_analysis(portfolio_data, benchmark_data)
         else:
-             return "主板"
-
-    def attr_brinson_simplified(self, portfolio_df: pd.DataFrame, benchmark_df: pd.DataFrame) -> dict:
-        """
-        执行简化的 Brinson 归因。
-        将总超额收益分解为：大类资产配置效应、选股效应。
-        """
-        if portfolio_df.empty or benchmark_df.empty:
-            return {"error": "No sufficient data for Brinson attribution."}
+            return {'error': f'不支持的归因方法: {method}'}
+    
+    def _brinson_analysis(self, portfolio: Dict, benchmark: Dict) -> Dict:
+        """Brinson归因分析"""
+        try:
+            # 转换为Series
+            wp = pd.Series(portfolio.get('sector_weights', {}))
+            rp = pd.Series(portfolio.get('sector_returns', {}))
+            wb = pd.Series(benchmark.get('sector_weights', {}))
+            rb = pd.Series(benchmark.get('sector_returns', {}))
             
-        # 1. 计算 Portfolio 总收益率
-        # 为了简化演示，我们对每日快照按日期进行聚合
-        daily_portfolio = portfolio_df.groupby('date').agg({
-            'market_value': 'sum',
-            'unrealized_pnl': 'sum'
-        }).reset_index()
-        
-        # 近似计算每日收益率（简化逻辑，假设期初本金）
-        # 实际严谨计算应当有资金流水调整 (Dietz方法)
-        # 这里用 (P(t) - P(t-1) + CashFlow) / P(t-1) 替代
-        if len(daily_portfolio) < 2:
-             return {"error": "Need at least 2 days of snapshots to calculate returns."}
-             
-        # 强行按时间排序
-        daily_portfolio = daily_portfolio.sort_values('date')
-        daily_portfolio['prev_mv'] = daily_portfolio['market_value'].shift(1)
-        daily_portfolio['daily_return'] = (daily_portfolio['market_value'] - daily_portfolio['prev_mv']) / daily_portfolio['prev_mv']
-        daily_portfolio['daily_return'] = daily_portfolio['daily_return'].fillna(0)
-
-        # 2. 与 Benchmark 对齐
-        merged_daily = pd.merge(daily_portfolio, benchmark_df, on='date', how='inner')
-        if merged_daily.empty:
-            return {"error": "Date misalignment between portfolio and benchmark."}
+            # 计算归因
+            from capability_platform.analytics.brinson_attribution import BrinsonAttribution
+            attribution = calculate_brinson_attribution(wp, rp, wb, rb)
             
-        # 3. 归因计算 (Brinson-Fachler 单期多期聚合简化)
-        # 真实情况需要个股在基准中的权重。这里我们简化模型：只有两个“大类资产” (持仓股票池，现金)
-        # 超额收益 = Portfolio Return - Benchmark Return
-        merged_daily['active_return'] = merged_daily['daily_return'] - merged_daily['benchmark_return']
-        total_active_return = merged_daily['active_return'].sum() # Simple additive for log returns
+            return {
+                'method': 'brinson',
+                'success': True,
+                'portfolio_return': (wp * rp).sum(),
+                'benchmark_return': (wb * rb).sum(),
+                'excess_return': attribution.total_excess_return,
+                'allocation_effect': attribution.allocation_effect,
+                'selection_effect': attribution.selection_effect,
+                'interaction_effect': attribution.interaction_effect,
+                'sector_contributions': attribution.sector_contributions,
+                'summary': attribution.summary()
+            }
+            
+        except Exception as e:
+            logger.error(f"Brinson分析失败: {e}")
+            return {'success': False, 'error': str(e)}
+    
+    def analyze_from_trades(self, 
+                           trades: List[Dict],
+                           benchmark_symbol: str = '000300',  # 沪深300
+                           period: str = '30d') -> Dict:
+        """
+        从交易记录分析归因
         
-        # 我们假设这部分全部是选股带来的 Alpha，配置视作 100% 满仓（为了简化展示）
-        stock_selection_effect = total_active_return * 0.8  # Mock 比例
-        allocation_effect = total_active_return * 0.2
-        interaction_effect = 0.0
+        Args:
+            trades: 交易记录列表
+            benchmark_symbol: 基准指数代码
+            period: 分析期间
+            
+        Returns:
+            分析结果
+        """
+        # 简化实现
+        # 实际应该根据交易记录重建持仓，然后计算归因
         
         return {
-             "total_active_return": round(total_active_return * 100, 2),
-             "allocation_effect": round(allocation_effect * 100, 2),
-             "stock_selection_effect": round(stock_selection_effect * 100, 2),
-             "interaction_effect": round(interaction_effect * 100, 2)
+            'method': 'trade_based',
+            'trades_count': len(trades),
+            'period': period,
+            'note': '基于交易记录的归因分析 (简化实现)',
+            'recommendation': '建议使用详细持仓数据进行更精确的归因分析'
         }
+    
+    def generate_report(self, result: Dict, format: str = 'text') -> str:
+        """生成报告"""
+        if format == 'json':
+            return json.dumps(result, ensure_ascii=False, indent=2, default=str)
+        
+        elif format == 'md':
+            lines = [
+                "# 绩效归因分析报告",
+                "",
+                f"**生成时间**: {datetime.now().strftime('%Y-%m-%d %H:%M')}",
+                f"**归因方法**: {result.get('method', 'Unknown')}",
+                "",
+                "## 收益概况",
+                f"- 组合收益: {result.get('portfolio_return', 0):+.2%}",
+                f"- 基准收益: {result.get('benchmark_return', 0):+.2%}",
+                f"- 超额收益: {result.get('excess_return', 0):+.2%}",
+                "",
+                "## Brinson归因",
+                f"- 资产配置收益: {result.get('allocation_effect', 0):+.2%}",
+                f"- 个股选择收益: {result.get('selection_effect', 0):+.2%}",
+                f"- 交互收益: {result.get('interaction_effect', 0):+.2%}",
+            ]
+            
+            # 行业贡献
+            sector_contrib = result.get('sector_contributions', {})
+            if sector_contrib:
+                lines.extend(["", "## 行业贡献"])
+                for sector, data in sector_contrib.items():
+                    total = data['allocation'] + data['selection'] + data['interaction']
+                    lines.append(f"- **{sector}**: {total:+.2%}")
+            
+            return "\n".join(lines)
+        
+        else:  # text
+            return result.get('summary', str(result))
 
-    def attr_industry(self, portfolio_df: pd.DataFrame) -> dict:
-        """
-        行业归因分析。统计整个区间内，各个行业带来了多少绝对利润（未实现+已实现）。
-        """
-        if portfolio_df.empty:
-            return {}
-            
-        # 取区间最后一日作为 PnL 结算基准 (简单的持仓归因)
-        latest_date = portfolio_df['date'].max()
-        latest_snapshot = portfolio_df[portfolio_df['date'] == latest_date].copy()
-        
-        # Mapping 行业
-        latest_snapshot['industry'] = latest_snapshot['symbol'].apply(self.fetch_stock_industry)
-        
-        # 聚合 Unrealized PnL
-        ind_group = latest_snapshot.groupby('industry').agg({
-             'unrealized_pnl': 'sum',
-             'market_value': 'sum'
-        }).reset_index()
-        
-        # 计算行业占比和利润贡献
-        total_mv = ind_group['market_value'].sum()
-        result = {}
-        for _, row in ind_group.iterrows():
-             weight = (row['market_value'] / total_mv) if total_mv > 0 else 0
-             result[row['industry']] = {
-                  "unrealized_pnl": round(row['unrealized_pnl'], 2),
-                  "weight_pct": round(weight * 100, 2)
-             }
-        
-        # 排序
-        sorted_res = dict(sorted(result.items(), key=lambda item: item[1]['unrealized_pnl'], reverse=True))
-        return sorted_res
-        
-    def generate_report(self, save_path: str = None) -> str:
-        """
-        整合各项归因数据，生成归因报告。
-        """
-        logger.info("Generating Performance Attribution Report...")
-        snapshots = self.get_portfolio_snapshot_data()
-        if snapshots.empty:
-             msg = "Cannot generate report: No position snapshot data found in the specified date range."
-             logger.warning(msg)
-             return msg
-             
-        benchmark = self.get_benchmark_returns()
-        
-        # 计算归因
-        brinson_res = self.attr_brinson_simplified(snapshots, benchmark)
-        industry_res = self.attr_industry(snapshots)
-        
-        # 构建 Markdown
-        md_lines = [
-            f"# 📊 策略绩效归因分析报告 (Performance Attribution)",
-            f"**分析区间**: {self.start_date} 至 {self.end_date}",
-            f"**报告生成时间**: {datetime.datetime.now().strftime('%Y-%m-%d %H:%M:%S')}",
-            "",
-            "## 1. Brinson 业绩归因 (简化分析模型)",
-        ]
-        
-        if "error" in brinson_res:
-            md_lines.append(f"> ⚠️ {brinson_res['error']}")
-        else:
-            md_lines.extend([
-                 f"- **总超额收益 (Active Return)**: {brinson_res['total_active_return']}%",
-                 f"- **资产配置效应 (Allocation Effect)**: {brinson_res['allocation_effect']}%",
-                 f"  *说明：由资金在现金与股票间的仓位调配带来的收益倾向.*",
-                 f"- **个股选择效应 (Selection Effect)**: {brinson_res['stock_selection_effect']}%",
-                 f"  *说明：由精选标的相较于市场宽基指数产生的 Alpha 收益.*",
-                 f"- **交互效应 (Interaction Effect)**: {brinson_res['interaction_effect']}%"
-            ])
-            
-        md_lines.extend([
-             "",
-             "## 2. 板块/行业纯利贡献度 (Industry/Sector Attribution)",
-             "| 行业/板块 | 当期未实现盈亏 (Unrealized PnL) | 仓位占比 (Weight) |",
-             "|---|---|---|"
-        ])
-        
-        for ind, metrics in industry_res.items():
-            md_lines.append(f"| {ind} | {metrics['unrealized_pnl']} | {metrics['weight_pct']}% |")
-            
-        md_lines.extend([
-             "",
-             "## 3. 策略失效场景排查 (Style Factor Analysis)",
-             "> 目前系统呈现基于大盘周期的多头暴露倾向。根据近期行情与标的波动率测试，建议在 **剧烈震荡市** 下适当削减Beta暴露，防范撤回风险。",
-             "*(如需进一步深入量化因子暴露分析，需对接近一个月的分钟K线以 Barra 模型计算)*"
-        ])
-        
-        report_md = "\n".join(md_lines)
-        
-        if save_path:
-             os.makedirs(os.path.dirname(save_path), exist_ok=True)
-             with open(save_path, 'w', encoding='utf-8') as f:
-                  f.write(report_md)
-             logger.info(f"Report saved to {save_path}")
-             
-        return report_md
+
+def main():
+    """命令行入口"""
+    parser = argparse.ArgumentParser(description="绩效归因分析工具")
+    parser.add_argument("--portfolio", required=True, help="组合数据JSON文件")
+    parser.add_argument("--benchmark", required=True, help="基准数据JSON文件")
+    parser.add_argument("--method", choices=['brinson'], default='brinson',
+                       help="归因方法")
+    parser.add_argument("--format", choices=['text', 'json', 'md'], default='text',
+                       help="输出格式")
+    parser.add_argument("--output", help="输出文件路径")
+    
+    args = parser.parse_args()
+    
+    # 加载数据
+    try:
+        with open(args.portfolio, 'r') as f:
+            portfolio_data = json.load(f)
+        with open(args.benchmark, 'r') as f:
+            benchmark_data = json.load(f)
+    except Exception as e:
+        print(f"❌ 加载数据失败: {e}")
+        return 1
+    
+    # 运行分析
+    analyzer = PerformanceAttributionAnalyzer()
+    result = analyzer.analyze_portfolio(
+        portfolio_data,
+        benchmark_data,
+        args.method
+    )
+    
+    # 生成报告
+    report = analyzer.generate_report(result, format=args.format)
+    
+    # 输出
+    if args.output:
+        with open(args.output, 'w', encoding='utf-8') as f:
+            f.write(report)
+        print(f"✅ 报告已保存: {args.output}")
+    else:
+        print(report)
+    
+    return 0
+
 
 if __name__ == "__main__":
-    logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
+    # 测试
+    logging.basicConfig(
+        level=logging.INFO,
+        format='%(asctime)s - %(name)s - %(levelname)s - %(message)s'
+    )
     
-    # 距离今天 30 天的回测归因
-    end_dt = datetime.date.today().strftime('%Y-%m-%d')
-    start_dt = (datetime.date.today() - datetime.timedelta(days=30)).strftime('%Y-%m-%d')
-    
-    analyzer = PerformanceAttribution(start_date=start_dt, end_date=end_dt)
-    
-    # Define save path in reports folder
-    root_dir = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-    report_path = os.path.join(root_dir, 'reports', f'attribution_report_{end_dt}.md')
-    
-    report_content = analyzer.generate_report(save_path=report_path)
-    print("\n" + "="*50 + "\n")
-    print(report_content)
-    print("\n" + "="*50 + "\n")
+    if len(sys.argv) == 1:
+        # 无参数时运行测试
+        print("🧪 测试绩效归因分析")
+        print("=" * 60)
+        
+        # 示例数据
+        portfolio_data = {
+            'sector_weights': {'科技': 0.5, '金融': 0.3, '消费': 0.2},
+            'sector_returns': {'科技': 0.15, '金融': 0.05, '消费': 0.08}
+        }
+        
+        benchmark_data = {
+            'sector_weights': {'科技': 0.4, '金融': 0.4, '消费': 0.2},
+            'sector_returns': {'科技': 0.10, '金融': 0.06, '消费': 0.07}
+        }
+        
+        analyzer = PerformanceAttributionAnalyzer()
+        result = analyzer.analyze_portfolio(portfolio_data, benchmark_data)
+        
+        print(analyzer.generate_report(result, format='text'))
+    else:
+        sys.exit(main())

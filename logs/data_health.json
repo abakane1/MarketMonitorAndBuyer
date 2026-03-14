@@ -1,0 +1,41 @@
+{
+  "updated_at": "2026-03-14T22:57:36.742285",
+  "sources": {
+    "Sina Finance": {
+      "name": "Sina Finance",
+      "status": "healthy",
+      "success_rate": 1.0,
+      "avg_response_time": 317.58999824523926,
+      "last_check": "2026-03-14T22:57:30.640697",
+      "last_success": "2026-03-14T22:57:30.640702",
+      "consecutive_failures": 0,
+      "total_requests": 1,
+      "total_success": 1,
+      "error_message": null
+    },
+    "Tencent Finance": {
+      "name": "Tencent Finance",
+      "status": "healthy",
+      "success_rate": 1.0,
+      "avg_response_time": 154.60705757141113,
+      "last_check": "2026-03-14T22:57:30.795325",
+      "last_success": "2026-03-14T22:57:30.795342",
+      "consecutive_failures": 0,
+      "total_requests": 1,
+      "total_success": 1,
+      "error_message": null
+    },
+    "AKShare (EastMoney)": {
+      "name": "AKShare (EastMoney)",
+      "status": "down",
+      "success_rate": 0.0,
+      "avg_response_time": 5946.708917617798,
+      "last_check": "2026-03-14T22:57:36.742076",
+      "last_success": null,
+      "consecutive_failures": 1,
+      "total_requests": 1,
+      "total_success": 0,
+      "error_message": "HTTPSConnectionPool(host='82.push2.eastmoney.com', port=443): Max retries exceeded with url: /api/qt"
+    }
+  }
+}
