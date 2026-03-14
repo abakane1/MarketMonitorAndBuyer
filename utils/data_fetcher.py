@@ -679,37 +679,84 @@ def get_stock_realtime_info(symbol: str) -> Optional[Dict]:
             data = load_realtime_quote(symbol)
         except:
             pass
+    
+    # 2. Try ETF/Stock specific spot files (Alternative storage)
+    # These files have '昨收' field needed for today's PnL calculation
+    # Check if data is from today, otherwise use minute data
+    if not data:
+        try:
+            from utils.asset_classifier import is_etf
+            from datetime import datetime
             
-    # 2. Try Fallback to Minute Data (Updated via Sidebar/Backtest)
+            spot_file = ETF_SPOT_PATH if is_etf(symbol) else STOCK_SPOT_PATH
+            if os.path.exists(spot_file):
+                # Check file modification time
+                mtime = os.path.getmtime(spot_file)
+                file_date = datetime.fromtimestamp(mtime).strftime('%Y-%m-%d')
+                today = datetime.now().strftime('%Y-%m-%d')
+                
+                if file_date == today:
+                    df = pd.read_parquet(spot_file)
+                    row = df[df['代码'] == symbol]
+                    if not row.empty:
+                        data = row.iloc[0].to_dict()
+        except Exception:
+            pass
+            
+    # 3. Try Fallback to Minute Data (Updated via Sidebar/Backtest)
     # If snapshot is missing but we have minute data, use it.
+    # Calculate pre_close from today's first candle's open price and change_pct
     if not data:
          try:
             from utils.storage import load_minute_data
+            from datetime import datetime
+            import pandas as pd
+            
             min_df = load_minute_data(symbol)
-            if not min_df.empty:
-                latest = min_df.iloc[-1]
-                data = {
-                    '代码': symbol,
-                    '名称': 'Unknown', # Will try to patch below
-                    '最新价': latest.get('收盘', 0),
-                    '今开': latest.get('开盘', 0),
-                    '最高': latest.get('最高', 0),
-                    '最低': latest.get('最低', 0),
-                    '成交量': latest.get('成交量', 0),
-                    '成交额': latest.get('成交额', 0)
-                }
+            if not min_df.empty and len(min_df) > 0:
+                # Filter today's data
+                today = datetime.now().strftime('%Y-%m-%d')
+                today_df = min_df[min_df['时间'] >= today]
                 
-                # Try to get Name from Stock List (Strictly Offline - NO API calls)
-                try:
-                    name = get_stock_name_by_code_cached(symbol)
-                    if name and name != symbol:
-                        data['名称'] = name
+                if not today_df.empty:
+                    latest = today_df.iloc[-1]
+                    first = today_df.iloc[0]
+                    
+                    # Calculate pre_close from first candle of today
+                    # change_pct = (open - pre_close) / pre_close * 100
+                    # pre_close = open / (1 + change_pct/100)
+                    open_price = first.get('开盘', 0)
+                    change_pct = first.get('涨跌幅', 0)
+                    if open_price > 0 and pd.notna(change_pct):
+                        pre_close = open_price / (1 + change_pct/100)
                     else:
-                        # 缓存未命中，使用代码作为名称（不触发网络请求）
+                        pre_close = open_price  # Fallback
+                    
+                    data = {
+                        '代码': symbol,
+                        '名称': latest.get('股票名称', 'Unknown'),
+                        '最新价': latest.get('收盘', 0),
+                        '昨收': round(pre_close, 3),
+                        '今开': latest.get('开盘', 0),
+                        '最高': latest.get('最高', 0),
+                        '最低': latest.get('最低', 0),
+                        '成交量': latest.get('成交量', 0),
+                        '成交额': latest.get('成交额', 0)
+                    }
+                
+                
+                if data is not None:
+                    # Try to get Name from Stock List (Strictly Offline - NO API calls)
+                    try:
+                        name = get_stock_name_by_code_cached(symbol)
+                        if name and name != symbol:
+                            data['名称'] = name
+                        else:
+                            # 缓存未命中，使用代码作为名称（不触发网络请求）
+                            data['名称'] = symbol
+                    except Exception as ex:
+                        logger.warning(f"Failed to patch name for {symbol}: {ex}")
                         data['名称'] = symbol
-                except Exception as ex:
-                    logger.warning(f"Failed to patch name for {symbol}: {ex}")
-                    data['名称'] = symbol
          except Exception as e:
              logger.warning(f"Failed to load minute data for {symbol}: {e}")
              pass

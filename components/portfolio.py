@@ -21,201 +21,286 @@ from utils.asset_classifier import is_etf
 
 
 # =============================================================================
-# 科技感 CSS 样式
+# 清爽浅色主题 CSS 样式 - 适配20-30寸大屏
 # =============================================================================
-CYBERPUNK_CSS = """
+LIGHT_THEME_CSS = """
 <style>
-/* 全局深色背景 */
+/* 全局背景 - 清爽浅灰 */
 [data-testid="stAppViewContainer"] {
-    background: #0d1117;
+    background: #f8f9fa !important;
 }
 
-/* 主容器 */
+/* Main content area */
+[data-testid="stMain"] {
+    background: #f8f9fa !important;
+}
+
+/* Block container */
+[data-testid="stBlock"] {
+    background: transparent !important;
+}
+
+/* Vertical block */
+[data-testid="stVerticalBlock"] {
+    background: transparent !important;
+}
+
+/* 修复所有可能的深色背景 */
+section.main {
+    background: #f8f9fa !important;
+}
+
+/* 数据表格背景 */
+[data-testid="stDataFrame"] {
+    background: #ffffff !important;
+}
+[data-testid="stDataEditor"] {
+    background: #ffffff !important;
+}
+
+/* Streamlit Tabs 背景色修复 */
+[data-testid="stTabs"] {
+    background: transparent !important;
+}
+[data-testid="stTab"] {
+    background: #ffffff !important;
+    color: #5f6368 !important;
+    border-radius: 8px 8px 0 0 !important;
+}
+[data-testid="stTab"][aria-selected="true"] {
+    background: #1a73e8 !important;
+    color: #ffffff !important;
+}
+[data-baseweb="tab-list"] {
+    background: #f8f9fa !important;
+    border-bottom: 1px solid #e9ecef !important;
+}
+[data-baseweb="tab"] {
+    background: transparent !important;
+}
+[data-baseweb="tab-panel"] {
+    background: transparent !important;
+}
+
+/* 主容器 - 白色卡片 */
 .cyber-container {
-    background: #161b22;
-    border: 1px solid #30363d;
+    background: #ffffff;
+    border: 1px solid #e9ecef;
     border-radius: 12px;
-    padding: 20px;
-    margin: 10px 0;
+    padding: 24px;
+    margin: 12px 0;
+    box-shadow: 0 2px 8px rgba(0,0,0,0.06);
 }
 
-/* 标题样式 */
+/* 标题样式 - 深蓝色 */
 .cyber-title {
-    color: #58a6ff;
-    font-size: 1.2rem;
+    color: #1a73e8;
+    font-size: 1.25rem;
     font-weight: 600;
-    margin-bottom: 15px;
-    padding-bottom: 8px;
-    border-bottom: 1px solid #30363d;
+    margin-bottom: 18px;
+    padding-bottom: 10px;
+    border-bottom: 2px solid #e8f0fe;
 }
 
-/* 数据卡片 */
+/* 数据卡片 - 白色背景，蓝边 */
 .metric-card {
-    background: #21262d;
-    border: 1px solid #30363d;
+    background: #ffffff;
+    border: 1px solid #e9ecef;
     border-radius: 10px;
-    padding: 20px;
+    padding: 24px;
     text-align: center;
+    box-shadow: 0 2px 6px rgba(0,0,0,0.04);
+    transition: all 0.2s ease;
 }
 
 .metric-card:hover {
-    border-color: #58a6ff;
+    border-color: #1a73e8;
+    box-shadow: 0 4px 12px rgba(26,115,232,0.1);
 }
 
 .metric-value {
-    font-size: 1.8rem;
+    font-size: 2rem;
     font-weight: 600;
-    color: #f0f6fc;
+    color: #202124;
 }
 
 .metric-value.positive {
-    color: #3fb950;
+    color: #137333;
 }
 
 .metric-value.negative {
-    color: #f85149;
+    color: #c5221f;
 }
 
 .metric-label {
-    color: #8b949e;
-    font-size: 0.85rem;
-    margin-top: 8px;
+    color: #5f6368;
+    font-size: 0.9rem;
+    margin-top: 10px;
+    font-weight: 500;
 }
 
-/* 持仓卡片 */
+/* 持仓卡片 - 白色背景 */
 .position-card {
-    background: #21262d;
-    border: 1px solid #30363d;
-    border-left: 3px solid #58a6ff;
-    border-radius: 8px;
-    padding: 15px;
-    margin: 10px 0;
+    background: #ffffff;
+    border: 1px solid #e9ecef;
+    border-left: 4px solid #1a73e8;
+    border-radius: 10px;
+    padding: 20px;
+    margin: 12px 0;
+    box-shadow: 0 2px 6px rgba(0,0,0,0.04);
+    transition: all 0.2s ease;
+}
+
+.position-card:hover {
+    box-shadow: 0 4px 12px rgba(0,0,0,0.08);
 }
 
 .position-card.etf {
-    border-left-color: #a371f7;
+    border-left-color: #9334e6;
 }
 
 .position-header {
     display: flex;
     justify-content: space-between;
     align-items: center;
-    margin-bottom: 10px;
+    margin-bottom: 12px;
 }
 
 .position-symbol {
-    font-size: 1.1rem;
+    font-size: 1.2rem;
     font-weight: 600;
-    color: #f0f6fc;
+    color: #202124;
 }
 
 .position-name {
-    color: #8b949e;
-    font-size: 0.85rem;
+    color: #5f6368;
+    font-size: 0.9rem;
 }
 
 .position-pnl {
-    font-size: 1.1rem;
+    font-size: 1.15rem;
     font-weight: 600;
 }
 
 .position-pnl.positive {
-    color: #3fb950;
+    color: #137333;
 }
 
 .position-pnl.negative {
-    color: #f85149;
+    color: #c5221f;
 }
 
-/* 交易流水 */
+/* 交易流水 - 白色背景 */
 .trade-item {
-    background: #21262d;
-    border-radius: 6px;
-    padding: 12px 16px;
-    margin: 6px 0;
+    background: #ffffff;
+    border: 1px solid #e9ecef;
+    border-radius: 8px;
+    padding: 14px 18px;
+    margin: 8px 0;
     display: flex;
     align-items: center;
     justify-content: space-between;
-    border-left: 3px solid transparent;
+    border-left: 4px solid transparent;
+    box-shadow: 0 1px 3px rgba(0,0,0,0.04);
+    transition: all 0.15s ease;
+}
+
+.trade-item:hover {
+    box-shadow: 0 3px 8px rgba(0,0,0,0.08);
 }
 
 .trade-item.buy {
-    border-left-color: #3fb950;
+    border-left-color: #137333;
+    background: linear-gradient(90deg, rgba(19,115,51,0.03) 0%, #ffffff 100%);
 }
 
 .trade-item.sell {
-    border-left-color: #f85149;
+    border-left-color: #c5221f;
+    background: linear-gradient(90deg, rgba(197,34,31,0.03) 0%, #ffffff 100%);
 }
 
 .trade-time {
-    color: #8b949e;
-    font-size: 0.8rem;
+    color: #5f6368;
+    font-size: 0.85rem;
 }
 
 .trade-symbol {
-    color: #f0f6fc;
+    color: #202124;
     font-weight: 500;
 }
 
 .trade-action {
-    padding: 2px 10px;
-    border-radius: 4px;
-    font-size: 0.8rem;
-    font-weight: 500;
+    padding: 4px 12px;
+    border-radius: 6px;
+    font-size: 0.85rem;
+    font-weight: 600;
 }
 
 .trade-action.buy {
-    background: rgba(63, 185, 80, 0.15);
-    color: #3fb950;
+    background: #e6f4ea;
+    color: #137333;
 }
 
 .trade-action.sell {
-    background: rgba(248, 81, 73, 0.15);
-    color: #f85149;
+    background: #fce8e6;
+    color: #c5221f;
 }
 
 .trade-amount {
-    color: #f0f6fc;
-    font-weight: 500;
+    color: #202124;
+    font-weight: 600;
 }
 
 /* 标签 */
 .badge {
     display: inline-block;
-    padding: 2px 8px;
-    border-radius: 12px;
-    font-size: 0.7rem;
-    font-weight: 500;
+    padding: 3px 10px;
+    border-radius: 14px;
+    font-size: 0.75rem;
+    font-weight: 600;
 }
 
 .badge-etf {
-    background: rgba(163, 113, 247, 0.15);
-    color: #a371f7;
+    background: #f3e8fd;
+    color: #9334e6;
 }
 
 .badge-stock {
-    background: rgba(88, 166, 255, 0.15);
-    color: #58a6ff;
+    background: #e8f0fe;
+    color: #1a73e8;
 }
 
 /* 分割线 */
 .cyber-divider {
     height: 1px;
-    background: #30363d;
-    margin: 20px 0;
+    background: #dadce0;
+    margin: 24px 0;
 }
 
 /* 状态指示器 */
 .status-dot {
     display: inline-block;
-    width: 8px;
-    height: 8px;
+    width: 10px;
+    height: 10px;
     border-radius: 50%;
     margin-right: 8px;
 }
 
 .status-dot.online {
-    background: #3fb950;
+    background: #137333;
+}
+
+/* 响应式字体调整 - 适配大屏 */
+@media screen and (min-width: 1920px) {
+    .metric-value {
+        font-size: 2.2rem;
+    }
+    .position-symbol {
+        font-size: 1.3rem;
+    }
+    .cyber-title {
+        font-size: 1.35rem;
+    }
 }
 </style>
 """
@@ -360,17 +445,18 @@ def _render_cyber_metrics(metrics: dict):
     
     # 总盈亏汇总
     total_class = "positive" if metrics['total_pnl'] >= 0 else "negative"
-    total_color = "#3fb950" if metrics['total_pnl'] >= 0 else "#f85149"
+    total_color = "#137333" if metrics['total_pnl'] >= 0 else "#c5221f"
     st.markdown(f"""
     <div style="
-        background: #161b22;
-        border: 1px solid {total_color}50;
+        background: #ffffff;
+        border: 2px solid {total_color};
         border-radius: 10px;
         padding: 16px;
         margin: 16px 0;
         text-align: center;
+        box-shadow: 0 2px 8px rgba(0,0,0,0.06);
     ">
-        <div style="color: #8b949e; font-size: 0.85rem; margin-bottom: 6px;">总盈亏 (已实现 + 浮动)</div>
+        <div style="color: #5f6368; font-size: 0.85rem; margin-bottom: 6px;">总盈亏 (已实现 + 浮动)</div>
         <div style="color: {total_color}; font-size: 2rem; font-weight: 600;">
             ¥{metrics['total_pnl']:+,.0f}
         </div>
@@ -410,19 +496,19 @@ def _render_position_cards(position_details: list):
                     </div>
                     <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 10px; margin-top: 10px;">
                         <div>
-                            <div style="color: #8b949e; font-size: 0.75rem;">持仓 / 底仓</div>
-                            <div style="color: #f0f6fc;">{pos['shares']} / {pos['base_shares']}</div>
+                            <div style="color: #5f6368; font-size: 0.75rem;">持仓 / 底仓</div>
+                            <div style="color: #202124;">{pos['shares']} / {pos['base_shares']}</div>
                         </div>
                         <div>
-                            <div style="color: #8b949e; font-size: 0.75rem;">成本 → 现价</div>
-                            <div style="color: #f0f6fc;">{pos['cost']:.3f} → {pos['price']:.3f}</div>
+                            <div style="color: #5f6368; font-size: 0.75rem;">成本 → 现价</div>
+                            <div style="color: #202124;">{pos['cost']:.3f} → {pos['price']:.3f}</div>
                         </div>
                         <div>
-                            <div style="color: #8b949e; font-size: 0.75rem;">市值</div>
-                            <div style="color: #f0f6fc;">¥{pos['market_value']:,.0f}</div>
+                            <div style="color: #5f6368; font-size: 0.75rem;">市值</div>
+                            <div style="color: #202124;">¥{pos['market_value']:,.0f}</div>
                         </div>
                         <div>
-                            <div style="color: #8b949e; font-size: 0.75rem;">浮动盈亏</div>
+                            <div style="color: #5f6368; font-size: 0.75rem;">浮动盈亏</div>
                             <div class="position-pnl {pnl_class}">{pos['floating_pnl']:+,.0f} ({pos['floating_pct']:+.1f}%)</div>
                         </div>
                     </div>
@@ -453,23 +539,23 @@ def _render_position_cards(position_details: list):
                     </div>
                     <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 10px; margin-top: 10px;">
                         <div>
-                            <div style="color: #8b949e; font-size: 0.75rem;">持仓</div>
-                            <div style="color: #f0f6fc;">{pos['shares']} 股</div>
+                            <div style="color: #5f6368; font-size: 0.75rem;">持仓</div>
+                            <div style="color: #202124;">{pos['shares']} 股</div>
                         </div>
                         <div>
-                            <div style="color: #8b949e; font-size: 0.75rem;">成本 → 现价</div>
-                            <div style="color: #f0f6fc;">{pos['cost']:.3f} → {pos['price']:.3f}</div>
+                            <div style="color: #5f6368; font-size: 0.75rem;">成本 → 现价</div>
+                            <div style="color: #202124;">{pos['cost']:.3f} → {pos['price']:.3f}</div>
                         </div>
                         <div>
-                            <div style="color: #8b949e; font-size: 0.75rem;">今日盈亏</div>
-                            <div style="color: {'#3fb950' if pos['today_pnl'] >= 0 else '#f85149'};">{pos['today_pnl']:+,.0f}</div>
+                            <div style="color: #5f6368; font-size: 0.75rem;">今日盈亏</div>
+                            <div style="color: {'#137333' if pos['today_pnl'] >= 0 else '#c5221f'};">{pos['today_pnl']:+,.0f}</div>
                         </div>
                         <div>
-                            <div style="color: #8b949e; font-size: 0.75rem;">浮动盈亏</div>
+                            <div style="color: #5f6368; font-size: 0.75rem;">浮动盈亏</div>
                             <div class="position-pnl {pnl_class}">{pos['floating_pnl']:+,.0f}</div>
                         </div>
                     </div>
-                    {f'<div style="margin-top: 8px; color: #d29922; font-size: 0.75rem;">底仓锁定: {pos["base_shares"]} 股</div>' if pos['base_shares'] > 0 else ''}
+                    {f'<div style="margin-top: 8px; color: #b06000; font-size: 0.75rem;">底仓锁定: {pos["base_shares"]} 股</div>' if pos['base_shares'] > 0 else ''}
                 </div>
                 """, unsafe_allow_html=True)
 
@@ -506,13 +592,13 @@ def _render_pnl_chart(all_pnl_data: dict):
         y=cumulative,
         mode='lines',
         name='累计盈亏',
-        line=dict(color='#58a6ff', width=2),
+        line=dict(color='#1a73e8', width=2),
         fill='tozeroy',
         fillcolor='rgba(88, 166, 255, 0.1)',
     ))
     
     # 每日盈亏柱状图
-    colors = ['#3fb950' if v >= 0 else '#f85149' for v in daily_values]
+    colors = ['#137333' if v >= 0 else '#c5221f' for v in daily_values]
     fig.add_trace(go.Bar(
         x=sorted_dates,
         y=daily_values,
@@ -523,23 +609,23 @@ def _render_pnl_chart(all_pnl_data: dict):
     ))
     
     fig.update_layout(
-        template='plotly_dark',
+        template='plotly_white',
         paper_bgcolor='rgba(0,0,0,0)',
         plot_bgcolor='rgba(0,0,0,0)',
-        font=dict(color='#c9d1d9'),
+        font=dict(color='#202124'),
         title=dict(
             text='收益曲线',
-            font=dict(size=16, color='#58a6ff'),
+            font=dict(size=16, color='#1a73e8'),
             x=0.5
         ),
         xaxis=dict(
             title='日期',
-            gridcolor='rgba(255,255,255,0.1)',
+            gridcolor='rgba(0,0,0,0.1)',
             showgrid=True,
         ),
         yaxis=dict(
             title='累计盈亏',
-            gridcolor='rgba(255,255,255,0.1)',
+            gridcolor='rgba(0,0,0,0.1)',
             showgrid=True,
             side='left'
         ),
@@ -555,7 +641,7 @@ def _render_pnl_chart(all_pnl_data: dict):
             y=1.02,
             xanchor='right',
             x=1,
-            font=dict(color='#8b949e')
+            font=dict(color='#5f6368')
         ),
         margin=dict(l=60, r=60, t=80, b=60),
         height=450,
@@ -568,7 +654,7 @@ def _render_pnl_chart(all_pnl_data: dict):
 
 def _render_trade_timeline(limit: int = 30, current_portfolio: str = "default"):
     """渲染交易流水。"""
-    all_history = db_get_all_history(portfolio_id=current_portfolio)
+    all_history = db_get_all_history()
     
     if not all_history:
         st.info("暂无交易记录")
@@ -619,7 +705,7 @@ def _render_trade_timeline(limit: int = 30, current_portfolio: str = "default"):
             </div>
             <div style="text-align: right;">
                 <div class="trade-amount">¥{total:,.0f}</div>
-                <div style="color: #8b949e; font-size: 0.75rem;">{price:.3f} × {amount}</div>
+                <div style="color: #5f6368; font-size: 0.75rem;">{price:.3f} × {amount}</div>
             </div>
         </div>
         """, unsafe_allow_html=True)
@@ -642,24 +728,24 @@ def _render_portfolio_stats(all_pnl_data: dict, metrics: dict):
     cols = st.columns(4)
     
     stats = [
-        ("总交易次数", f"{total_trades} 笔", "#58a6ff"),
+        ("总交易次数", f"{total_trades} 笔", "#1a73e8"),
         ("累计买入", f"¥{total_buy:,.0f}", "#a371f7"),
-        ("累计卖出", f"¥{total_sell:,.0f}", "#d29922"),
-        ("持仓标的", f"{metrics['position_count']} 只", "#3fb950"),
+        ("累计卖出", f"¥{total_sell:,.0f}", "#b06000"),
+        ("持仓标的", f"{metrics['position_count']} 只", "#137333"),
     ]
     
     for col, (label, value, color) in zip(cols, stats):
         with col:
             st.markdown(f"""
             <div style="
-                background: #21262d;
+                background: #f8f9fa;
                 border-radius: 8px;
                 padding: 15px;
                 text-align: center;
                 border: 1px solid {color}30;
             ">
                 <div style="color: {color}; font-size: 1.2rem; font-weight: 600;">{value}</div>
-                <div style="color: #8b949e; font-size: 0.8rem; margin-top: 5px;">{label}</div>
+                <div style="color: #5f6368; font-size: 0.8rem; margin-top: 5px;">{label}</div>
             </div>
             """, unsafe_allow_html=True)
 
@@ -713,8 +799,8 @@ def _render_kline_with_trades():
         low=daily_df['最低'],
         close=daily_df['收盘'],
         name='K线',
-        increasing_line_color='#f85149', 
-        decreasing_line_color='#3fb950'  
+        increasing_line_color='#c5221f', 
+        decreasing_line_color='#137333'  
     )])
     
     # 添加交易点位作为 Scatter markers
@@ -746,7 +832,7 @@ def _render_kline_with_trades():
                 x=buy_dates, y=buy_prices,
                 mode='markers',
                 name='买入点 (Buy)',
-                marker=dict(symbol='triangle-up', size=12, color='#f85149', line=dict(width=1, color='White')),
+                marker=dict(symbol='triangle-up', size=12, color='#c5221f', line=dict(width=1, color='White')),
                 text=buy_texts,
                 hoverinfo='text+x+y',
                 yaxis='y'
@@ -758,20 +844,20 @@ def _render_kline_with_trades():
                 x=sell_dates, y=sell_prices,
                 mode='markers',
                 name='卖出点 (Sell)',
-                marker=dict(symbol='triangle-down', size=12, color='#3fb950', line=dict(width=1, color='White')),
+                marker=dict(symbol='triangle-down', size=12, color='#137333', line=dict(width=1, color='White')),
                 text=sell_texts,
                 hoverinfo='text+x+y',
                 yaxis='y'
             ))
             
     fig.update_layout(
-        template='plotly_dark',
+        template='plotly_white',
         paper_bgcolor='rgba(0,0,0,0)',
         plot_bgcolor='rgba(0,0,0,0)',
-        font=dict(color='#c9d1d9'),
-        title=dict(text=f'{symbol_options.get(selected_symbol)} - 近90日 K线与交易点位', font=dict(color='#58a6ff')),
-        xaxis=dict(title='', gridcolor='rgba(255,255,255,0.1)', rangeslider=dict(visible=False)),
-        yaxis=dict(title='价格', gridcolor='rgba(255,255,255,0.1)'),
+        font=dict(color='#202124'),
+        title=dict(text=f'{symbol_options.get(selected_symbol)} - 近90日 K线与交易点位', font=dict(color='#1a73e8')),
+        xaxis=dict(title='', gridcolor='rgba(0,0,0,0.1)', rangeslider=dict(visible=False)),
+        yaxis=dict(title='价格', gridcolor='rgba(0,0,0,0.1)'),
         margin=dict(l=60, r=60, t=60, b=40),
         height=500,
         legend=dict(orientation="h", yanchor="bottom", y=1.02, xanchor="right", x=1)
@@ -785,15 +871,15 @@ def render_portfolio_dashboard():
     渲染科技感操盘记录大屏。
     """
     # 注入 CSS
-    st.markdown(CYBERPUNK_CSS, unsafe_allow_html=True)
+    st.markdown(LIGHT_THEME_CSS, unsafe_allow_html=True)
     
     # 标题
     st.markdown("""
     <div style="text-align: center; margin-bottom: 20px;">
-        <div style="font-size: 1.8rem; font-weight: 600; color: #58a6ff;">
+        <div style="font-size: 1.8rem; font-weight: 600; color: #1a73e8;">
             操盘记录
         </div>
-        <div style="color: #8b949e; font-size: 0.85rem; margin-top: 4px;">
+        <div style="color: #5f6368; font-size: 0.85rem; margin-top: 4px;">
             持仓监控与盈亏分析
         </div>
     </div>
@@ -819,7 +905,7 @@ def render_portfolio_dashboard():
         st.markdown(f"""
         <div style="display: flex; align-items: center; gap: 8px; margin-bottom: 15px;">
             <span class="status-dot online"></span>
-            <span style="color: #3fb950; font-size: 0.85rem;">
+            <span style="color: #137333; font-size: 0.85rem;">
                 在线 · {datetime.now().strftime('%Y-%m-%d %H:%M')}
             </span>
         </div>
@@ -868,16 +954,16 @@ def render_portfolio_dashboard():
                 x=pnl_df['pnl'],
                 y=pnl_df['symbol'],
                 orientation='h',
-                marker_color=['#3fb950' if x >= 0 else '#f85149' for x in pnl_df['pnl']],
+                marker_color=['#137333' if x >= 0 else '#c5221f' for x in pnl_df['pnl']],
             ))
             
             fig.update_layout(
-                template='plotly_dark',
+                template='plotly_white',
                 paper_bgcolor='rgba(0,0,0,0)',
                 plot_bgcolor='rgba(0,0,0,0)',
-                font=dict(color='#c9d1d9'),
-                xaxis=dict(title='盈亏', gridcolor='rgba(255,255,255,0.1)'),
-                yaxis=dict(title='', gridcolor='rgba(255,255,255,0.1)'),
+                font=dict(color='#202124'),
+                xaxis=dict(title='盈亏', gridcolor='rgba(0,0,0,0.1)'),
+                yaxis=dict(title='', gridcolor='rgba(0,0,0,0.1)'),
                 height=max(300, len(pnl_df) * 35),
                 margin=dict(l=80, r=40, t=40, b=40),
                 showlegend=False,

@@ -3,7 +3,12 @@ import streamlit as st
 import time
 import json
 from utils.strategy import analyze_volume_profile_strategy
-from utils.storage import get_volume_profile, get_latest_production_log, save_production_log, load_production_log, delete_production_log
+from utils.storage import (
+    get_volume_profile, get_latest_production_log, save_production_log, 
+    load_production_log, delete_production_log,
+    save_structured_research_report
+)
+from utils.research_report import ResearchReport, StepRecord, FinalDecision
 from utils.ai_parser import extract_bracket_content
 from utils.config import load_config, get_allocation, set_allocation
 from utils.monitor_logger import log_ai_heartbeat
@@ -18,6 +23,196 @@ import datetime
 from utils.prompt_loader import load_all_prompts
 from utils.time_utils import get_target_date_for_strategy, get_beijing_time, is_trading_time, get_market_session
 from utils.asset_classifier import get_asset_type_and_tags
+
+
+def _extract_prompt_from_value(value):
+    """
+    从 prompts_history 的值中提取 system_prompt 和 user_prompt
+    处理两种格式:
+    1. 极速模式: 值是 (sys_prompt, user_prompt) 元组或 {'sys': ..., 'user': ...} 字典
+    2. 手动模式: 值直接是字符串或分开存储的 sys/user
+    """
+    if value is None:
+        return "", ""
+    
+    # 如果是元组/列表 (极速模式返回的 p_audit1 等)
+    if isinstance(value, (tuple, list)) and len(value) >= 2:
+        return value[0], value[1]
+    
+    # 如果是字典
+    if isinstance(value, dict):
+        return value.get('sys', ''), value.get('user', '')
+    
+    # 如果是字符串，尝试分割 (旧格式)
+    if isinstance(value, str):
+        if "System" in value and "User" in value:
+            parts = value.split("User")
+            if len(parts) >= 2:
+                sys_p = parts[0].replace("System", "").strip()
+                user_p = "User" + parts[1] if len(parts) == 2 else "User".join(parts[1:])
+                return sys_p, user_p
+        return "", value
+    
+    return "", ""
+
+
+def build_research_report_from_session(
+    symbol: str,
+    ai_strat_log: Dict[str, Any],
+    blue_model: str = "DeepSeek",
+    red_model: str = "Kimi"
+) -> ResearchReport:
+    """
+    从 session_state 中的 ai_strat_log 构建结构化的 ResearchReport
+    """
+    timestamp = ai_strat_log.get('timestamp', datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S"))
+    report = ResearchReport(symbol=symbol, timestamp=timestamp)
+    
+    ph = ai_strat_log.get('prompts_history', {})
+    
+    # Step 1: 蓝军初稿 (Draft)
+    draft_content = ai_strat_log.get('draft_v1', ai_strat_log.get('result', ''))
+    # 如果是极速模式，需要提取 v1.0 draft 的内容
+    if '--- 📜 v1.0 Draft ---' in draft_content:
+        draft_content = draft_content.split('--- 📜 v1.0 Draft ---')[0].strip()
+    
+    draft_reasoning = ai_strat_log.get('reasoning', '').split('### [R1 Reasoning]')[0].strip() if '### [R1 Reasoning]' in ai_strat_log.get('reasoning', '') else ai_strat_log.get('reasoning', '')
+    
+    # 处理 draft 的 prompt (可能直接是字符串或元组)
+    draft_sys, draft_user = _extract_prompt_from_value(ph.get('draft'))
+    if not draft_sys:
+        draft_sys = ph.get('draft_sys', '')
+    if not draft_user:
+        draft_user = ph.get('draft_user', ai_strat_log.get('prompt', ''))
+    
+    report.add_step(StepRecord(
+        step=1,
+        step_type="draft",
+        role="蓝军初稿",
+        model=blue_model,
+        system_prompt=draft_sys,
+        user_prompt=draft_user,
+        reasoning=draft_reasoning,
+        content=draft_content,
+        timestamp=timestamp
+    ))
+    
+    # Step 2: 红军初审 (Audit1)
+    if ai_strat_log.get('audit'):
+        audit1_sys, audit1_user = _extract_prompt_from_value(ph.get('audit1'))
+        if not audit1_sys:
+            audit1_sys = ph.get('audit1_sys', '')
+        if not audit1_user:
+            audit1_user = ph.get('audit1_user', '')
+        
+        report.add_step(StepRecord(
+            step=2,
+            step_type="audit1",
+            role="红军初审",
+            model=red_model,
+            system_prompt=audit1_sys,
+            user_prompt=audit1_user,
+            reasoning="",
+            content=ai_strat_log['audit'],
+            timestamp=timestamp
+        ))
+    
+    # Step 3: 蓝军优化 (Refine)
+    if ai_strat_log.get('is_refined'):
+        refine_reasoning = ""
+        if '--- 🔄 Refinement Logic ---' in ai_strat_log.get('reasoning', ''):
+            refine_reasoning = ai_strat_log['reasoning'].split('--- 🔄 Refinement Logic ---')[-1].split('### [R2 Refinement]')[0].strip()
+        elif '### [R2 Refinement]' in ai_strat_log.get('reasoning', ''):
+            refine_reasoning = ai_strat_log['reasoning'].split('### [R2 Refinement]')[-1].split('### [Final Decision]')[0].strip()
+        
+        refine_sys, refine_user = _extract_prompt_from_value(ph.get('refine'))
+        if not refine_sys:
+            refine_sys = ph.get('refine_sys', '')
+        if not refine_user:
+            refine_user = ph.get('refine_user', '')
+        
+        # 提取 refine content - 极速模式和手动模式使用不同的标记
+        refine_content = ""
+        result = ai_strat_log.get('result', '')
+        if '[Refined v2.0]' in result:
+            # 手动模式
+            refine_content = result.split('[Refined v2.0]')[0].strip()
+        elif '--- 🔄 v2.0 Refined ---' in result:
+            # 极速模式: 提取 --- 🔄 v2.0 Refined --- 和 --- ⚖️ Final Verdict --- 之间的内容
+            try:
+                start = result.find('--- 🔄 v2.0 Refined ---') + len('--- 🔄 v2.0 Refined ---')
+                end = result.find('--- ⚖️ Final Verdict ---', start)
+                if end == -1:
+                    end = len(result)
+                refine_content = result[start:end].strip()
+            except:
+                refine_content = ""
+        else:
+            refine_content = result
+        
+        report.add_step(StepRecord(
+            step=3,
+            step_type="refine",
+            role="蓝军优化",
+            model=blue_model,
+            system_prompt=refine_sys,
+            user_prompt=refine_user,
+            reasoning=refine_reasoning,
+            content=refine_content,
+            timestamp=timestamp
+        ))
+    
+    # Step 4: 红军终审 (Audit2)
+    if ai_strat_log.get('final_audit'):
+        audit2_sys, audit2_user = _extract_prompt_from_value(ph.get('audit2'))
+        if not audit2_sys:
+            audit2_sys = ph.get('audit2_sys', ph.get('final_sys', ''))
+        if not audit2_user:
+            audit2_user = ph.get('audit2_user', ph.get('final_user', ''))
+        
+        report.add_step(StepRecord(
+            step=4,
+            step_type="audit2",
+            role="红军终审",
+            model=red_model,
+            system_prompt=audit2_sys,
+            user_prompt=audit2_user,
+            reasoning="",
+            content=ai_strat_log['final_audit'],
+            timestamp=timestamp
+        ))
+    
+    # Step 5: 最终执行令 (Final)
+    if ai_strat_log.get('final_exec'):
+        final_reasoning = ""
+        if '### [Final Decision]' in ai_strat_log.get('reasoning', ''):
+            final_reasoning = ai_strat_log['reasoning'].split('### [Final Decision]')[-1].strip()
+        
+        final_sys, final_user = _extract_prompt_from_value(ph.get('decide'))
+        if not final_sys:
+            final_sys = ph.get('decision_sys', ph.get('exec_sys', ''))
+        if not final_user:
+            final_user = ph.get('decision_user', ph.get('exec_user', ''))
+        
+        report.add_step(StepRecord(
+            step=5,
+            step_type="final",
+            role="最终执行",
+            model=blue_model,
+            system_prompt=final_sys,
+            user_prompt=final_user,
+            reasoning=final_reasoning,
+            content=ai_strat_log['final_exec'],
+            timestamp=timestamp
+        ))
+    
+    # 设置兼容性字段
+    report.raw_result = ai_strat_log.get('result', '')
+    report.raw_prompt = ai_strat_log.get('prompt', '')
+    report.raw_reasoning = ai_strat_log.get('reasoning', '')
+    
+    return report
+
 
 def render_strategy_section(code: str, name: str, price: float, shares_held: int, avg_cost: float, total_capital: float, risk_pct: float, proximity_pct: float, pre_close: float = 0.0):
     """
@@ -64,11 +259,17 @@ def render_strategy_section(code: str, name: str, price: float, shares_held: int
         from utils.database import db_get_position
         # Use DB
         curr_pos = db_get_position(code)
-        curr_base = curr_pos.get("base_shares", 0)
+        curr_base = curr_pos.get("base_shares", 0) or 0
+        
+        # Defensive conversion: handle corrupted data where base_shares might be a string
+        try:
+            curr_base_int = int(curr_base) if curr_base else 0
+        except (ValueError, TypeError):
+            curr_base_int = 0
         
         new_base = st.number_input(
             f"🔒 底仓锁定 (Base Position)",
-            value=int(curr_base),
+            value=curr_base_int,
             min_value=0,
             step=100,
             key=f"base_in_{code}",
@@ -621,17 +822,21 @@ def render_strategy_section(code: str, name: str, price: float, shares_held: int
 ## User
 {ph.get('final_user', '')}
 """
-                    save_production_log(
-                        code, 
-                        full_prompt_log, 
-                        full_result, 
-                        ai_strat_log['reasoning'],
-                        model=ai_strat_log.get('model', 'DeepSeek'),
-                        details=json.dumps({'prompts_history': ph}, ensure_ascii=False) if ph else None
+                    # [v2.1] 使用结构化保存
+                    blue_model = ai_strat_log.get('blue_model', ai_strat_log.get('model', 'DeepSeek'))
+                    red_model = ai_strat_log.get('red_model', 'Kimi')
+                    
+                    report = build_research_report_from_session(
+                        symbol=code,
+                        ai_strat_log=ai_strat_log,
+                        blue_model=blue_model,
+                        red_model=red_model
                     )
+                    save_structured_research_report(code, report)
+                    
                     # Clear draft
                     del st.session_state[pending_key]
-                    st.success("策略已入库！")
+                    st.success("策略已入库！(结构化 v2.1)")
                     time.sleep(0.5)
                     st.rerun()
                     
@@ -759,10 +964,15 @@ def render_strategy_section(code: str, name: str, price: float, shares_held: int
         # Display Base Position Info (if configured)
         from utils.database import db_get_position
         curr_pos_ui = db_get_position(code)
-        base_s_ui = curr_pos_ui.get("base_shares", 0)
-        if base_s_ui > 0:
-             tradable_s_ui = max(0, shares_held - base_s_ui)
-             st.info(f"🛡️ **风控护盾已激活** | 总持仓: {shares_held} | 🔒 底仓(Locked): **{base_s_ui}** | 🔄 可交易: **{tradable_s_ui}**")
+        base_s_ui = curr_pos_ui.get("base_shares", 0) or 0
+        # Defensive conversion: handle corrupted data
+        try:
+            base_s_ui_int = int(base_s_ui)
+        except (ValueError, TypeError):
+            base_s_ui_int = 0
+        if base_s_ui_int > 0:
+             tradable_s_ui = max(0, shares_held - base_s_ui_int)
+             st.info(f"🛡️ **风控护盾已激活** | 总持仓: {shares_held} | 🔒 底仓(Locked): **{base_s_ui_int}** | 🔄 可交易: **{tradable_s_ui}**")
         
         # Fund Flow History Display Moved to Dashboard
     with st.container():
@@ -1157,6 +1367,7 @@ def render_strategy_section(code: str, name: str, price: float, shares_held: int
                                             'red_model': red_model,
                                             'raw_context': preview_data['user_p'],
                                             'stage': 'auto_done',
+                                            'draft_v1': c1,  # 保存初稿用于结构化存储
                                             'final_exec': c3, 
                                             'is_refined': True
                                         }
@@ -1226,294 +1437,10 @@ def render_strategy_section(code: str, name: str, price: float, shares_held: int
             st.markdown("---")
 
 
-        # --- Nested History (Inside AI Analysis) ---
+        # --- Nested History (Inside AI Analysis) [v2.1 Refactored] ---
         st.markdown("---")
-        with st.expander("📜 历史研报记录 (Research History)", expanded=False):
-            logs = load_production_log(code)
-            if not logs:
-                st.info("暂无历史记录")
-            else:
-                # 1. Prepare Data for Matching Trades
-                trades = db_get_history(code)
-                # Filter trades: include only explicit buy/sell, exclude allocation/override
-                real_trades = [t for t in trades if t['type'] in ['buy', 'sell'] and t.get('amount', 0) > 0]
-                
-                # Sort logs ascending for matching interval
-                sorted_logs = sorted(logs, key=lambda x: x['timestamp'])
-                
-                history_data = []
-                log_options = {}
-                
-                for i, log in enumerate(sorted_logs):
-                    ts = log.get('timestamp', 'N/A')
-                    
-                    # Determine time window
-                    start_time = ts
-                    end_time = sorted_logs[i+1]['timestamp'] if i < len(sorted_logs) - 1 else datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S")
-                    
-                    # Find matched trades
-                    matched_tx = []
-                    for t in real_trades:
-                        t_ts = t['timestamp']
-                        if start_time <= t_ts < end_time:
-                            # Format: "Buy 100" or "Sell 500"
-                            action_str = "买" if t['type'] == 'buy' else "卖"
-                            matched_tx.append(f"{action_str} {int(t['amount'])}@{t['price']}")
-                            
-                    tx_str = "; ".join(matched_tx) if matched_tx else "-"
-                    
-                    # Parse simplified result
-                    res_snippet = log.get('result', '')
-                    # Try to extract Signal
-                    s_match = re.search(r"方向:\s*(\[)?(.*?)(])?\n", res_snippet)
-                    if not s_match: s_match = re.search(r"【(买入|卖出|做空|观望|持有)】", res_snippet)
-                    signal_show = s_match.group(2) if s_match and len(s_match.groups()) >= 2 else (s_match.group(1) if s_match else "N/A")
-                    if "N/A" in signal_show and "观望" in res_snippet[:100]: signal_show = "观望"
-
-                    if "N/A" in signal_show and "观望" in res_snippet[:100]: signal_show = "观望"
-
-                    # Determine Target Date using enforced logic
-                    dt_ts = datetime.datetime.strptime(ts, "%Y-%m-%d %H:%M:%S")
-                    target_date_str = get_target_date_for_strategy(dt_ts)
-                    
-                    # Extract Tag
-                    tag = "盘中"
-                    # Simple heuristic for tag display, but date is now rigorous
-                    if "盘前" in res_snippet[:20] or dt_ts.hour >= 15 or dt_ts.hour < 9:
-                        tag = "盘前"
-                    if "盘中" in res_snippet[:20]:
-                        tag = "盘中"
-
-                    # Add to list (Insert at beginning to show latest first in table)
-                    history_data.insert(0, {
-                        "生成时间": ts,
-                        "适用日期": target_date_str,
-                        "类型": tag,
-                        "AI建议": signal_show.replace("[","").replace("]",""),
-                        "实际执行": tx_str,
-                        "raw_log": log
-                    })
-                    
-                    # Prepare options for selectbox (Reverse order essentially)
-                    label = f"{ts} | {signal_show} | Exec: {tx_str}"
-                    log_options[label] = log
-
-                # 2. Show Summary Table
-                st.caption("策略与执行追踪")
-                df_hist = pd.DataFrame(history_data)
-                st.dataframe(
-                    df_hist[['适用日期', '类型', 'AI建议', '实际执行', '生成时间']], 
-                    hide_index=True,
-                    use_container_width=True,
-                    column_config={
-                        "适用日期": st.column_config.TextColumn("适用日期 (Target)", width="small"),
-                        "类型": st.column_config.TextColumn("类型", width="small"),
-                        "生成时间": st.column_config.TextColumn("生成时间 (Created)", width="medium"),
-                        "实际执行": st.column_config.TextColumn("实际执行 (基于此策略)", width="large"),
-                        "AI建议": st.column_config.TextColumn("AI建议", width="small"),
-                    }
-                )
-
-                # 3. Detail View
-                st.divider()
-                selected_label = st.selectbox("查看详情 (Select Detail)", options=list(log_options.keys())[::-1], key=f"hist_sel_{code}")
-                
-                if selected_label:
-                    selected_log = log_options[selected_label]
-                    # Find corresponding row to get tx_str easily (or recompute)
-                    # We can just extract from label or matched logic. 
-                    # Let's re-find in history_data
-                    linked_tx = "N/A"
-                    for item in history_data:
-                        if item["raw_log"] == selected_log:
-                            linked_tx = item["实际执行"]
-                            break
-                            
-                    s_ts = selected_log.get('timestamp', 'N/A')
-                    st.markdown(f"#### 🗓️ {s_ts}")
-                    
-                    if linked_tx != "-":
-                        st.info(f"⚡ **关联执行**: {linked_tx}")
-                        
-                    res_text = selected_log.get('result', '')
-                    
-                    # --- Parse Cumulative Result ---
-                    cumulative_data = {}
-                    main_display_text = res_text
-                    
-                    # Markers
-                    markers = {
-                        'draft': "--- 📜 v1.0 Draft ---",
-                        'audit1': "--- 🔴 Round 1 Audit ---",
-                        'refine': "--- 🔄 v2.0 Refined ---",
-                        'audit2': "--- ⚖️ Final Verdict ---",
-                        'final_marker': "[Final Execution Order]"
-                    }
-                    
-                    if markers['draft'] in res_text:
-                        # It's a cumulative log
-                        try:
-                            # Split by Draft First to get the Head (Final Decision)
-                            parts = res_text.split(markers['draft'])
-                            main_display_text = parts[0].strip()
-                            remaining = parts[1] if len(parts) > 1 else ""
-                            
-                            # Extract Draft
-                            if markers['audit1'] in remaining:
-                                p_draft = remaining.split(markers['audit1'])
-                                cumulative_data['draft'] = p_draft[0].strip()
-                                remaining = p_draft[1]
-                            
-                            # Extract Audit1
-                            if markers['refine'] in remaining:
-                                p_a1 = remaining.split(markers['refine'])
-                                cumulative_data['audit1'] = p_a1[0].strip()
-                                remaining = p_a1[1]
-                                
-                            # Extract Refine
-                            if markers['audit2'] in remaining:
-                                p_ref = remaining.split(markers['audit2'])
-                                cumulative_data['refine'] = p_ref[0].strip()
-                                cumulative_data['audit2'] = p_ref[1].strip()
-                        except:
-                            pass # Fallback to showing everything if parse fails
-
-                    from components.strategy_display_helper import display_strategy_content
-                    display_strategy_content(main_display_text)
-                    
-                    if selected_log.get('reasoning'):
-                        r_content = selected_log['reasoning'].strip()
-                        # Check if it's effectively empty (just headers)
-                        is_empty = False
-                        if "### [Round 1 Reasoning]" in r_content and len(r_content) < 100:
-                             # Heuristic: if it only contains headers and newlines
-                             pass 
-                        
-                        r_title = "💭 思考过程 (Chain of Thought)"
-                        if not r_content or r_content == "N/A":
-                            r_title += " [不可用]"
-                        
-                        with st.expander(r_title, expanded=False):
-                            if r_content:
-                                st.markdown(r_content)
-                            else:
-                                st.caption("此模型 (如 Qwen) 未提供思考过程元数据。")
-                    
-                    if selected_log.get('prompt'):
-                        p_text = selected_log['prompt']
-                        
-                        # Detect if this is a "Mega Log" (v2.1+) or v2.6+ with details
-                        details_json = selected_log.get('details')
-                        has_details = False
-                        if details_json:
-                            # import json # Moved to top level
-                            try:
-                                details = json.loads(details_json)
-                                if isinstance(details, dict) and 'prompts_history' in details:
-                                    has_details = True
-                                    ph = details['prompts_history']
-                                    with st.expander("📝 全流程详情 (Full Process History)", expanded=True):
-                                        h_tab1, h_tab2, h_tab3, h_tab4, h_tab5 = st.tabs(["Draft (草案)", "Audit1 (初审)", "Refine (反思)", "Audit2 (终审)", "Final (决策)"])
-                                        
-                                        def show_prompt_in_tab(tab, ph_data, prefix, title="Prompt", result_content=None):
-                                            with tab:
-                                                if result_content:
-                                                    st.markdown(f"#### 🧠 {title} Result")
-                                                    st.markdown(result_content)
-                                                    st.divider()
-
-                                                sys_p = ph_data.get(f"{prefix}_sys")
-                                                user_p = ph_data.get(f"{prefix}_user")
-                                                
-                                                # Fallback for old keys or auto-drive single keys
-                                                combined = ph_data.get(prefix)
-                                                
-                                                if sys_p or user_p:
-                                                    if sys_p:
-                                                        st.caption("System Prompt")
-                                                        st.code(sys_p, language='text')
-                                                    if user_p:
-                                                        st.caption("User Prompt")
-                                                        st.code(user_p, language='text')
-                                                elif combined:
-                                                    st.caption(f"{title} (Combined)")
-                                                    st.code(combined, language='text')
-                                                else:
-                                                    st.caption("No prompt data available for this step.")
-
-                                        show_prompt_in_tab(h_tab1, ph, "draft", "Draft", cumulative_data.get('draft'))
-                                        show_prompt_in_tab(h_tab2, ph, "audit1", "Audit Round 1", cumulative_data.get('audit1'))
-                                        show_prompt_in_tab(h_tab3, ph, "refine", "Refinement", cumulative_data.get('refine'))
-                                        
-                                        with h_tab4:
-                                            res_a2 = cumulative_data.get('audit2')
-                                            if 'final_sys' in ph or 'final_user' in ph:
-                                                show_prompt_in_tab(st, ph, "final", "Final Verdict", res_a2) 
-                                            else:
-                                                show_prompt_in_tab(st, ph, "audit2", "Final Verdict", res_a2)
-
-                                        with h_tab5:
-                                            # Final Decision is mainly displayed above, but we can show it here too if needed
-                                            # But usually 'main_display_text' is the final decision.
-                                            if 'exec_sys' in ph or 'exec_user' in ph:
-                                                show_prompt_in_tab(st, ph, "exec", "Final Decision")
-                                            elif 'decision_sys' in ph:
-                                                show_prompt_in_tab(st, ph, "decision", "Final Decision")
-                                            else:
-                                                show_prompt_in_tab(st, ph, "decide", "Final Decision")
-                            except:
-                                pass
-                        
-                        if not has_details and "# 🧠 Round 1: Strategy Draft" in p_text:
-                            with st.expander("📝 全流程详情 (Full Process History - Legacy)", expanded=True):
-                                # 使用完整的 section marker 进行切割，避免被内容中的 --- 截断
-                                h_tab1, h_tab2, h_tab3, h_tab4 = st.tabs(["1. Draft (草案)", "2. Audit (初审)", "3. Refine (反思)", "4. Final (决策)"])
-                                
-                                def extract_section(full_txt, start_marker, end_marker=None):
-                                    try:
-                                        p1 = full_txt.find(start_marker)
-                                        if p1 == -1: return "N/A"
-                                        p1 += len(start_marker)
-                                        
-                                        if end_marker:
-                                            p2 = full_txt.find(end_marker, p1)
-                                            if p2 == -1: return full_txt[p1:].strip()
-                                            return full_txt[p1:p2].strip()
-                                        else:
-                                            return full_txt[p1:].strip()
-                                    except:
-                                        return "N/A"
-                                
-                                with h_tab1:
-                                    st.caption("🔵 Blue Team - Initial Strategy Proposal")
-                                    # 使用 section marker 而非 --- 作为边界
-                                    s1 = extract_section(p_text, "# 🧠 Round 1: Strategy Draft", "# 🛡️ Round 1: Red Audit")
-                                    st.code(s1, language='text')
-
-                                with h_tab2:
-                                    st.caption("🔴 Red Team - Risk & Consistency Audit (Round 1)")
-                                    s2 = extract_section(p_text, "# 🛡️ Round 1: Red Audit", "# 🔄 Round 2: Refinement")
-                                    st.code(s2, language='text')
-
-                                with h_tab3:
-                                    st.caption("🔵 Blue Team - Refined Strategy based on Audit")
-                                    s3 = extract_section(p_text, "# 🔄 Round 2: Refinement", "# ⚖️ Final Verdict")
-                                    st.code(s3, language='text')
-                                    
-                                with h_tab4:
-                                    st.caption("⚖️ Blue Commander - Final Signature")
-                                    s4 = extract_section(p_text, "# ⚖️ Final Verdict")
-                                    st.code(s4, language='text')
-
-                        else:
-                            # Legacy Display
-                            with st.expander("📝 原始提示词 (Legacy Prompt)", expanded=False):
-                                st.code(p_text, language='text')
-
-                    if st.button("🗑️ 删除此记录", key=f"del_rsch_{code}_{s_ts}"):
-                        if delete_production_log(code, s_ts):
-                            st.success("已删除")
-                            time.sleep(0.5)
-                            st.rerun()
+        with st.expander("📜 历史研报记录 (Research History v2.1)", expanded=False):
+            from components.research_history import render_research_history
+            render_research_history(code)
     
     return strat_res # Return strategy result if needed by dashboard

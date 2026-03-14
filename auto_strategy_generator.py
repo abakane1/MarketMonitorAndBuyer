@@ -110,8 +110,9 @@ def run_auto_strategy_generation():
                 position=position,
                 history=history,
                 fund_flow=fund_flow,
-                deepseek_api_key=qwen_key,  # 蓝军=Kimi
-                qwen_api_key=deepseek_key,   # 红军=DeepSeek
+                deepseek_api_key=deepseek_key,  # 红军=DeepSeek
+                qwen_api_key=qwen_key,   # 蓝军=Kimi
+                kimi_api_key=qwen_key,   # 蓝军=Kimi (兼容)
                 intel_hub_data=""
             )
             

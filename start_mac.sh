@@ -10,4 +10,7 @@ if [ ! -d "venv" ]; then
 fi
 
 source venv/bin/activate
-streamlit run main.py
+streamlit run main.py \
+    --server.port=8501 \
+    --server.address=0.0.0.0 \
+    --server.headless=true

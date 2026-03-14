@@ -14,15 +14,13 @@ def init_db():
     conn = get_db_connection()
     c = conn.cursor()
     
-    # Positions table
+    # Positions table (simplified: removed portfolio_id)
     c.execute('''CREATE TABLE IF NOT EXISTS positions (
-        symbol TEXT,
+        symbol TEXT PRIMARY KEY,
         name TEXT DEFAULT '',
-        shares INTEGER,
-        cost REAL,
-        base_shares INTEGER DEFAULT 0,
-        portfolio_id TEXT DEFAULT 'default',
-        PRIMARY KEY (symbol, portfolio_id)
+        shares INTEGER DEFAULT 0,
+        cost REAL DEFAULT 0.0,
+        base_shares INTEGER DEFAULT 0
     )''')
     
     # Allocations table
@@ -31,7 +29,7 @@ def init_db():
         amount REAL
     )''')
     
-    # History table
+    # History table (simplified: removed portfolio_id)
     c.execute('''CREATE TABLE IF NOT EXISTS history (
         id INTEGER PRIMARY KEY AUTOINCREMENT,
         symbol TEXT,
@@ -42,17 +40,10 @@ def init_db():
         note TEXT,
         fee REAL DEFAULT 0.0,
         stamp_duty REAL DEFAULT 0.0,
-        transfer_fee REAL DEFAULT 0.0,
-        portfolio_id TEXT DEFAULT 'default'
+        transfer_fee REAL DEFAULT 0.0
     )''')
     
-    # [NEW] Portfolios table
-    c.execute('''CREATE TABLE IF NOT EXISTS portfolios (
-        id TEXT PRIMARY KEY,
-        name TEXT,
-        description TEXT,
-        created_at TEXT
-    )''')
+
     
     # [NEW] Watchlist table (v2: 增加 name 字段缓存股票名称)
     c.execute('''CREATE TABLE IF NOT EXISTS watchlist (
@@ -61,7 +52,7 @@ def init_db():
         added_at TEXT
     )''')
     
-    # [NEW] Position Snapshots table
+    # [NEW] Position Snapshots table (simplified: removed portfolio_id)
     c.execute('''CREATE TABLE IF NOT EXISTS position_snapshots (
         id INTEGER PRIMARY KEY AUTOINCREMENT,
         date TEXT,
@@ -71,8 +62,7 @@ def init_db():
         price REAL,
         cost REAL,
         market_value REAL,
-        unrealized_pnl REAL,
-        portfolio_id TEXT DEFAULT 'default'
+        unrealized_pnl REAL
     )''')
     
     # [NEW] Intelligence table
@@ -130,50 +120,10 @@ def init_db():
         final_price REAL,
         final_qty INTEGER,
         is_altered INTEGER,
-        reasoning TEXT,
-        portfolio_id TEXT DEFAULT 'default'
+        reasoning TEXT
     )''')
     
-    # --- Schema Migration: Initialize default portfolio if not exists ---
-    try:
-        c.execute("SELECT id FROM portfolios WHERE id = 'default'")
-        row = c.fetchone()
-        if not row:
-            c.execute("INSERT INTO portfolios (id, name, description, created_at) VALUES ('default', '主组合', '默认的主投资组合', ?)",
-                      (datetime.now().strftime("%Y-%m-%d %H:%M:%S"),))
-            conn.commit()
-    except Exception as e:
-        print(f"Error initializing default portfolio: {e}")
-    
-    # --- Schema Migration: Check if portfolio_id exists in positions ---
-    try:
-        c.execute("SELECT portfolio_id FROM positions LIMIT 1")
-    except sqlite3.OperationalError:
-        print("Migrating DB: Adding portfolio_id framework to positions table...")
-        # SQLite doesn't support adding a column to a primary key dynamically.
-        # So we add the column first. The duplicate-symbol limitation remains
-        # unless table is recreated, which we'll handle gracefully for now.
-        c.execute("ALTER TABLE positions ADD COLUMN portfolio_id TEXT DEFAULT 'default'")
-        conn.commit()
-        
-    # --- Schema Migration: Check if portfolio_id exists in history ---
-    try:
-        c.execute("SELECT portfolio_id FROM history LIMIT 1")
-    except sqlite3.OperationalError:
-        print("Migrating DB: Adding portfolio_id framework to history table...")
-        c.execute("ALTER TABLE history ADD COLUMN portfolio_id TEXT DEFAULT 'default'")
-        conn.commit()
-
-    # --- Schema Migration: Check if portfolio_id exists in position_snapshots ---
-    try:
-        c.execute("SELECT portfolio_id FROM position_snapshots LIMIT 1")
-    except sqlite3.OperationalError:
-        # If position_snapshots doesn't even exist properly in an old branch, this handles it cleanly
-        try:
-            c.execute("ALTER TABLE position_snapshots ADD COLUMN portfolio_id TEXT DEFAULT 'default'")
-            conn.commit()
-        except Exception:
-            pass
+    # [Migration] Portfolio feature removed in v4.0-simplified
 
     # --- Schema Migration: Check if base_shares exists ---
     try:
@@ -248,10 +198,10 @@ def init_db():
 # --- Positions ---
 
 # @st.cache_data(ttl=2) # REMOVED to prevent stale data during rapid transactions
-def db_get_position(symbol: str, portfolio_id: str = 'default') -> dict:
+def db_get_position(symbol: str) -> dict:
     conn = get_db_connection()
     c = conn.cursor()
-    c.execute("SELECT shares, cost, base_shares FROM positions WHERE symbol = ? AND portfolio_id = ?", (symbol, portfolio_id))
+    c.execute("SELECT shares, cost, base_shares FROM positions WHERE symbol = ?", (symbol,))
     row = c.fetchone()
     conn.close()
     if row:
@@ -262,7 +212,7 @@ def db_get_position(symbol: str, portfolio_id: str = 'default') -> dict:
         }
     return {"shares": 0, "cost": 0.0, "base_shares": 0}
 
-def db_update_position(symbol: str, shares: int, cost: float, base_shares: int = None, portfolio_id: str = 'default'):
+def db_update_position(symbol: str, shares: int, cost: float, base_shares: int = None):
     """
     Update position. If base_shares is None, keep existing value.
     """
@@ -270,9 +220,8 @@ def db_update_position(symbol: str, shares: int, cost: float, base_shares: int =
     c = conn.cursor()
     
     # Check if exists to preserve base_shares if not provided
-    existing = None
     if base_shares is None:
-        c.execute("SELECT base_shares FROM positions WHERE symbol = ? AND portfolio_id = ?", (symbol, portfolio_id))
+        c.execute("SELECT base_shares FROM positions WHERE symbol = ?", (symbol,))
         row = c.fetchone()
         if row:
             base_shares = row["base_shares"]
@@ -280,9 +229,9 @@ def db_update_position(symbol: str, shares: int, cost: float, base_shares: int =
             base_shares = 0
             
     c.execute("""
-        INSERT OR REPLACE INTO positions (symbol, shares, cost, base_shares, portfolio_id) 
-        VALUES (?, ?, ?, ?, ?)
-    """, (symbol, shares, cost, base_shares, portfolio_id))
+        INSERT OR REPLACE INTO positions (symbol, name, shares, cost, base_shares) 
+        VALUES (?, COALESCE((SELECT name FROM positions WHERE symbol = ?), ''), ?, ?, ?)
+    """, (symbol, symbol, shares, cost, base_shares))
         
     conn.commit()
     conn.close()
@@ -649,8 +598,7 @@ def db_save_strategy_execution_log(
     final_price: float, 
     final_qty: int,
     is_altered: int,
-    reasoning: str,
-    portfolio_id: str = 'default'
+    reasoning: str
 ):
     conn = get_db_connection()
     c = conn.cursor()
@@ -658,31 +606,30 @@ def db_save_strategy_execution_log(
     
     c.execute("""
         INSERT INTO strategy_execution_logs 
-        (symbol, strategy_id, timestamp, ai_action, ai_price, ai_qty, final_action, final_price, final_qty, is_altered, reasoning, portfolio_id)
-        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-    """, (symbol, strategy_id, ts, ai_action, ai_price, ai_qty, final_action, final_price, final_qty, is_altered, reasoning, portfolio_id))
+        (symbol, strategy_id, timestamp, ai_action, ai_price, ai_qty, final_action, final_price, final_qty, is_altered, reasoning)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+    """, (symbol, strategy_id, ts, ai_action, ai_price, ai_qty, final_action, final_price, final_qty, is_altered, reasoning))
     
     conn.commit()
     conn.close()
 
-def db_get_strategy_execution_logs(symbol: str = None, portfolio_id: str = 'default', limit: int = 50) -> list:
+def db_get_strategy_execution_logs(symbol: str = None, limit: int = 50) -> list:
     conn = get_db_connection()
     c = conn.cursor()
     
     if symbol:
         c.execute("""
             SELECT * FROM strategy_execution_logs 
-            WHERE symbol = ? AND portfolio_id = ?
+            WHERE symbol = ?
             ORDER BY id DESC 
             LIMIT ?
-        """, (symbol, portfolio_id, limit))
+        """, (symbol, limit))
     else:
         c.execute("""
             SELECT * FROM strategy_execution_logs 
-            WHERE portfolio_id = ?
             ORDER BY id DESC 
             LIMIT ?
-        """, (portfolio_id, limit))
+        """, (limit,))
         
     rows = c.fetchall()
     conn.close()
@@ -702,13 +649,13 @@ def db_get_strategy_execution_logs(symbol: str = None, portfolio_id: str = 'defa
             "final_qty": r["final_qty"],
             "is_altered": bool(r["is_altered"]),
             "reasoning": r["reasoning"],
-            "portfolio_id": r["portfolio_id"]
+
         })
     return res
 
 # --- History ---
 
-def db_add_history(symbol: str, timestamp: str, action_type: str, price: float, amount: float, note: str, portfolio_id: str = 'default') -> tuple:
+def db_add_history(symbol: str, timestamp: str, action_type: str, price: float, amount: float, note: str) -> tuple:
     """
     Add a history record with trade frequency check and fee calculation.
     Returns (success: bool, message: str)
@@ -721,29 +668,40 @@ def db_add_history(symbol: str, timestamp: str, action_type: str, price: float, 
             return False, msg
             
     # 计算各项费率 (基于优化方案 v3.2.0)
+    # 区分ETF和股票的手续费规则
+    from utils.asset_classifier import is_etf
+    is_etf_flag = is_etf(symbol)
+    
     trade_value = price * amount
     is_sell = any(w in str(action_type).lower() for w in ["卖", "出", "sell"])
     
-    fee = round(trade_value * 0.0003, 2)
-    stamp_duty = round(trade_value * 0.0001, 2) if is_sell else 0.0
-    transfer_fee = round(trade_value * 0.00001, 2)
+    if is_etf_flag:
+        # ETF费用规则：佣金万1(最低5元)，免印花税，免过户费
+        fee = max(5.0, round(trade_value * 0.0001, 2))
+        stamp_duty = 0.0
+        transfer_fee = 0.0
+    else:
+        # 股票费用规则：佣金万3(最低5元)，印花税万5(卖出时)，过户费万0.1
+        fee = max(5.0, round(trade_value * 0.0003, 2))
+        stamp_duty = round(trade_value * 0.0005, 2) if is_sell else 0.0
+        transfer_fee = round(trade_value * 0.00001, 2)
     
     conn = get_db_connection()
     c = conn.cursor()
     c.execute("""
         INSERT INTO history 
-        (symbol, timestamp, type, price, amount, note, fee, stamp_duty, transfer_fee, portfolio_id) 
-        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-    """, (symbol, timestamp, action_type, price, amount, note, fee, stamp_duty, transfer_fee, portfolio_id))
+        (symbol, timestamp, type, price, amount, note, fee, stamp_duty, transfer_fee) 
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+    """, (symbol, timestamp, action_type, price, amount, note, fee, stamp_duty, transfer_fee))
     conn.commit()
     conn.close()
     return True, "记录成功"
 
 # @st.cache_data(ttl=5) # REMOVED to fix read-after-write consistency
-def db_get_history(symbol: str, portfolio_id: str = 'default') -> list:
+def db_get_history(symbol: str) -> list:
     conn = get_db_connection()
     c = conn.cursor()
-    c.execute("SELECT * FROM history WHERE symbol = ? AND portfolio_id = ? ORDER BY timestamp ASC", (symbol, portfolio_id))
+    c.execute("SELECT * FROM history WHERE symbol = ? ORDER BY timestamp ASC", (symbol,))
     rows = c.fetchall()
     conn.close()
     
@@ -766,24 +724,24 @@ def db_get_history(symbol: str, portfolio_id: str = 'default') -> list:
         })
     return result
 
-def db_delete_transaction(symbol: str, timestamp: str, portfolio_id: str = 'default') -> bool:
+def db_delete_transaction(symbol: str, timestamp: str) -> bool:
     conn = get_db_connection()
     c = conn.cursor()
-    c.execute("DELETE FROM history WHERE symbol = ? AND timestamp = ? AND portfolio_id = ?", (symbol, timestamp, portfolio_id))
+    c.execute("DELETE FROM history WHERE symbol = ? AND timestamp = ?", (symbol, timestamp))
     rows_affected = c.rowcount
     conn.commit()
     conn.close()
     return rows_affected > 0
 
-def db_get_position_at_date(symbol: str, target_date_str: str, portfolio_id: str = 'default') -> dict:
+def db_get_position_at_date(symbol: str, target_date_str: str) -> dict:
     """Reconstructs position up to the start of a given date (00:00:00)."""
     conn = get_db_connection()
     c = conn.cursor()
     c.execute("""
         SELECT type, amount, price FROM history 
-        WHERE symbol = ? AND timestamp < ? AND portfolio_id = ?
+        WHERE symbol = ? AND timestamp < ?
         ORDER BY timestamp ASC
-    """, (symbol, target_date_str + " 00:00:00", portfolio_id))
+    """, (symbol, target_date_str + " 00:00:00"))
     rows = c.fetchall()
     conn.close()
     
@@ -824,11 +782,11 @@ def db_get_position_at_date(symbol: str, target_date_str: str, portfolio_id: str
 
 # --- Portfolio (盈亏面板) ---
 
-def db_get_all_positions(portfolio_id: str = 'default') -> list:
+def db_get_all_positions() -> list:
     """获取所有持仓（仅返回 shares > 0 的记录）。"""
     conn = get_db_connection()
     c = conn.cursor()
-    c.execute("SELECT symbol, shares, cost, base_shares FROM positions WHERE shares > 0 AND portfolio_id = ?", (portfolio_id,))
+    c.execute("SELECT symbol, shares, cost, base_shares FROM positions WHERE shares > 0")
     rows = c.fetchall()
     conn.close()
     
@@ -842,11 +800,11 @@ def db_get_all_positions(portfolio_id: str = 'default') -> list:
         })
     return result
 
-def db_get_all_history(portfolio_id: str = 'default') -> list:
+def db_get_all_history() -> list:
     """获取所有股票的交易记录，按时间倒序排列。"""
     conn = get_db_connection()
     c = conn.cursor()
-    c.execute("SELECT * FROM history WHERE portfolio_id = ? ORDER BY timestamp DESC", (portfolio_id,))
+    c.execute("SELECT * FROM history ORDER BY timestamp DESC")
     rows = c.fetchall()
     conn.close()
     
@@ -869,7 +827,7 @@ def db_get_all_history(portfolio_id: str = 'default') -> list:
         })
     return result
 
-def db_compute_realized_pnl(symbol: str, portfolio_id: str = 'default') -> dict:
+def db_compute_realized_pnl(symbol: str) -> dict:
     """
     根据交易流水，用移动平均成本法计算已实现盈亏。
     
@@ -886,9 +844,9 @@ def db_compute_realized_pnl(symbol: str, portfolio_id: str = 'default') -> dict:
     c = conn.cursor()
     c.execute("""
         SELECT type, amount, price, timestamp FROM history 
-        WHERE symbol = ? AND portfolio_id = ?
+        WHERE symbol = ?
         ORDER BY timestamp ASC
-    """, (symbol, portfolio_id))
+    """, (symbol,))
     rows = c.fetchall()
     conn.close()
     
@@ -972,27 +930,33 @@ def db_compute_realized_pnl(symbol: str, portfolio_id: str = 'default') -> dict:
 
 # --- Position Snapshots (v3.2.0) ---
 
-def db_save_position_snapshot(date: str, symbol: str, name: str, shares: int, price: float, cost: float, market_value: float, unrealized_pnl: float, portfolio_id: str = 'default'):
+def db_save_position_snapshot(date: str, symbol: str, name: str, shares: int, price: float, cost: float, market_value: float, unrealized_pnl: float):
     conn = get_db_connection()
     c = conn.cursor()
     c.execute("""
         INSERT INTO position_snapshots 
-        (date, symbol, name, shares, price, cost, market_value, unrealized_pnl, portfolio_id) 
-        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
-    """, (date, symbol, name, shares, price, cost, market_value, unrealized_pnl, portfolio_id))
+        (date, symbol, name, shares, price, cost, market_value, unrealized_pnl) 
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+    """, (date, symbol, name, shares, price, cost, market_value, unrealized_pnl))
     conn.commit()
     conn.close()
 
-def db_get_position_snapshots(start_date: str = None, end_date: str = None, portfolio_id: str = 'default') -> list:
+def db_get_position_snapshots(start_date: str = None, end_date: str = None) -> list:
     conn = get_db_connection()
     c = conn.cursor()
     
-    query = "SELECT * FROM position_snapshots WHERE portfolio_id = ?"
-    params = [portfolio_id]
+    query = "SELECT * FROM position_snapshots WHERE 1=1"
+    params = []
     
     if start_date and end_date:
         query += " AND date >= ? AND date <= ?"
         params.extend([start_date, end_date])
+    elif start_date:
+        query += " AND date >= ?"
+        params.append(start_date)
+    elif end_date:
+        query += " AND date <= ?"
+        params.append(end_date)
     
     query += " ORDER BY date DESC, symbol ASC"
     
@@ -1007,6 +971,7 @@ def db_get_position_snapshots(start_date: str = None, end_date: str = None, port
 
 # --- Portfolios Management ---
 
+# [DEPRECATED in v4.0-simplified] Portfolio feature removed
 def db_get_all_portfolios() -> list:
     conn = get_db_connection()
     c = conn.cursor()
@@ -1044,10 +1009,7 @@ def db_delete_portfolio(portfolio_id: str) -> bool:
     affected = c.rowcount
     
     if affected > 0:
-        # Cascade delete
-        c.execute("DELETE FROM positions WHERE portfolio_id = ?", (portfolio_id,))
-        c.execute("DELETE FROM history WHERE portfolio_id = ?", (portfolio_id,))
-        c.execute("DELETE FROM position_snapshots WHERE portfolio_id = ?", (portfolio_id,))
+        # Cascade delete not applied since portfolio_id was removed from positions/history in v4.0
         conn.commit()
         
     conn.close()

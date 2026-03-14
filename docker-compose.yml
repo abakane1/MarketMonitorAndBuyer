@@ -21,11 +21,18 @@ services:
       # 策略队列和关注列表
       - ./strategy_queue.json:/app/strategy_queue.json
       - ./watchlist.json:/app/watchlist.json
+      # 核心数据和配置持久化
+      - ./user_data.db:/app/user_data.db
+      - ./trading.db:/app/trading.db
+      - ./strategies.db:/app/strategies.db
+      - ./user_config.json:/app/user_config.json
+      - ./prompts_encrypted.json:/app/prompts_encrypted.json
+      - ./prompts:/app/prompts
     environment:
       - TZ=Asia/Shanghai
       - PYTHONUNBUFFERED=1
     healthcheck:
-      test: ["CMD", "curl", "--fail", "http://localhost:8501/_stcore/health"]
+      test: [ "CMD", "curl", "--fail", "http://localhost:8501/_stcore/health" ]
       interval: 30s
       timeout: 10s
       retries: 3

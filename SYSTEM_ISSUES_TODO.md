@@ -52,7 +52,81 @@
 
 ## 📝 当前问题列表
 
-### 1. Kimi API 密钥无效 (需要复核)
+### dashboard.py & trade_manager.py 调用数据库函数参数错误 (portfolio_id) ✅已修复
+
+**状态**: ✅ 已解决  
+**发现者**: AI 程序员
+**优先级**: 🔴 高
+
+#### 问题描述
+复盘与预判页面或进行交易操作时报错：`TypeError: db_delete_transaction() takes 2 positional arguments but 3 were given` 等。
+
+#### 问题原因
+v4.0 架构升级后移除了 `portfolio_id` 参数，但 `components/dashboard.py` 和 `utils/trade_manager.py` 仍有遗留代码向数据库函数 (`db_delete_transaction`, `db_get_position`, `db_add_history`, `db_update_position`) 传递该参数。此外 `utils/database.py` 中也有过期的基于 `portfolio_id` 的级联删除写法。
+
+#### 修复内容
+1. 移除了 `dashboard.py` 中调用 `db_delete_transaction` 的第三个参数。
+2. 移除了 `trade_manager.py` 中所有向数据库函数传递的 `portfolio_id`。
+3. 清理了 `database.py` 中的过期删除逻辑。
+
+---
+
+### ETF 数据获取崩溃 (如 588710) ✅已修复
+
+**状态**: ✅ 已解决  
+**发现者**: AI 程序员
+**优先级**: 🔴 高
+
+#### 问题描述
+页面切换到 ETF（如 588710）时，出现无法获取数据或页面崩溃的问题。
+
+#### 问题原因
+在 `utils/data_fetcher.py` 的 `get_stock_realtime_info` 函数中，当分时历史数据尝试更新未成功（例如今日数据为空导致 `today_df` 筛选为空）时，局部变量 `data` 保持为 `None`。随后的代码块视图为 `data['名称']` 赋值时引发 `TypeError: 'NoneType' object does not support item assignment`，导致函数返回 `None` 从而使整个 Dashboard 无法渲染数据。
+
+#### 修复内容
+修改了 `utils/data_fetcher.py` 中的逻辑，将给 `data['名称']` 赋值的代码包裹在 `if data is not None:` 判断内，避免引发崩溃并允许程序正常流转至后续的回退获取逻辑。
+
+---
+
+### 1. dashboard.py 调用 db_get_position() 参数错误 ✅已修复
+
+**状态**: ✅ 已解决  
+**发现时间**: 2026-03-09 21:13  
+**解决时间**: 2026-03-09 21:16  
+**发现者**: 飞书群聊用户反馈  
+**优先级**: 🔴 高
+
+#### 问题描述
+588200 复盘与预判页面报错，无法正常显示持仓信息。
+
+#### 错误信息
+```
+TypeError: db_get_position() takes 1 positional argument but 2 were given
+```
+
+#### 问题原因
+v4.0 架构升级后，`db_get_position()` 函数签名从 `(symbol, portfolio_id)` 改为只接受 `(symbol)`。
+但 `dashboard.py` 中仍有 2 处调用传了 2 个参数。
+
+#### 相关文件
+- `/Users/zuliangzhao/Projects/MarketMonitorAndBuyer/components/dashboard.py` (第 176 行、第 224 行)
+- `/Users/zuliangzhao/Projects/MarketMonitorAndBuyer/utils/database.py` (函数定义)
+
+#### 修复内容
+```python
+# 修复前
+db_get_position(code, portfolio_id)
+
+# 修复后  
+db_get_position(code)
+```
+
+#### 验证结果
+✅ 页面已正常显示，588200 策略记录可正常查看
+
+---
+
+### 2. Kimi API 密钥无效 (需要复核)
 
 **状态**: ✅ 已解决  
 **发现时间**: 2026-03-07 09:16  
@@ -265,10 +339,93 @@ ValueError: too many values to unpack (expected 2)
 | 🆕 新发现 | 2 | 🔴高:2 🟡中:0 🟢低:0 |
 | 🔍 调查中 | 1 | 🔴高:1 🟡中:0 🟢低:0 |
 | 🔧 修复中 | 0 | - |
-| ✅ 已解决 | 2 | 🔴高:0 🟡中:2 🟢低:0 |
+| ✅ 已解决 | 3 | 🔴高:0 🟡中:2 🟢低:1 |
 
-**最后更新**: 2026-03-07 21:39  
-**更新者**: 赵大虾哥 (stock-strategy-group 技能)
+**最后更新**: 2026-03-11 21:17  
+**更新者**: Feishu群聊操作技能
+
+---
+
+---
+
+## 📊 get_stock_realtime_info() 返回的昨日收盘价错误
+
+**状态**: 🆕 新发现  
+**发现时间**: 2026-03-11 21:14  
+**发现者**: Feishu群聊操作技能  
+**优先级**: 🟡 中  
+
+### 问题描述
+调用 `get_stock_realtime_info()` 获取588200数据时，返回的 pre_close 值错误：
+- 函数返回：pre_close: 2.569
+- 正确值应为：pre_close: 2.579（昨日收盘价）
+
+这导致涨跌幅计算错误（-0.04% vs 实际-1.47%）。
+
+### 复现步骤
+```python
+from utils.data_fetcher import get_stock_realtime_info
+result = get_stock_realtime_info('588200')
+# 返回: {"price": 2.541, "pre_close": 2.569, ...}
+```
+
+### 错误信息
+```
+get_stock_realtime_info() 返回:
+- price: 2.541
+- pre_close: 2.569 (错误)
+
+get_stock_daily_history() 正确数据:
+- 2026-03-10 收盘: 2.579
+- 2026-03-11 收盘: 2.541
+```
+
+### 相关文件
+- `utils/data_fetcher.py` - `get_stock_realtime_info()` 函数
+
+### 影响范围
+- 实时数据获取
+- 涨跌幅计算
+
+### 修复建议
+检查 `get_stock_realtime_info()` 中昨日收盘价的获取逻辑，确保从正确的源头获取数据
+
+---
+
+## 📝 Feishu群聊调用情报搜索未保存（操作技能调用不完整）
+
+**状态**: ✅ 已解决（非系统bug，是调用方式不完整）  
+**发现时间**: 2026-03-11 21:10  
+**发现者**: Feishu群聊操作技能  
+**优先级**: 🟢 低  
+
+### 问题描述
+通过 Feishu 群聊调用情报官搜索后，搜索结果没有保存到数据库。
+
+### 原因分析
+系统完整流程（见 components/intel_hub.py 第79行）：
+1. `search_with_qwen()` - 获取搜索结果
+2. `add_claims(code, new_claims, source="Qwen Search")` - 保存到数据库
+
+操作技能只调用了第1步，没调用第2步。
+
+### 相关文件
+- `utils/qwen_agent.py` - `search_with_qwen()`
+- `utils/intel_manager.py` - `add_claims()`
+
+### 修复方案
+后续调用情报搜索时，需同时调用 add_claims() 保存结果：
+```python
+from utils.qwen_agent import search_with_qwen
+from utils.intel_manager import add_claims
+
+# 1. 搜索
+new_claims = search_with_qwen(api_key, query)
+
+# 2. 保存
+if new_claims:
+    add_claims(code, new_claims, source="Qwen Search")
+```
 
 ---
 

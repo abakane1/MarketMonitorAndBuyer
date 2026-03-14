@@ -29,7 +29,7 @@ def execute_trade(symbol: str, action: str, price: float, quantity: int, note: s
     """
     try:
         # 1. Fetch current position
-        pos = db_get_position(symbol, portfolio_id)
+        pos = db_get_position(symbol)
         current_shares = pos["shares"]
         current_cost = pos["cost"]
         base_shares = pos["base_shares"]
@@ -47,7 +47,9 @@ def execute_trade(symbol: str, action: str, price: float, quantity: int, note: s
             new_cost = new_total_cost / new_shares if new_shares > 0 else 0.0
             
             # Log
-            db_add_history(symbol, timestamp, "buy", price, quantity, note, portfolio_id=portfolio_id)
+            success, msg = db_add_history(symbol, timestamp, "buy", price, quantity, note)
+            if not success:
+                return {"success": False, "message": msg}
             
         elif action == "sell":
             if current_shares < quantity:
@@ -75,13 +77,15 @@ def execute_trade(symbol: str, action: str, price: float, quantity: int, note: s
             new_cost = new_unit_cost
             
             # Log
-            db_add_history(symbol, timestamp, "sell", price, quantity, note, portfolio_id=portfolio_id)
+            success, msg = db_add_history(symbol, timestamp, "sell", price, quantity, note)
+            if not success:
+                return {"success": False, "message": msg}
 
         else:
              return {"success": False, "message": f"无效动作: {action}"}
              
         # 3. Update Database
-        db_update_position(symbol, new_shares, new_cost, base_shares, portfolio_id=portfolio_id)
+        db_update_position(symbol, new_shares, new_cost, base_shares)
         
         # 4. Delegate to Broker API for "actual" exchange submission
         # This function acts as the bridge. If the broker fails, we might need a rollback

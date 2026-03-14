@@ -144,9 +144,17 @@ def render_daily_strategy_overview(selected_labels: list):
             if bears: st.write(f"🛡️ **防御/减仓预警**: {', '.join(bears[:3])}")
             if not bulls and not bears: st.info("今日策略倾向整体均衡，建议分批分步操作。")
 
-def render_stock_dashboard(code: str, name: str, total_capital: float, risk_pct: float, proximity_pct: float):
+def render_stock_dashboard(code: str, name: str, total_capital: float, risk_pct: float, proximity_pct: float, portfolio_id: str = 'default'):
     """
     渲染单个股票的完整仪表盘。
+    
+    Args:
+        code: 股票代码
+        name: 股票名称
+        total_capital: 总资金
+        risk_pct: 风险比例
+        proximity_pct: 接近阈值
+        portfolio_id: 组合ID，默认'default'
     """
     
     # 1. Fetch Real-time Info
@@ -164,7 +172,8 @@ def render_stock_dashboard(code: str, name: str, total_capital: float, risk_pct:
     price = info.get('price')
     
     # --- Position Management Section ---
-    pos_data = get_position(code)
+    from utils.database import db_get_position
+    pos_data = db_get_position(code)
     shares_held = pos_data.get('shares', 0)
     avg_cost = pos_data.get('cost', 0.0)
     market_value = shares_held * price
@@ -210,6 +219,10 @@ def render_stock_dashboard(code: str, name: str, total_capital: float, risk_pct:
             else:
                 success, msg = update_position(code, trade_shares, trade_price, "override", custom_date=custom_ts)
             
+            # 重新获取持仓（因为update_position可能修改了持仓）
+            from utils.database import db_get_position
+            pos_data = db_get_position(code)
+            
             if success:
                 st.success(f"{trade_action}记录已更新！ {msg}")
                 time.sleep(1)
@@ -219,9 +232,14 @@ def render_stock_dashboard(code: str, name: str, total_capital: float, risk_pct:
         
         st.markdown("---")
         st.caption("📜 交易记录 (History)")
-        history = get_history(code)
+        from utils.database import db_get_history
+        history = db_get_history(code)
         # Filter for transactions only (including legacy Chinese strings from quick trade bug)
         tx_history = [h for h in history if h['type'] in ['buy', 'sell', 'override', '买入', '卖出']]
+        
+        # Debug info (will show in development)
+        if not tx_history and history:
+            st.caption(f"ℹ️ 有{len(history)}条记录，但无交易记录（类型: {[h['type'] for h in history[:3]]}...）")
         
         if tx_history:
             # Map types to Chinese
@@ -240,7 +258,8 @@ def render_stock_dashboard(code: str, name: str, total_capital: float, risk_pct:
                 "Position Correction": "持仓修正",
                 "Manual Buy": "手动买入",
                 "Manual Sell": "手动卖出",
-                "快速交易": "快速交易"
+                "快速交易": "快速交易",
+                "NLP智能交易": "智能交易"
             }
             
             for entry in tx_history[::-1]:
@@ -289,8 +308,9 @@ def render_stock_dashboard(code: str, name: str, total_capital: float, risk_pct:
                     to_delete = edited_df[edited_df["选择"] == True]
                     if not to_delete.empty:
                         deleted_count = 0
+                        from utils.database import db_delete_transaction
                         for _, row in to_delete.iterrows():
-                            if delete_transaction(code, row['raw_timestamp']):
+                            if db_delete_transaction(code, row['raw_timestamp']):
                                 deleted_count += 1
                         
                         if deleted_count > 0:

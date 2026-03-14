@@ -8,25 +8,33 @@
     <key>ProgramArguments</key>
     <array>
         <string>/bin/bash</string>
-        <string>/Users/zuliangzhao/MarketMonitorAndBuyer/scripts/macos-autostart.sh</string>
+        <string>/Users/zuliangzhao/MarketMonitorAndBuyer/start_mac.sh</string>
     </array>
     
     <key>RunAtLoad</key>
     <true/>
     
     <key>KeepAlive</key>
-    <false/>
+    <dict>
+        <key>SuccessfulExit</key>
+        <false/>
+    </dict>
+    
+    <key>WorkingDirectory</key>
+    <string>/Users/zuliangzhao/MarketMonitorAndBuyer</string>
     
     <key>StandardOutPath</key>
-    <string>/Users/zuliangzhao/MarketMonitorAndBuyer/logs/autostart.log</string>
+    <string>/Users/zuliangzhao/MarketMonitorAndBuyer/logs/launchd.out.log</string>
     
     <key>StandardErrorPath</key>
-    <string>/Users/zuliangzhao/MarketMonitorAndBuyer/logs/autostart.error.log</string>
+    <string>/Users/zuliangzhao/MarketMonitorAndBuyer/logs/launchd.err.log</string>
     
     <key>EnvironmentVariables</key>
     <dict>
         <key>PATH</key>
-        <string>/usr/local/bin:/usr/bin:/bin:/usr/sbin:/sbin:/opt/homebrew/bin</string>
+        <string>/usr/local/bin:/usr/bin:/bin:/usr/sbin:/sbin:/opt/homebrew/bin:/Users/zuliangzhao/.local/bin</string>
+        <key>PYTHONUNBUFFERED</key>
+        <string>1</string>
     </dict>
 </dict>
 </plist>

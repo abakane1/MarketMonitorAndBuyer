@@ -576,9 +576,11 @@ elif app_mode == "复盘与预判":
     if not selected_labels:
         st.info("请在左侧侧边栏选择股票开始监控。")
     else:
+        # 获取当前选中的组合
+        active_portfolio = sidebar_data.get("active_portfolio", "default")
+        
         # Directly render the view
-        # Directly render the view
-        def update_view(selected_labels, total_capital, risk_pct, proximity_pct):
+        def update_view(selected_labels, total_capital, risk_pct, proximity_pct, portfolio_id):
             # Removed main_container.container() to prevent layout bugs and performance issues
             st.caption(f"最后更新时间: {datetime.now().strftime('%H:%M:%S')}")
             
@@ -595,8 +597,8 @@ elif app_mode == "复盘与预判":
                 name = label.split(" | ")[1]
                 
                 with stock_tabs[idx + 1]:
-                    # Render Full Dashboard
-                    render_stock_dashboard(code, name, total_capital, risk_pct, proximity_pct)
+                    # Render Full Dashboard with portfolio_id
+                    render_stock_dashboard(code, name, total_capital, risk_pct, proximity_pct, portfolio_id)
                     
                     # Render Backtest Section (Removed: Moved to Strategy Lab)
                     # st.markdown("---")
@@ -604,7 +606,7 @@ elif app_mode == "复盘与预判":
                     #    from utils.sim_ui import render_backtest_widget as render_backtest
                     #    render_backtest(code, current_holding_shares=get_position(code).get('shares', 0), current_holding_cost=get_position(code).get('cost', 0))
         # Initial Draw
-        update_view(selected_labels, total_capital, risk_pct, proximity_pct)
+        update_view(selected_labels, total_capital, risk_pct, proximity_pct, active_portfolio)
     
         # Loop for Auto Refresh
         st.caption("ℹ️ 点击左侧栏的【🔄 一键刷新实时数据】按钮以更新行情。")

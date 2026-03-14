@@ -169,6 +169,53 @@ def save_production_log(symbol: str, prompt: str, result: str, reasoning: str, m
     """
     db_save_review_log(symbol, prompt, result, reasoning, model, details=details)
 
+
+def save_structured_research_report(symbol: str, report: 'ResearchReport'):
+    """
+    保存结构化的研报记录 (v2.1格式)
+    
+    Args:
+        symbol: 股票代码
+        report: ResearchReport 对象
+    """
+    from utils.research_report import ResearchReport
+    
+    # 将结构化数据存入 details 字段
+    details_json = report.to_json()
+    
+    # 兼容性: 同时保存 raw_result, raw_prompt, raw_reasoning
+    db_save_review_log(
+        symbol=symbol,
+        prompt=report.raw_prompt or "",
+        result=report.raw_result or "",
+        reasoning=report.raw_reasoning or "",
+        model=report.steps[0].model if report.steps else "DeepSeek",
+        details=details_json
+    )
+
+
+def load_structured_research_reports(symbol: str, limit: int = 50) -> list:
+    """
+    加载结构化的研报记录列表
+    
+    Returns:
+        List[ResearchReport] 对象列表
+    """
+    from utils.research_report import ResearchReport
+    
+    logs = db_get_review_logs(symbol, limit=limit)
+    reports = []
+    
+    for log in logs:
+        try:
+            report = ResearchReport.from_legacy_log(log)
+            reports.append(report)
+        except Exception as e:
+            print(f"Error loading research report for {symbol}: {e}")
+            continue
+    
+    return reports
+
 def load_production_log(symbol: str) -> list:
     """
     Loads confirmed strategies from review_logs (Production).

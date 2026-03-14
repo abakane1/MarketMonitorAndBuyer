@@ -329,7 +329,7 @@ def render_intel_hub(code: str, name: str, price: float, avg_cost: float, shares
                         if item.get('note'):
                             st.info(f"备注: {item['note']}")
                     with col_del:
-                        if st.button("🗑️", key=f"del_{item['id']}", help="删除此条情报"):
+                        if st.button("🗑️", key=f"del_{code}_{item['id']}", help="删除此条情报"):
                             delete_claim(code, item['id'])
                             st.rerun()
 

@@ -5,6 +5,118 @@ All notable changes to the **MarketMonitorAndBuyer** project will be documented 
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [4.1.0] - 2026-03-12 (Research Report Refactor)
+
+### 🎯 Overview
+重构历史研报记录功能，解决数据存储混乱、界面展示不清晰的问题。现在每一步都清晰存储和展示自己的提示词、思考过程和决策内容。
+
+### ✨ Features (新特性)
+- **结构化数据模型** (`utils/research_report.py`)
+  - `ResearchReport`: 研报记录主类
+  - `StepRecord`: 单步记录 (存储每一步的 system_prompt, user_prompt, reasoning, content)
+  - `FinalDecision`: 最终决策摘要
+  - 自动从旧格式迁移 (`from_legacy_log`)
+
+- **全新展示组件** (`components/research_history.py`)
+  - 📊 策略与执行追踪表格
+  - 📑 三种展示模式:
+    - **分步详情**: 每一步独立展示 (决策内容 | 思考过程 | 提示词)
+    - **全流程对比**: 横向对比各步骤决策变化
+    - **原始数据**: 兼容旧数据显示
+  - 🎨 美观的步骤卡片设计，带颜色区分蓝军/红军
+  - 📈 决策摘要自动提取 (方向/价格/股数/止损/止盈)
+
+### 🔧 Improvements (改进)
+- **存储逻辑优化**:
+  - 新增 `save_structured_research_report()`: 保存结构化数据
+  - 新增 `load_structured_research_reports()`: 加载结构化数据
+  - 保留向后兼容，旧数据仍可正常显示
+
+- **数据清晰分离**:
+  - Step 1 (蓝军初稿): 独立存储 system_prompt + user_prompt + reasoning + content
+  - Step 2 (红军初审): 独立存储提示词和审计结果
+  - Step 3 (蓝军优化): 独立存储优化逻辑和反思过程
+  - Step 4 (红军终审): 独立存储终审意见
+  - Step 5 (最终执行): 独立存储最终决策
+
+### 🐛 Bug Fixes
+- 修复了全流程详情中提示词和决策内容混在一起的问题
+- 修复了定稿中包含其他步骤决策记录的混乱显示
+- 修复了思考过程无法按步骤查看的问题
+
+### 📁 New Modules
+```
+utils/
+└── research_report.py       # 研报数据模型 (ResearchReport, StepRecord, FinalDecision)
+
+components/
+└── research_history.py      # 历史研报展示组件
+```
+
+### 🔄 Migration (迁移说明)
+- 旧数据自动兼容，通过 `from_legacy_log()` 方法转换
+- 新保存的数据使用 v2.1 格式，包含完整的结构化信息
+- 无需手动干预，系统会自动处理新旧数据混存
+
+## [4.0.0] - 2026-03-09 (Architecture Refactor: Data & Capability Platform)
+
+### 🏗️ Architecture Upgrade (架构升级)
+- **数据中台 (Data Platform)**: 统一数据管理层，解决数据不一致问题
+  - `data_platform/models/`: 统一数据模型 (PositionModel, TradeModel, QuoteModel)
+  - `data_platform/services/`: 统一数据服务 (PositionService, TradeService, QuoteService)
+  - 实现单一事实来源 (Single Source of Truth)
+  - 所有数据操作必须通过 Service 层
+
+- **能力中台 (Capability Platform)**: 统一算法和业务逻辑层
+  - `capability_platform/calculators/`: 统一计算引擎
+    - `PositionCalculator`: 持仓计算（加权平均成本法、摊薄成本法）
+    - `PnLCalculator`: 盈亏计算（浮动盈亏、今日盈亏、已实现盈亏）
+    - `FeeCalculator`: 费率计算（ETF/股票区分）
+  - `capability_platform/risk/`: 风控引擎
+    - `TradeLimit`: 交易频率限制（每日3笔、24小时冷静期）
+    - `PositionLimit`: 持仓限制检查
+
+### ✨ Features (新特性)
+- 数据模型不可变设计 (frozen dataclass)，确保数据一致性
+- 统一缓存管理，避免重复计算
+- 持仓重新计算功能，解决历史数据不一致问题
+- 完整的交易执行流程（校验→计费→执行→更新持仓）
+
+### 📁 New Modules (新增模块)
+```
+data_platform/
+├── models/
+│   ├── base.py           # 基础模型和枚举
+│   ├── position.py       # 持仓模型
+│   ├── trade.py          # 交易模型
+│   └── quote.py          # 行情模型
+└── services/
+    ├── base_service.py   # 基础服务类
+    ├── position_service.py
+    ├── trade_service.py
+    └── quote_service.py
+
+capability_platform/
+├── calculators/
+│   ├── position_calculator.py
+│   ├── pnl_calculator.py
+│   └── fee_calculator.py
+└── risk/
+    ├── trade_limit.py
+    └── position_limit.py
+```
+
+### 🔧 Refactoring (重构)
+- 所有费率计算统一到 `FeeCalculator`
+- 所有持仓计算统一到 `PositionCalculator`
+- 所有盈亏计算统一到 `PnLCalculator`
+- 所有交易限制统一到 `TradeLimit`
+
+### 📖 Documentation (文档)
+- 新增 `ARCHITECTURE_v4.md` 架构设计文档
+- 详细的目录结构和接口契约说明
+- 数据一致性检查清单
+
 ## [3.2.0] - 2026-02-28 (Prompt Refactor: Hardcoded Prompts Migration + UI Rebuild)
 
 ### Added (新增)

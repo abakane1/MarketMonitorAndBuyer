@@ -32,42 +32,116 @@ def render_sidebar() -> dict:
     
     st.sidebar.markdown("---")
     
-    # [NEW] Quick Trade (Unified Entry)
-    with st.sidebar.expander("⚡️ 快速交易 (Quick Trade)", expanded=True):
-        trade_cmd = st.text_input("交易指令", placeholder="例如: 600076 4.2买入 1000", key="quick_trade_input")
+    # [NEW] Quick Trade (NLP Enhanced)
+    with st.sidebar.expander("⚡️ 智能交易 (NLP Trade)", expanded=True):
+        st.caption("💡 支持自然语言，例如：\"买1000股588200\"、\"清仓600076\"")
         
-        if st.button("执行交易", type="primary", key="btn_exec_trade"):
-            if not trade_cmd.strip():
-                st.error("请输入交易指令")
-            else:
-                from utils.text_parser import parse_trade_command
-                from utils.trade_manager import execute_trade
-                
-                # 1. Parse
-                parsed = parse_trade_command(trade_cmd)
-                if not parsed["valid"]:
-                    st.error(f"解析失败: {parsed['error']}")
+        trade_cmd = st.text_input(
+            "交易指令", 
+            placeholder="例如: 帮我买1000股588200 @2.435",
+            key="quick_trade_input"
+        )
+        
+        # 显示常用示例
+        with st.expander("📖 查看示例指令", expanded=False):
+            st.markdown("""
+            **买入示例：**
+            - `帮我买1000股588200`
+            - `588200买入1000股，价格2.435`
+            - `加仓588200 5000股`
+            - `市价买入600076 1000股`
+            
+            **卖出示例：**
+            - `卖出300股600076，价格4.5`
+            - `清仓588200`
+            - `减仓600076一半`
+            - `帮我卖掉588200全部持仓`
+            
+            **说明：**
+            - 支持"股"或"手"（1手=100股）
+            - 不填价格则使用实时市价
+            - 支持"市价"、"现价"等关键词
+            """)
+        
+        col_parse, col_exec = st.columns([1, 2])
+        
+        # 解析状态存储
+        parse_key = "parsed_trade_result"
+        if parse_key not in st.session_state:
+            st.session_state[parse_key] = None
+        
+        with col_parse:
+            if st.button("🔍 解析", key="btn_parse_trade"):
+                if not trade_cmd.strip():
+                    st.error("请输入交易指令")
                 else:
-                    # 2. Confirm (Auto-execute for now, or use Session STate logic for double confirm? 
-                    # User requested 'Input -> System extracts -> Updates'. Let's do direct for speed, maybe toast.)
+                    from utils.nlp_trade_parser import parse_natural_language_trade, format_trade_summary
                     
-                    code = parsed["symbol"]
-                    action = parsed["action"] # buy/sell
-                    price = parsed["price"]
-                    qty = parsed["quantity"]
-                    
-                    # 3. Execute
-                    # Pass the currently active portfolio_id to the execution
-                    current_portfolio = st.session_state.get("active_portfolio", "default")
-                    with st.spinner(f"正在执行: {action} {code} {qty}股 @ {price}..."):
-                        res = execute_trade(code, action, price, qty, note="快速交易", portfolio_id=current_portfolio)
+                    with st.spinner("正在解析..."):
+                        parsed = parse_natural_language_trade(trade_cmd)
+                        st.session_state[parse_key] = parsed
                         
-                    if res["success"]:
-                        st.success(res["message"])
-                        time.sleep(1)
-                        st.rerun()
+                    if parsed["valid"]:
+                        st.success("✓ 解析成功")
                     else:
-                        st.error(res["message"])
+                        st.error(f"✗ {parsed['error']}")
+        
+        # 显示解析结果
+        if st.session_state[parse_key]:
+            parsed = st.session_state[parse_key]
+            if parsed["valid"]:
+                from utils.nlp_trade_parser import format_trade_summary
+                st.markdown(format_trade_summary(parsed))
+                
+                # 执行按钮
+                with col_exec:
+                    if st.button("✅ 确认执行", type="primary", key="btn_exec_trade"):
+                        from utils.trade_manager import execute_trade
+                        from utils.database import db_get_position
+                        
+                        code = parsed["symbol"]
+                        action = parsed["action"]
+                        price = parsed["price"]
+                        qty = parsed["quantity"]
+                        current_portfolio = st.session_state.get("active_portfolio", "default")
+                        
+                        # 处理特殊数量标记
+                        if qty == -1:  # 半仓
+                            pos = db_get_position(code)
+                            if pos and pos["shares"] > 0:
+                                qty = pos["shares"] // 2
+                                qty = (qty // 100) * 100  # 取整到100的倍数
+                                if qty < 100:
+                                    st.error(f"持仓{pos['shares']}股，不足以卖出半仓（至少100股）")
+                                    st.stop()
+                            else:
+                                st.error(f"未持有{code}，无法执行半仓操作")
+                                st.stop()
+                        elif qty == -2:  # 全部清仓
+                            pos = db_get_position(code)
+                            if pos and pos["shares"] > 0:
+                                qty = pos["shares"]
+                            else:
+                                st.error(f"未持有{code}，无法清仓")
+                                st.stop()
+                        
+                        # 显示确认信息
+                        st.info(f"执行: {action.upper()} {code} {qty}股 @ {price}")
+                        
+                        with st.spinner(f"正在执行交易..."):
+                            res = execute_trade(
+                                code, action, price, qty, 
+                                note="NLP智能交易", 
+                                portfolio_id=current_portfolio
+                            )
+                        
+                        if res["success"]:
+                            st.success(res["message"])
+                            st.session_state[parse_key] = None  # 清空解析结果
+                            time.sleep(1)
+                            st.rerun()
+                        else:
+                            st.error(res["message"])
 
     # [NEW] 投资组合管理 (Multi-Portfolio)
     st.sidebar.markdown("---")

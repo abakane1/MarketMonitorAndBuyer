@@ -117,7 +117,7 @@ def render_lab_strategy_panel(context, api_keys, prompts, total_capital=100000.0
                              history = f"Draft: {ai_strat_log.get('draft_v1','')[:500]}...\nRefine: {ai_strat_log['result']}"
                              
                              audit_ctx = {
-                                 "code": code, "name": name, "price": context['price'],
+                                 "code": code, "name": name, "price": context['price'], "date": target_date,
                                  "daily_stats": context['raw_context'],
                                  "deepseek_plan": ai_strat_log['result'],
                                  "history_summary": history
